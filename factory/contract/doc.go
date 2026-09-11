@@ -11,9 +11,11 @@
 // [Form.Element], [Form.Marked] and [Form.Sorted], and [DomainText] and
 // [DomainNames]. diff.go is [Change] with [Change.Moved] and [Change.Describe],
 // [Diff], and the version a contract moves on — [Semver], [FirstVersion],
-// [Semver.Next], [ParseSemver]. derive.go is [Derive], [DeriveFile], [FileName]
-// and [ErrDerivation], and tag.go is the `borg` struct tag both derivations read
-// — [TagWords] and [ParseRange]. writer.go is [Publication],
+// [Semver.Next], [ParseSemver]. derive.go is [Derive], [DeriveFile], [FileName],
+// [ErrDerivation] and [Convention] — where a checkout states the mark, the
+// backfill, and the schema change, published for cmd/factory to compose into
+// the Go extractor's own published convention — and tag.go is the `borg`
+// struct tag both derivations read — [TagWords] and [ParseRange]. writer.go is [Publication],
 // [Published], [Publish] and [PublishAll]. read.go is [Querier] and the reads
 // [Get], [ByName], [OfService], [All], [VersionAt], [NewestVersion],
 // [VersionsOf], [VersionsForRelease], [ElementsOf] and [FormOf]. schema.go is

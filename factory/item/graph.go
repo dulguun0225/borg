@@ -32,12 +32,21 @@ type Hold struct {
 // standing, inside Create, CreateTx, Repoint, and RepointTx, since no record
 // holds them: cmd/factory implements it over the same reading the production
 // deploy gate makes, so the write and the gate never check two readings of
-// what stands. [Decomposition.Holds] is nil in every composition but
-// cmd/factory's own — a test that never wires one is checked against nothing
-// standing, which is the zero value and not a hold a caller has to pass.
+// what stands. [NewDecomposition] requires one; a composition with no holds
+// to read, a test's, passes [NoHolds] and says so.
 type RollbackHolds interface {
 	Standing(ctx context.Context) ([]Hold, error)
 }
+
+// NoHolds is a [RollbackHolds] that answers no hold ever standing, wired
+// explicitly where a decomposition has no rollback hold to check writes
+// against: [NewDecomposition] takes the seam as a required parameter, so a
+// caller with nothing to check writes against passes this rather than
+// leaving the seam out.
+type NoHolds struct{}
+
+// Standing answers that no rollback hold stands.
+func (NoHolds) Standing(context.Context) ([]Hold, error) { return nil, nil }
 
 // ErrHoldIncomplete is returned for a hold naming no service or no revert
 // intent. A hold missing either names no edges at all, and a write checked

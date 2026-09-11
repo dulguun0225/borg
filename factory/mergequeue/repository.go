@@ -52,15 +52,16 @@ type Repository interface {
 // whether every pre-merge check decided against the candidate-environment run
 // passed.
 //
-// A re-verification that decides a candidate's own merit is never a repeat of
-// the run that passed: the build is new and the environment is recomposed, so
-// one naming the build already in force, or the environment cycle already in
-// force, is refused with [ErrReverificationRepeats] rather than read as nothing
-// having moved — [refuseIfRepeats] is the queue's own check of it. The one
-// exception the design states is [Queue.complete]'s own re-ask, which finishes
-// a merge master already carries: master is already an ancestor of the
-// candidate there, so it names the build and the cycle already in force and
-// decides nothing new, and this is not asked of it.
+// The design states that the environment is recomposed at every
+// re-verification, so one naming the environment cycle already in force is
+// refused with [ErrReverificationRepeats] rather than read as nothing having
+// moved — [refuseIfRepeats] is the queue's own check of it. The build repeating
+// is not on its own refused: master already an ancestor of the candidate
+// branch is a no-op merge in git, so the candidate's own commit does not move
+// and naming the build already in force is the right answer to that and not a
+// repeat, the way [Queue.complete]'s own re-ask — which finishes a merge master
+// already carries, master being already an ancestor of the candidate there
+// too — already reads it.
 //
 // Why is what failed, in words a human reads on the rejection row, and is empty
 // where it passed. A merge conflict, a criterion that failed, a breaking
@@ -97,8 +98,8 @@ type Verified struct {
 	// cycle id the run that passed at Merge to master carries. Both are copied
 	// here the way Composition and ApprovedComposition are, by the component
 	// that performed the two runs, and a re-verification naming the approved
-	// cycle again is refused the same way one naming the approved build again
-	// is: the environment is recomposed, and this is never the same cycle twice.
+	// cycle again is refused: the environment is recomposed at every
+	// re-verification, and this is never the same cycle twice.
 	EnvironmentCycleID         string
 	ApprovedEnvironmentCycleID string
 	Forms                      []contract.Form

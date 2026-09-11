@@ -81,6 +81,33 @@ func TestTheStoreRefusesAroundTheWriters(t *testing.T) {
 	}
 }
 
+// TestTheStoreDefaultsAnItemsStageToSpec: [Decomposition.CreateTx] no longer
+// writes the stage column itself — [Dispatch.enter] does, on the transaction
+// the insert began, the same transaction pattern [Dispatch.superseded] shares
+// with SupersedeTx — so the insert names every column but that one, and the
+// column has to carry spec, the stage every item starts at, on its own before
+// dispatch ever touches the row.
+func TestTheStoreDefaultsAnItemsStageToSpec(t *testing.T) {
+	ctx, pool, _, _ := newWriters(t)
+
+	insertWithoutStage := `insert into item (id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id,
+		service_id, area_id, branch, waits_on, requirements_answered, superseded_by, priority)
+		values ($1, '` + item.FormatVersion + `', 'component', 'decomposition', 'claimed', $2, 'in_x', 'svc_x', 'ar_x',
+		'item/x', '', '', '', 0)`
+	id := record.NewID(item.IDPrefix)
+	if _, err := pool.Exec(ctx, insertWithoutStage, id, record.Now()); err != nil {
+		t.Fatalf("inserting an item naming no stage: %v", err)
+	}
+
+	it, err := item.Get(ctx, pool, id)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if it.Stage != item.StageSpec {
+		t.Errorf("an item inserted naming no stage stands at %q, want spec: the column's own default", it.Stage)
+	}
+}
+
 // TestTheStoreIndexesTheInboundEdgeFromTheIntent: whether an intent's items
 // all shipped is read through the intent's id, for every intent a screen
 // lists, so the reading is only as cheap as that inbound edge is indexed. What

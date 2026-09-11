@@ -166,12 +166,11 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	fmt.Fprintf(d.out, "Deploy %s complete: release %s runs in production under the strategy %s\n",
 		dep.ID, c.releaseID, dep.StrategyPerformed)
 
-	// The deployer's own last check for the production environment, and its
-	// four fields on the service record. The last check is what says the
-	// deployer reached the environment and when, which is what a
-	// drift-detection exemption standing on a rollout that is not advancing
-	// is refused against.
-	if err := p.recordEnvironmentCheck(ctx, dep); err != nil {
+	// The deployer's own last check per target it reached, and its four
+	// fields on the service record. The last check is what says the deployer
+	// reached the target and when, which is what a drift-detection exemption
+	// standing on a rollout that is not advancing is refused against.
+	if err := p.recordTargetChecks(ctx, dep); err != nil {
 		return err
 	}
 	if err := p.recordPlatformCheck(ctx); err != nil {
@@ -244,59 +243,52 @@ func (p *path) IsBrownout(ctx context.Context, releaseID string) (bool, error) {
 	return is, err
 }
 
-// recordEnvironmentCheck is the deployer's own last check for the production
-// environment this deploy record names, written once after the deploy has
-// been performed, and not per target: the deployer's last check is keyed by
-// the production environment record, the way the maximum concurrent candidate
-// environments already is, so an install whose projects run on two platforms
-// adds neither count across them. Whether a further pass is owed is read off
-// the deploy record's own targets: a target the rollout has reached is one it
-// is finished with; a target it has not reached is one the rollout still owes
-// a pass over, and the interval that pass is promised within is the watch's
-// own, the longest thing a run does after a deploy. The environment's check
-// names a further pass owed where any target of it does.
+// recordTargetChecks is the deployer's own last check over each target of the
+// deploy record's environment this deploy reached, written once after the
+// deploy has been performed: one per target of a persistent environment,
+// through [deploy.RecordTargetCheck], and not one for the whole environment —
+// a rollout advances only while the deployer runs, so the exemption a stale
+// check stops standing on is bounded to the one target whose deployer last
+// check went stale, and not to every target of the environment at once.
 //
-// The two directions are what makes the record readable. A record past its
-// interval with a further pass owed is always something that stopped, so a
-// rollout the deployer has finished with that promised a further pass it will
-// never make would raise a stale-component mismatch after every run, holding
-// every service on that environment and paging. A rollout that stopped part
-// way still leaves a further pass owed, which is what the drift detector's
-// rollout exemption is bounded by.
+// Every check here names a further pass owed: the deployer keeps passing over
+// a persistent target for as long as it is in the environment, so a record
+// past its interval with a further pass still owed is always something that
+// stopped — a rollout that finished on this target and a deployer that has
+// simply stopped running read the same way, which is the whole point of a
+// check that only staleness, and not the rollout's own progress, ever
+// answers. A target leaving the environment writes the one check naming none,
+// which retirement calls for and a deploy does not.
 //
 // It is the deploy record's targets and not the service's whole set, because
-// this is a record of a pass the deployer made: a target the deploy did not
-// reach at all is one it made no pass over, and one the service does not run
-// on is not counted either way.
-func (p *path) recordEnvironmentCheck(ctx context.Context, dep deploy.Deploy) error {
+// this is a record of a pass the deployer made over each: a target the
+// service does not run on is not one it passed over.
+func (p *path) recordTargetChecks(ctx context.Context, dep deploy.Deploy) error {
 	targets, err := deploy.Targets(ctx, p.d.pool, dep.ID)
 	if err != nil {
 		return err
 	}
-	furtherPassOwed := false
-	complete, owed := 0, 0
+	payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q}`, dep.ID, dep.BuildID)
 	for _, target := range targets {
 		if target.NotRunHere {
 			continue
 		}
-		if target.Completion == deploy.CompletionNotReached {
-			furtherPassOwed = true
-			owed++
-			continue
+		if err := deploy.RecordTargetCheck(ctx, p.checks, deployActor,
+			target.Address, atLeastASecond(p.d.watchFor), false, payload); err != nil {
+			return err
 		}
-		complete++
 	}
-	payload := fmt.Sprintf(`{"deploy_id":%q,"build_id":%q,"targets_complete":%d,"targets_owed":%d}`,
-		dep.ID, dep.BuildID, complete, owed)
-	return deploy.RecordEnvironmentCheck(ctx, p.checks, deployActor,
-		dep.EnvironmentID, atLeastASecond(p.d.watchFor), !furtherPassOwed, payload)
+	return nil
 }
 
 // recordPlatformCheck is the deployer's own last check over the platform this
 // production environment declares, written through
-// [lastcheck.Writer.RecordPlatformPass], the one writer of that record. It runs
-// beside [path.recordEnvironmentCheck] so the record is exercised on every
-// production deploy rather than left uncalled.
+// [lastcheck.Writer.RecordPlatformPass], the one writer of that record, keyed
+// by the production environment record's own id and not by the platform's
+// name — one of each per production environment, so an install whose projects
+// run on two platforms adds neither count across them. It runs beside
+// [path.recordTargetChecks] so the record is exercised on every production
+// deploy rather than left uncalled.
 //
 // Seam 4 has no operation that answers how many candidate environments the
 // platform holds or what room it reports, so this pass reads only the half it
@@ -313,7 +305,7 @@ func (p *path) recordPlatformCheck(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	_, err = p.checks.RecordPlatformPass(ctx, deployActor, p.production.Platform.Name,
+	_, err = p.checks.RecordPlatformPass(ctx, deployActor, p.production.ID,
 		atLeastASecond(p.d.watchFor), lastcheck.PlatformPass{
 			StandingByTheRecords: standing,
 			HeldByThePlatform:    standing,

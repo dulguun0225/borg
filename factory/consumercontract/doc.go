@@ -74,18 +74,32 @@
 // holds of each address it reaches, pairs each with the entry of the configuration
 // file that names which producer that address is, and derives from what the
 // consumer's own source reads, writes and calls — a written element as well as a
-// read one, including whether it is written populated. Pairing a read or a write
+// read one, including whether a store element is written populated. A request
+// element sent to an interface never asserts populated: sent-or-left-out
+// already covers whether it is there at all, and populated is a store
+// element's own predicate for what the code writes. Pairing a read or a write
 // with its mirror, in source.go, takes the type the value is bound to and not the
 // field name alone, so a field name two mirrors share is two elements. The
-// convention is [GoConvention], published with [GoExtractor] so a reader of the
-// derivation sees it without opening this file; the tag and the blind case — a
+// convention is [GoConvention] — this file's own, the mirror — published with
+// [GoExtractor] so a reader of the derivation sees it without opening this
+// file; GoExtractor takes the published convention as a parameter, because
+// [_What the derivation records_] treats where a mark, a backfill, a schema
+// change, a screen's transition function and a mutation tool are stated as
+// the same fact of the extractor's as the mirror, and this package cannot
+// import every package that states one of those five — cmd/factory composes
+// them and is GoExtractor's one caller that supplies the parameter, every
+// other caller getting [GoConvention] alone. The tag and the blind case — a
 // read the derivation misses, through a map key or a receiver it cannot trace —
 // are stated there and in source.go, beside the four constructs it can see and
 // records rather than passes over: a read through reflection, a string-keyed
 // access, a generated accessor, and a mapping read from configuration.
 // [consumerSource.checkDirectCall] is could not derive for the whole checkout, and
-// names the site, where a call reaches an address outside the mirror convention
-// entirely — a literal or a value read from a field — and so is any call at all
+// names the site, where a call reaches into a network client package the
+// checkout imports — resolved by the callee's own package rather than by a
+// name list, so an alias or an otherwise unlisted client package cannot pass
+// silently — whatever the address argument turns out to be: a literal, a
+// plain variable, a value read from a field, or anything else, none of which
+// are traceable to a mirror's configured entry. So is any call at all
 // found where no mirror and no configuration file exist, which is the state an
 // adopted service arrives in. It returns a [Derived], which [Insert] takes with an
 // [Of].

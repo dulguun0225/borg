@@ -160,9 +160,10 @@ func TestARollbackAdvancesTheDeploysItUndoesTargetByTarget(t *testing.T) {
 // TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed: the
 // configuration digest is over the resolved value set alone — the token
 // minted fresh at every deploy is not among it — so an unchanged configuration
-// digests the same at the deploy that first ran it and at the slow rollback
-// that resolves it again; and the fast rollback mints nothing, carrying the
-// digests the deploy record that placed the kept instances already named.
+// digests the same at the deploy that first ran it, at the slow rollback that
+// resolves it again, and at the fast rollback, which mints a fresh way-in
+// token of its own rather than carrying the one the deploy that placed the
+// kept instances named.
 func TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed(t *testing.T) {
 	ctx, pool, w, token := newTableWithToken(t)
 	const serviceID = "svc_a"
@@ -228,10 +229,14 @@ func TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed(t *testi
 			slowRead.ConfigurationDigest, wantDigest)
 	}
 
-	// The fast rollback: it mints nothing, and carries the digests named on
-	// the deploy record that placed the kept instances.
+	// The fast rollback: it is a deploy in its own right, so its configuration
+	// digest is the same unchanged one and its way-in token digest is its own,
+	// fresh, never the one named on the deploy record that placed the kept
+	// instances.
+	fastReturning := performance(serviceID, below, reaches)
+	fastReturning.Configuration = configuration
 	fast, err := deploy.ShiftBack(ctx, w, deploy.Returning{
-		Performance: performance(serviceID, below, reaches),
+		Performance: fastReturning,
 		Undoing:     deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
 		KeptBy:      shipped.ID,
 	})
@@ -242,13 +247,13 @@ func TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed(t *testi
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if fastRead.ConfigurationDigest != shippedRead.ConfigurationDigest {
-		t.Errorf("the fast rollback's configuration digest reads %q, want %q named on %s",
-			fastRead.ConfigurationDigest, shippedRead.ConfigurationDigest, shipped.ID)
+	if fastRead.ConfigurationDigest != wantDigest {
+		t.Errorf("the fast rollback's configuration digest reads %q, want %q — the same unchanged configuration",
+			fastRead.ConfigurationDigest, wantDigest)
 	}
-	if fastRead.WayInTokenDigest != shippedRead.WayInTokenDigest {
-		t.Errorf("the fast rollback's way-in token digest reads %q, want %q named on %s",
-			fastRead.WayInTokenDigest, shippedRead.WayInTokenDigest, shipped.ID)
+	if fastRead.WayInTokenDigest == "" || fastRead.WayInTokenDigest == shippedRead.WayInTokenDigest ||
+		fastRead.WayInTokenDigest == firstRead.WayInTokenDigest {
+		t.Errorf("the fast rollback's way-in token digest reads %q, want a fresh one of its own", fastRead.WayInTokenDigest)
 	}
 }
 

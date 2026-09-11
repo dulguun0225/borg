@@ -1,11 +1,14 @@
 // The notifier's restart: the delivery record it overwrites per row the log
-// still holds open.
+// still holds open, and per row a kind with no log opening still waits on,
+// read off that kind's own subject instead.
 package notifier_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 )
@@ -34,7 +37,7 @@ func TestResumeDeliversARowStillWaitingAgain(t *testing.T) {
 		t.Fatal("nothing was delivered, and the restart is about what was")
 	}
 
-	delivered, err := n.Resume(ctx)
+	delivered, err := n.Resume(ctx, nil)
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -80,7 +83,7 @@ func TestResumeDeliversAKindThatPagesNeverAgain(t *testing.T) {
 	}
 	before := len(channels.delivered)
 
-	delivered, err := n.Resume(ctx)
+	delivered, err := n.Resume(ctx, nil)
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -119,7 +122,7 @@ func TestResumeLeavesARowThatStoppedWaiting(t *testing.T) {
 	}
 	before := len(channels.delivered)
 
-	delivered, err := n.Resume(ctx)
+	delivered, err := n.Resume(ctx, nil)
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
@@ -128,5 +131,66 @@ func TestResumeLeavesARowThatStoppedWaiting(t *testing.T) {
 	}
 	if len(channels.delivered) != before {
 		t.Error("the restart reached a channel about a row nobody is waiting on")
+	}
+}
+
+// TestResumeRedeliversAnUnclearedMismatchAndLeavesAClearedOne is C2765 for a
+// kind with no log opening: a drift mismatch never opens in the decision log,
+// so "still waiting" is read off the drift detector's own store instead —
+// uncleared is redelivered, and cleared is left alone.
+func TestResumeRedeliversAnUnclearedMismatchAndLeavesAClearedOne(t *testing.T) {
+	ctx, pool, token, n, channels := newNotifier(t)
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre",
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
+	}
+
+	drift := driftTestPool(t, ctx)
+	recorded, err := driftdetector.NewWriter(drift).Record(ctx, driftdetector.Pass{
+		ServiceID: "svc_1", Target: "t1", Reached: true, RunningBuild: "b_running",
+		RecordedBuildID: "b_recorded", Interval: time.Minute,
+	})
+	if err != nil || recorded.Raised == "" {
+		t.Fatalf("recording a mismatch: raised %q, %v", recorded.Raised, err)
+	}
+	if _, err := n.Notify(ctx, notifier.Wait{
+		Row: recorded.Raised, Kind: notifier.KindDriftMismatch,
+		Waiting: "a record disagrees with what runs", Worse: true, ServiceID: "svc_1",
+		Holding: people.OfObligation(people.ObligationDriftDetector),
+	}); err != nil {
+		t.Fatalf("Notify: %v", err)
+	}
+	before := len(channels.delivered)
+
+	// Uncleared: the decision log never opened this row, so a restart that
+	// only read the log would leave it undelivered. Reading the mismatch's
+	// own store instead finds it still uncleared and delivers it again.
+	delivered, err := n.Resume(ctx, drift)
+	if err != nil {
+		t.Fatalf("Resume (uncleared): %v", err)
+	}
+	if len(delivered) != 1 || delivered[0] != recorded.Raised {
+		t.Fatalf("Resume delivered %v, want the uncleared mismatch delivered again", delivered)
+	}
+	if len(channels.delivered) <= before {
+		t.Error("the restart reached no channel for a mismatch still uncleared")
+	}
+
+	// Cleared at the detector's own store, which calls nothing: a restart
+	// after that reads the mismatch as no longer waiting.
+	if _, err := driftdetector.NewWriter(drift).Clear(ctx, recorded.Raised, "hk_sre",
+		"the target was redeployed by hand"); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	after := len(channels.delivered)
+	delivered, err = n.Resume(ctx, drift)
+	if err != nil {
+		t.Fatalf("Resume (cleared): %v", err)
+	}
+	if len(delivered) != 0 {
+		t.Errorf("Resume delivered %v, and the mismatch is cleared", delivered)
+	}
+	if len(channels.delivered) != after {
+		t.Error("the restart reached a channel about a mismatch already cleared")
 	}
 }

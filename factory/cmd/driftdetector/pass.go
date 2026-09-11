@@ -104,10 +104,12 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 				p.Reached = true
 				p.RunningBuild = running.Build
 				p.RunningDigest = running.ArtifactDigest
-				// The deployer's last check is kept per production environment and
-				// not per target, so its subject is production.ID and not address.
+				// The deployer's last check is kept per persistent target and not
+				// per environment, so its subject is address and not production.ID —
+				// the exemption stops standing on this one target's own advance,
+				// whatever the deployer's pass over the rest of the environment did.
 				var deployer *lastcheck.LastCheck
-				if check, found, err := lastcheck.Get(ctx, s.factory, lastcheck.ComponentDeployer, production.ID); err == nil && found {
+				if check, found, err := lastcheck.Get(ctx, s.factory, lastcheck.ComponentDeployer, address); err == nil && found {
 					deployer = &check
 				}
 				p.Excused = running.Build != "" &&

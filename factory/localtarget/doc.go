@@ -4,7 +4,7 @@
 // # The files
 //
 // local.go is the process: [Local] and [New], [Local.Dir], the seam operations
-// [Local.Deploy], [Local.Stop] and [Local.ReadRunning], the files
+// [Local.Deploy], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the files
 // [RunningFile], [SignalFile], [ExchangeFile]
 // and [WayInSocket] with the [SignalEnv], [ExchangeEnv] and [DeployEnv]
 // variables that name what a started process is told, and [ErrBuildNotLocal] and
@@ -36,8 +36,12 @@
 // rollout row drops one, so the wait is as long as the longest request and a
 // caller unwilling to wait cancels the context, which is an error and no
 // replacement reported. [Local.Stop] drains the same way, reports the same
-// drain, and clears what says it runs, and
-// [Local.ReadRunning] reports the build whose process is still alive, the
+// drain, and clears what says it runs. [Local.Reconfigure] is [Local.Deploy]
+// under another name for the build already running: this platform has no way
+// to hand a running instance new values short of restarting it, so it drains
+// the instance and starts the same build again under the fresh configuration,
+// which is what the fast rollback uses to mint the kept instance a new
+// way-in token. [Local.ReadRunning] reports the build whose process is still alive, the
 // digest of the artifact it was started from, the one instance this platform
 // runs, and the service's schema history. A dead
 // process reads as nothing running. The directory is a boundary and not a

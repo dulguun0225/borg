@@ -4,6 +4,7 @@
 package item_test
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"strings"
@@ -13,6 +14,31 @@ import (
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 )
+
+// fakeHolds is a [item.RollbackHolds] a test wires directly onto
+// [item.Decomposition.Holds], standing for the seam cmd/factory wires over
+// its own reading of what the production deploy gate reads the hold from. A
+// caller of Create or Repoint passes nothing for the holds standing; what
+// stands is read through this at the write.
+type fakeHolds []item.Hold
+
+func (f fakeHolds) Standing(context.Context) ([]item.Hold, error) { return []item.Hold(f), nil }
+
+// TestNewDecompositionRequiresHolds: the seam is required and not merely
+// optional and falling back to nothing standing, so a composition that leaves
+// it out is a defect [NewDecomposition] refuses on the spot rather than a
+// decomposition quietly checked against no hold. A caller with no hold to
+// check writes against passes [item.NoHolds] explicitly, the way [newWriters]
+// does for every other test of this package.
+func TestNewDecompositionRequiresHolds(t *testing.T) {
+	_, pool, token := newStore(t)
+	defer func() {
+		if recover() == nil {
+			t.Errorf("NewDecomposition with no RollbackHolds did not panic, want a refusal of the left-out seam")
+		}
+	}()
+	item.NewDecomposition(pool, token, nil)
+}
 
 func TestDecompositionWritesOnceAtSpec(t *testing.T) {
 	ctx, pool, decomposition, _ := newWriters(t)
@@ -47,22 +73,22 @@ func TestDecompositionWritesOnceAtSpec(t *testing.T) {
 		t.Errorf("Get on a missing id = %v, want ErrNotFound", err)
 	}
 	if _, err := decomposition.Create(ctx, decompositionActor,
-		item.New{IntentID: "in_x", ServiceID: "svc_x"}, "", "", nil); !errors.Is(err, item.ErrBranchEmpty) {
+		item.New{IntentID: "in_x", ServiceID: "svc_x"}, "", ""); !errors.Is(err, item.ErrBranchEmpty) {
 		t.Errorf("Create with no branch = %v, want ErrBranchEmpty", err)
 	}
 	// An empty link names nothing, and the writer refuses it the way it
 	// refuses every other required field. record's doc.go states what a link
 	// is checked for.
 	if _, err := decomposition.Create(ctx, decompositionActor,
-		item.New{ServiceID: "svc_x", Branch: "item/x"}, "", "", nil); !errors.Is(err, item.ErrIntentIDEmpty) {
+		item.New{ServiceID: "svc_x", Branch: "item/x"}, "", ""); !errors.Is(err, item.ErrIntentIDEmpty) {
 		t.Errorf("Create naming no intent = %v, want ErrIntentIDEmpty", err)
 	}
 	if _, err := decomposition.Create(ctx, decompositionActor,
-		item.New{IntentID: "in_x", Branch: "item/x"}, "", "", nil); !errors.Is(err, item.ErrServiceIDEmpty) {
+		item.New{IntentID: "in_x", Branch: "item/x"}, "", ""); !errors.Is(err, item.ErrServiceIDEmpty) {
 		t.Errorf("Create naming no service = %v, want ErrServiceIDEmpty", err)
 	}
 	if _, err := decomposition.Create(ctx, record.Actor{},
-		item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x"}, "", "", nil); !errors.Is(err, record.ErrKindUnknown) {
+		item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x"}, "", ""); !errors.Is(err, record.ErrKindUnknown) {
 		t.Errorf("Create with no actor = %v, want record.ErrKindUnknown", err)
 	}
 }
@@ -76,12 +102,12 @@ func TestAnItemAnsweringNoRequirementIsRefused(t *testing.T) {
 	ctx, _, decomposition, _ := newWriters(t)
 
 	none := item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/unasked"}
-	if _, err := decomposition.Create(ctx, decompositionActor, none, "", "", nil); !errors.Is(err, item.ErrAnswersNoRequirement) {
+	if _, err := decomposition.Create(ctx, decompositionActor, none, "", ""); !errors.Is(err, item.ErrAnswersNoRequirement) {
 		t.Errorf("Create answering no requirement = %v, want ErrAnswersNoRequirement", err)
 	}
 	answering := none
 	answering.RequirementsAnswered = []string{"rq_" + strings.Repeat("c", 32)}
-	if _, err := decomposition.Create(ctx, decompositionActor, answering, "", "", nil); err != nil {
+	if _, err := decomposition.Create(ctx, decompositionActor, answering, "", ""); err != nil {
 		t.Errorf("Create answering one requirement: %v", err)
 	}
 }
@@ -97,21 +123,21 @@ func TestAnAreaOutsideTheServicesProjectIsRefused(t *testing.T) {
 	answers := []string{"rq_" + strings.Repeat("d", 32)}
 	n := item.New{IntentID: "in_x", ServiceID: "svc_x", AreaChain: []string{"ar_x"}, Branch: "item/x",
 		RequirementsAnswered: answers}
-	if _, err := decomposition.Create(ctx, decompositionActor, n, "pr_a", "pr_b", nil); !errors.Is(err, item.ErrAreaOutsideServiceProject) {
+	if _, err := decomposition.Create(ctx, decompositionActor, n, "pr_a", "pr_b"); !errors.Is(err, item.ErrAreaOutsideServiceProject) {
 		t.Errorf("Create with the area in another project = %v, want ErrAreaOutsideServiceProject", err)
 	}
-	if _, err := decomposition.Create(ctx, decompositionActor, n, "pr_a", "pr_a", nil); err != nil {
+	if _, err := decomposition.Create(ctx, decompositionActor, n, "pr_a", "pr_a"); err != nil {
 		t.Errorf("Create with the area inside the service's project: %v", err)
 	}
 
 	// An item may name no area, and then there is no project to compare.
 	noArea := item.New{IntentID: "in_x", ServiceID: "svc_x", Branch: "item/y", RequirementsAnswered: answers}
-	if _, err := decomposition.Create(ctx, decompositionActor, noArea, "", "pr_b", nil); err != nil {
+	if _, err := decomposition.Create(ctx, decompositionActor, noArea, "", "pr_b"); err != nil {
 		t.Errorf("Create with no area = %v, want no comparison at all", err)
 	}
 	if _, err := decomposition.Create(ctx, decompositionActor,
 		item.New{IntentID: "in_x", ServiceID: "svc_x", AreaChain: []string{""}, Branch: "item/z",
-			RequirementsAnswered: answers}, "pr_a", "pr_a", nil); !errors.Is(err, item.ErrAreaIDEmpty) {
+			RequirementsAnswered: answers}, "pr_a", "pr_a"); !errors.Is(err, item.ErrAreaIDEmpty) {
 		t.Errorf("Create with an empty area in the chain = %v, want ErrAreaIDEmpty", err)
 	}
 }
@@ -128,7 +154,7 @@ func TestTheAreaWrittenIsTheNarrowestOfTheChain(t *testing.T) {
 	it, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", AreaChain: chain, Branch: "item/narrow",
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("e", 32)},
-	}, oneProject, oneProject, nil)
+	}, oneProject, oneProject)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -161,7 +187,7 @@ func TestDecompositionDeclaresWhatAnItemWaitsOnAndAnswers(t *testing.T) {
 		Branch:               "item/dependent",
 		WaitsOn:              waits,
 		RequirementsAnswered: answers,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -181,12 +207,12 @@ func TestDecompositionDeclaresWhatAnItemWaitsOnAndAnswers(t *testing.T) {
 
 	if _, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x", WaitsOn: []string{""},
-	}, "", "", nil); !errors.Is(err, item.ErrItemIDEmpty) {
+	}, "", ""); !errors.Is(err, item.ErrItemIDEmpty) {
 		t.Errorf("Create waiting on an empty id = %v, want ErrItemIDEmpty", err)
 	}
 	if _, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/x", RequirementsAnswered: []string{""},
-	}, "", "", nil); !errors.Is(err, item.ErrRequirementIDEmpty) {
+	}, "", ""); !errors.Is(err, item.ErrRequirementIDEmpty) {
 		t.Errorf("Create answering an empty requirement id = %v, want ErrRequirementIDEmpty", err)
 	}
 }
@@ -206,7 +232,7 @@ func TestCreateWritesTheItemUnderTheIdTheCallerMinted(t *testing.T) {
 		ServiceID:            "svc_" + strings.Repeat("0", 32),
 		Branch:               "item/minted",
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("0", 32)},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -229,7 +255,7 @@ func TestRepointMovesAStandingItemsWaitToTheReplacements(t *testing.T) {
 	standing, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/standing", WaitsOn: []string{replaced.ID},
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("f", 32)},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -239,7 +265,7 @@ func TestRepointMovesAStandingItemsWaitToTheReplacements(t *testing.T) {
 	if _, err := decomposition.Supersede(ctx, decompositionActor, replaced.ID, []string{first.ID, second.ID}); err != nil {
 		t.Fatalf("Supersede: %v", err)
 	}
-	repointed, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, []string{first.ID, second.ID}, nil)
+	repointed, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, []string{first.ID, second.ID})
 	if err != nil {
 		t.Fatalf("Repoint: %v", err)
 	}
@@ -254,16 +280,16 @@ func TestRepointMovesAStandingItemsWaitToTheReplacements(t *testing.T) {
 		t.Errorf("the stored waits are %v, want the two replacements", read.WaitsOn)
 	}
 
-	if _, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, []string{""}, nil); !errors.Is(err, item.ErrItemIDEmpty) {
+	if _, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, []string{""}); !errors.Is(err, item.ErrItemIDEmpty) {
 		t.Errorf("Repoint onto an empty id = %v, want ErrItemIDEmpty", err)
 	}
-	if _, err := decomposition.Repoint(ctx, decompositionActor, "it_missing", nil, nil); !errors.Is(err, item.ErrNotFound) {
+	if _, err := decomposition.Repoint(ctx, decompositionActor, "it_missing", nil); !errors.Is(err, item.ErrNotFound) {
 		t.Errorf("Repoint on a missing item = %v, want ErrNotFound", err)
 	}
 	if _, err := dispatch.Drop(ctx, workActor, standing.ID); err != nil {
 		t.Fatalf("Drop: %v", err)
 	}
-	if _, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, nil, nil); !errors.Is(err, item.ErrEnded) {
+	if _, err := decomposition.Repoint(ctx, decompositionActor, standing.ID, nil); !errors.Is(err, item.ErrEnded) {
 		t.Errorf("Repoint on a dropped item = %v, want ErrEnded", err)
 	}
 }
@@ -278,13 +304,13 @@ func TestAWriteThatWouldCloseACycleIsRefused(t *testing.T) {
 	second, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_x", Branch: "item/second", WaitsOn: []string{first.ID},
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("g", 32)},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
 	err = func() error {
-		_, err := decomposition.Repoint(ctx, decompositionActor, first.ID, []string{second.ID}, nil)
+		_, err := decomposition.Repoint(ctx, decompositionActor, first.ID, []string{second.ID})
 		return err
 	}()
 	if !errors.Is(err, item.ErrWouldCloseACycle) {
@@ -297,10 +323,11 @@ func TestAWriteThatWouldCloseACycleIsRefused(t *testing.T) {
 
 // TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal: while a rollback hold
 // stands on a service, every unmerged item of that service other than the
-// revert waits on the revert item, and no record holds those edges. The caller
-// names the service and the intent the revert was decomposed from, which is
-// what the production deploy gate reads the hold from, and the edges are
-// computed at the write against the items standing then. What they refuse is a
+// revert waits on the revert item, and no record holds those edges.
+// [Decomposition.Holds] is what the caller wires this reading through — here,
+// [fakeHolds] standing for the same seam cmd/factory wires onto its own
+// reading of the production deploy gate — and Create and Repoint read it
+// themselves at the write; the caller passes nothing. What they refuse is a
 // revert declaring a dependency on a sibling its own hold holds, and the
 // refusal names the hold, nothing having declared the edge that closed the
 // cycle.
@@ -312,18 +339,19 @@ func TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal(t *testing.T) {
 	answers := []string{"rq_" + strings.Repeat("h", 32)}
 	sibling, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: held, Branch: "item/sibling", RequirementsAnswered: answers,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create the sibling: %v", err)
 	}
-	hold := []item.Hold{{ServiceID: held, RevertIntentID: revertIntent}}
+	hold := fakeHolds{{ServiceID: held, RevertIntentID: revertIntent}}
 
 	// The revert is decomposed while its own hold stands, so the hold's edges
 	// lead into an item that is not in the table until this write lands.
+	decomposition.Holds = hold
 	_, err = decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: revertIntent, ServiceID: held, Branch: "item/revert", WaitsOn: []string{sibling.ID},
 		RequirementsAnswered: answers,
-	}, "", "", hold)
+	}, "", "")
 	if !errors.Is(err, item.ErrWouldCloseACycle) {
 		t.Fatalf("a revert waiting on a sibling its own hold holds = %v, want ErrWouldCloseACycle", err)
 	}
@@ -331,12 +359,14 @@ func TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal(t *testing.T) {
 		t.Errorf("the refusal is %q, and it names the hold neither by its service nor by its revert", err)
 	}
 
-	// Without the hold the same declaration is an ordinary dependency, which is
-	// what says the refusal came from the edges the hold imposes.
+	// Without the hold wired — item.NoHolds{} answering explicitly that none
+	// stands — the same declaration is an ordinary dependency, which is what
+	// says the refusal came from the edges the hold imposes.
+	decomposition.Holds = item.NoHolds{}
 	revert, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: revertIntent, ServiceID: held, Branch: "item/revert", WaitsOn: []string{sibling.ID},
 		RequirementsAnswered: answers,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("the same declaration without the hold: %v", err)
 	}
@@ -346,22 +376,23 @@ func TestTheHoldsEdgesAreComputedHereAndNamedInTheRefusal(t *testing.T) {
 	// closes no cycle through them.
 	elsewhere, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: "in_x", ServiceID: "svc_y", Branch: "item/elsewhere", RequirementsAnswered: answers,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("Create the item elsewhere: %v", err)
 	}
-	if _, err := decomposition.Repoint(ctx, decompositionActor, elsewhere.ID, []string{revert.ID}, hold); err != nil {
+	decomposition.Holds = hold
+	if _, err := decomposition.Repoint(ctx, decompositionActor, elsewhere.ID, []string{revert.ID}); err != nil {
 		t.Errorf("an item of another service waiting on the revert = %v, want no refusal", err)
 	}
 	if _, err := dispatch.Drop(ctx, workActor, sibling.ID); err != nil {
 		t.Fatalf("Drop the sibling: %v", err)
 	}
-	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, []string{sibling.ID}, hold); err != nil {
+	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, []string{sibling.ID}); err != nil {
 		t.Errorf("the revert waiting on an item the hold no longer reaches = %v, want no refusal", err)
 	}
 
-	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, nil,
-		[]item.Hold{{ServiceID: held}}); !errors.Is(err, item.ErrHoldIncomplete) {
+	decomposition.Holds = fakeHolds{{ServiceID: held}}
+	if _, err := decomposition.Repoint(ctx, decompositionActor, revert.ID, nil); !errors.Is(err, item.ErrHoldIncomplete) {
 		t.Errorf("a hold naming no revert intent = %v, want ErrHoldIncomplete", err)
 	}
 }
@@ -375,7 +406,8 @@ func TestACycleThroughTwoHoldsNamesBoth(t *testing.T) {
 
 	const heldA, heldB = "svc_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "svc_" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	const revertA, revertB = "in_" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "in_" + "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	holds := []item.Hold{{ServiceID: heldA, RevertIntentID: revertA}, {ServiceID: heldB, RevertIntentID: revertB}}
+	holds := fakeHolds{{ServiceID: heldA, RevertIntentID: revertA}, {ServiceID: heldB, RevertIntentID: revertB}}
+	decomposition.Holds = holds
 
 	siblingA := itemOn(ctx, t, decomposition, "in_ordinary", heldA, "item/sibling-a")
 	siblingB := itemOn(ctx, t, decomposition, "in_ordinary", heldB, "item/sibling-b")
@@ -384,12 +416,12 @@ func TestACycleThroughTwoHoldsNamesBoth(t *testing.T) {
 	if _, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: revertA, ServiceID: heldA, Branch: "item/revert-a", WaitsOn: []string{siblingB.ID},
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("i", 32)},
-	}, "", "", holds); err != nil {
+	}, "", ""); err != nil {
 		t.Fatalf("decomposing the first revert: %v", err)
 	}
 	second := itemOn(ctx, t, decomposition, revertB, heldB, "item/revert-b")
 
-	_, err := decomposition.Repoint(ctx, decompositionActor, second.ID, []string{siblingA.ID}, holds)
+	_, err := decomposition.Repoint(ctx, decompositionActor, second.ID, []string{siblingA.ID})
 	if !errors.Is(err, item.ErrWouldCloseACycle) {
 		t.Fatalf("the second revert waiting on what the first hold holds = %v, want ErrWouldCloseACycle", err)
 	}

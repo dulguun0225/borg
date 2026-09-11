@@ -7,7 +7,6 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/reportstore"
@@ -25,7 +24,7 @@ import (
 
 // declarations is the People writer, which appends a policy version per write.
 func (c *calls) declarations() *people.Writer {
-	return people.NewWriter(c.p.d.pool, c.p.d.token, policy.NewFactory(c.p.d.pool, c.p.d.token))
+	return people.NewWriter(c.p.d.pool, c.p.d.token, newFactory(c.p.d.pool, c.p.d.token))
 }
 
 // DeclareDuty holds one of the owner's twelve duties on a per-person key.

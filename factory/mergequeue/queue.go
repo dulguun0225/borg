@@ -70,11 +70,13 @@ var (
 	ErrNoWaitStanding = errors.New("mergequeue: no wait of the queue's stands over that commit")
 	// ErrReverificationRepeats is returned where a re-verification that decides a
 	// candidate's own merit — [designSystemMoved] and [resolvedSetDiffers] both
-	// ask [refuseIfRepeats] — names the build already in force, or the
-	// environment cycle already in force: a re-verification is never a repeat of
-	// the run that passed, the build is new and the environment is recomposed.
-	// [Queue.complete]'s own re-ask is the one exception the design states, and
-	// this is never returned for it.
+	// ask [refuseIfRepeats] — names the environment cycle already in force: the
+	// design states the environment is recomposed at every re-verification, so
+	// one naming the cycle already in force names the one thing that did not
+	// happen. The build repeating is not on its own a repeat of the run that
+	// passed — master already an ancestor of the candidate branch is a no-op
+	// merge in git, and the build already on record is the right answer to that,
+	// the way [Queue.complete]'s own re-ask already reads it.
 	ErrReverificationRepeats = errors.New("mergequeue: the re-verification repeats the run that passed")
 )
 

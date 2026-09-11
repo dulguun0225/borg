@@ -2,6 +2,7 @@ package policy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/environment"
@@ -58,8 +59,9 @@ const RolePromptOrSkillRow = "a_role_prompt_or_a_skill"
 // and whether a safeguard adds a human. Both reads run at the moment of firing,
 // which is what the design requires of every check a gate makes.
 //
-// p is who the firing is read as: naming the version in force is a read of the
-// log, and the log appends a read event for every one.
+// p names who is at the row, for whatever else composes it; naming the version
+// in force is not a read of the log — the version below is the copy the audit
+// trail keeps, and never what this reads, so no gate reads the log to fire.
 func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) (Applied, error) {
 	// The version is named on the open event for the trail and is not what the
 	// threshold is read from: the value in force is the field of the record its
@@ -67,7 +69,7 @@ func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) 
 	// [Factory.Install] is what guarantees one stands before any firing — every
 	// path able to fire a gate installs first — so a factory nobody installed
 	// refuses here rather than naming none.
-	version, err := r.Newest(ctx, p)
+	versionID, err := r.currentVersionID(ctx)
 	if err != nil {
 		return Applied{}, err
 	}
@@ -89,7 +91,7 @@ func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) 
 	}
 
 	applied := Applied{
-		PolicyVersion:       version.ID,
+		PolicyVersion:       versionID,
 		Threshold:           authored.Or(supplied.Value),
 		ThresholdFrom:       sourceOf(authored),
 		ScoreVersion:        inForce.ID,
@@ -103,6 +105,26 @@ func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) 
 		applied.Safeguards = append(applied.Safeguards, p.ID)
 	}
 	return applied, nil
+}
+
+// currentVersionID is the id of the newest policy version, read off the
+// factory-wide settings record's own field rather than the log: it is written
+// there in the same transaction as every append, so this is a read of one
+// record and never a scan of the log for the newest row of that shape.
+// [ErrNoVersion] is refused where the record does not exist yet, which is the
+// same refusal a factory nobody installed always gave.
+func (r *Reader) currentVersionID(ctx context.Context) (string, error) {
+	settings, err := factorysettings.Get(ctx, r.pool)
+	if errors.Is(err, factorysettings.ErrNotFound) {
+		return "", fmt.Errorf("%w: in force", ErrNoVersion)
+	}
+	if err != nil {
+		return "", err
+	}
+	if settings.CurrentPolicyVersionID == "" {
+		return "", fmt.Errorf("%w: in force", ErrNoVersion)
+	}
+	return settings.CurrentPolicyVersionID, nil
 }
 
 // authoredThreshold is what an owner authored for the risk threshold at one gate

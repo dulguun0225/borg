@@ -13,9 +13,10 @@
 // [Decomposition.CreateTx], which take a [New], [Decomposition.Supersede] and
 // [Decomposition.SupersedeTx], and
 // [Decomposition.Repoint] and [Decomposition.RepointTx]. graph.go holds [Hold],
-// [RollbackHolds] — the seam [Decomposition.Holds] reads every standing hold
-// through at each write — the read of what waits on what, the edges a hold
-// imposes, and the cycle check behind [ErrWouldCloseACycle]. dispatch.go holds
+// [RollbackHolds] — the seam [NewDecomposition] takes as a required parameter
+// and [Decomposition.Holds] reads every standing hold through at each write —
+// [NoHolds], the read of what waits on what, the edges a hold imposes, and the
+// cycle check behind [ErrWouldCloseACycle]. dispatch.go holds
 // [Dispatch] and [NewDispatch]
 // with [Dispatch.Advance], [Dispatch.Enter], [Dispatch.ReturnTo],
 // [Dispatch.End], [Dispatch.Escalate],

@@ -36,7 +36,7 @@ import (
 func newWriters(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decomposition, *item.Dispatch) {
 	t.Helper()
 	ctx, pool, token := newStore(t)
-	return ctx, pool, item.NewDecomposition(pool, token), item.NewDispatch(pool, token)
+	return ctx, pool, item.NewDecomposition(pool, token, item.NoHolds{}), item.NewDispatch(pool, token)
 }
 
 // newStore is what [newWriters] is built on: a schema of its own, this
@@ -121,7 +121,7 @@ func oneItem(ctx context.Context, t *testing.T, decomposition *item.Decompositio
 		AreaChain:            []string{"ar_" + strings.Repeat("0", 32)},
 		Branch:               "item/checkout-retry",
 		RequirementsAnswered: []string{"rq_" + strings.Repeat("0", 32)},
-	}, oneProject, oneProject, nil)
+	}, oneProject, oneProject)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

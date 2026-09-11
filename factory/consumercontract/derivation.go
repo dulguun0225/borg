@@ -68,9 +68,14 @@ type Extractor struct {
 // rather than discovered at a service's first removal, which is why it takes the
 // factory version and returns whole records rather than names.
 //
+// convention is passed through to [GoExtractor] unchanged: a caller that
+// supplies none gets [GoConvention] alone, and cmd/factory's contracts
+// subcommand is the one caller that supplies the composed convention it
+// publishes.
+//
 // A second toolchain is a second file in this package and a second line here.
-func Extractors(factoryVersion string) []Extractor {
-	return []Extractor{GoExtractor(factoryVersion)}
+func Extractors(factoryVersion string, convention ...string) []Extractor {
+	return []Extractor{GoExtractor(factoryVersion, convention...)}
 }
 
 // ExtractorFor is the extractor this factory version ships for a toolchain, and

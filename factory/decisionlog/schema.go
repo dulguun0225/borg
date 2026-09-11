@@ -46,13 +46,32 @@ const AdvisoryLockKey int64 = 0x5888022f314e314d
 // acknowledgement, and on a wait's closing, and requires it empty everywhere
 // else. verdict_matches_part allows a verdict, one of the four, only on a
 // decision's closing. reason_scope allows a reason only on a decision's
-// closing or abandonment; reason_required is where doc.go's reuse of that
-// column is enforced: non-empty on an abandonment always, and on a closing
-// wherever the verdict is reject or hold. opened_in_work_at_scope and
-// self_approval_scope are the same shape of rule for those two columns, both
-// of them a decision closing's alone. acknowledgement_actor_human is
-// [Writer.AppendDecisionAcknowledgement]'s rule that only a human
-// acknowledges, checked again here for a row reaching the store around it.
+// closing or abandonment, or a rework request; reason_required is where
+// doc.go's reuse of that column is enforced: non-empty on an abandonment
+// always, on a rework request always, and on a closing wherever the verdict
+// is reject or hold. opened_in_work_at_scope and self_approval_scope are the
+// same shape of rule for those two columns, both of them a decision closing's
+// alone; opened_in_work_at_caller_is_work is
+// [Writer.AppendDecisionClose]'s rule that a non-empty opened_in_work_at
+// names the Work screen as the caller, checked again here for a row reaching
+// the store around it. acknowledgement_actor_human, abandonment_actor_component
+// and wait_open_actor_component are the same shape of rule for the other
+// three parts a kind of actor is fixed for: only a human acknowledges, only a
+// component abandons, and only a component opens a wait.
+//
+// returns_to_scope allows a returns_to only on a decision's closing where the
+// verdict is reject, or on a rework request; returns_to_required is a rework
+// request's alone, a reject being allowed to leave the field empty where the
+// row sends nothing back. reading_scope and reading_required, and
+// moved_release_scope, are the merge queue rejection's own columns, admitted
+// only on that shape; a rejection always names a reading and a moved release
+// only where one exists. caller_present_together, caller_kind_known,
+// caller_key_basis_known and caller_dispatch_scope_matches_kind are
+// [principal.Principal.Validate]'s own rules over the columns a call's
+// principal is stored in beside the actor, checked again here: caller_kind,
+// caller_key and caller_key_basis are empty together or none of them are, an
+// agent caller names a dispatch and a scope and no other kind of caller does,
+// and a row naming no caller at all names neither.
 //
 // The three partial unique indexes are what a second ending or a second
 // acknowledgement is refused by, whether or not a caller went through the
@@ -81,6 +100,14 @@ var DDL = []string{
 	reason text not null,
 	opened_in_work_at text not null,
 	self_approval boolean not null default false,
+	returns_to text not null default '',
+	reading text not null default '',
+	moved_release text not null default '',
+	caller_kind text not null default '',
+	caller_key text not null default '',
+	caller_key_basis text not null default '',
+	caller_dispatch_id text not null default '',
+	caller_scope text not null default '',
 	prev_hash text not null unique,
 	hash text not null unique,
 	` + record.Constraints + `,
@@ -117,11 +144,12 @@ var DDL = []string{
 		or (not (shape = 'decision' and part = 'closing') and verdict = '')
 	),
 	constraint reason_scope check (
-		(shape = 'decision' and part in ('closing', 'abandonment')) or reason = ''
+		(shape = 'decision' and part in ('closing', 'abandonment')) or shape = 'rework_request' or reason = ''
 	),
 	constraint reason_required check (
 		not (shape = 'decision' and part = 'closing' and verdict in ('reject', 'hold') and reason = '')
 		and not (shape = 'decision' and part = 'abandonment' and reason = '')
+		and not (shape = 'rework_request' and reason = '')
 	),
 	constraint opened_in_work_at_scope check (
 		(shape = 'decision' and part = 'closing') or opened_in_work_at = ''
@@ -129,13 +157,63 @@ var DDL = []string{
 	constraint opened_in_work_at_is_time_or_empty check (
 		opened_in_work_at = '' or opened_in_work_at ~ '` + record.TimePattern + `'
 	),
+	constraint opened_in_work_at_caller_is_work check (
+		opened_in_work_at = '' or (caller_kind = 'component' and caller_key = 'work')
+	),
 	constraint self_approval_scope check (
 		self_approval = false or (shape = 'decision' and part = 'closing')
 	),
 	constraint acknowledgement_actor_human check (
 		part <> 'acknowledgement' or actor_kind = 'human'
+	),
+	constraint abandonment_actor_component check (
+		part <> 'abandonment' or actor_kind = 'component'
+	),
+	constraint wait_open_actor_component check (
+		not (shape = 'wait' and part = 'opening') or actor_kind = 'component'
+	),
+	constraint returns_to_scope check (
+		(shape = 'decision' and part = 'closing' and verdict = 'reject')
+		or shape = 'rework_request' or returns_to = ''
+	),
+	constraint returns_to_required check (
+		not (shape = 'rework_request' and returns_to = '')
+	),
+	constraint reading_scope check (
+		shape = 'queue_rejection' or reading = ''
+	),
+	constraint reading_required check (
+		not (shape = 'queue_rejection' and reading = '')
+	),
+	constraint moved_release_scope check (
+		shape = 'queue_rejection' or moved_release = ''
+	),
+	constraint caller_present_together check (
+		(caller_kind = '') = (caller_key = '') and (caller_kind = '') = (caller_key_basis = '')
+	),
+	constraint caller_kind_known check (
+		caller_kind = '' or caller_kind in ('human', 'component', 'agent')
+	),
+	constraint caller_key_basis_known check (
+		caller_key_basis = '' or caller_key_basis in ('claimed', 'verified')
+	),
+	constraint caller_dispatch_scope_matches_kind check (
+		(caller_kind = 'agent' and caller_dispatch_id <> '' and caller_scope <> '')
+		or (caller_kind <> 'agent' and caller_dispatch_id = '' and caller_scope = '')
 	)
 )`,
+
+	// A store this package already applied before these columns existed has
+	// the table without them; these are the same statements a fresh create
+	// already carries, added rather than assumed, so both paths agree.
+	`alter table ` + Table + ` add column if not exists returns_to text not null default ''`,
+	`alter table ` + Table + ` add column if not exists reading text not null default ''`,
+	`alter table ` + Table + ` add column if not exists moved_release text not null default ''`,
+	`alter table ` + Table + ` add column if not exists caller_kind text not null default ''`,
+	`alter table ` + Table + ` add column if not exists caller_key text not null default ''`,
+	`alter table ` + Table + ` add column if not exists caller_key_basis text not null default ''`,
+	`alter table ` + Table + ` add column if not exists caller_dispatch_id text not null default ''`,
+	`alter table ` + Table + ` add column if not exists caller_scope text not null default ''`,
 
 	`alter table ` + Table + ` drop constraint if exists format_version_matches_shape`,
 	`alter table ` + Table + ` add constraint format_version_matches_shape check (` +

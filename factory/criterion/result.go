@@ -248,6 +248,21 @@ func Latest(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]Result, 
 		from `+ResultTable+` where build_id = $1 order by criterion_id, run desc`, buildID)
 }
 
+// LatestRun is the highest run number recorded for one build, across every
+// criterion and place, and 0 where none is recorded yet — the build's own
+// process is run 0, so a build that has not reached the candidate environment
+// reads the same as one with no results at all. It is the single number a
+// gate reads about the run itself, as against [Latest]'s per-criterion form,
+// which the outcome history and undecided still need.
+func LatestRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, error) {
+	var highest int
+	if err := pool.QueryRow(ctx, `select coalesce(max(run), 0) from `+ResultTable+` where build_id = $1`, buildID).
+		Scan(&highest); err != nil {
+		return 0, fmt.Errorf("criterion: reading the latest run of build %s: %w", buildID, err)
+	}
+	return highest, nil
+}
+
 // Undecided is every criterion of the build whose runs disagree: two runs over
 // one build whose compositions match and whose outcomes differ. Two runs
 // against compositions that differ are two answers to two questions and make

@@ -12,9 +12,13 @@ import (
 	"github.com/dulguun0225/borg/factory/consumercontract"
 )
 
-// TestADirectNetworkCallOutsideTheMirrorConventionIsCouldNotDerive: a call site
-// whose address is a literal in the code or a value read from the store is could
-// not derive for the whole consumer contract, naming the site.
+// TestADirectNetworkCallOutsideTheMirrorConventionIsCouldNotDerive: a call into
+// a network client package the checkout imports — detected by the callee's own
+// import path, not by a name list, so an alias or an otherwise unlisted client
+// package cannot pass silently — is could not derive for the whole consumer
+// contract, naming the site, whatever its address argument is: a literal, a
+// plain variable, a value read from a field, or anything else, none of which
+// are traceable to a mirror's configured entry.
 func TestADirectNetworkCallOutsideTheMirrorConventionIsCouldNotDerive(t *testing.T) {
 	for name, of := range map[string]struct{ code string }{
 		"a literal address": {code: `package main
@@ -41,9 +45,76 @@ func call(cfg Config) {
 
 func main() {}
 `},
+		"a plain variable": {code: `package main
+
+import "net/http"
+
+func call(addr string) {
+	http.Get(addr)
+}
+
+func main() { call("") }
+`},
+		"an unlisted client package": {code: `package main
+
+import "net"
+
+func call() {
+	net.Dial("tcp", "producer.example:9000")
+}
+
+func main() { call() }
+`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			d, _ := derived(t, checkout(t, map[string]string{"main.go": of.code}))
+			if !d.CouldNotDerive() || d.Cause != consumercontract.CauseExtractionFailed || d.Reported == "" {
+				t.Fatalf("%s derived %s, want could not derive naming the call site", name, d.Describe())
+			}
+		})
+	}
+}
+
+// TestAnAddressArgumentIsCouldNotDeriveWhateverTheCalleesPackage: an address —
+// a string literal shaped as a URL or host:port, or a value flowing from a
+// store read or a configuration read — passed to a call outside the mirror
+// convention is could not derive naming the site, whatever package the call
+// reaches into; [ClientPackages] is kept only as a detector for a call with no
+// such argument to trace.
+func TestAnAddressArgumentIsCouldNotDeriveWhateverTheCalleesPackage(t *testing.T) {
+	for name, of := range map[string]struct{ files map[string]string }{
+		"a literal URL given to an unlisted client library": {files: map[string]string{
+			"consumes.txt":                      "health producer health\n",
+			consumercontract.FileName("health"): mirror,
+			"main.go": `package main
+
+import "github.com/example/sdk"
+
+func call() {
+	sdk.Connect("https://producer.example/health")
+}
+
+func main() { call() }
+`,
+		}},
+		"a store-read address given to an unlisted client library": {files: map[string]string{
+			"consumes.txt":                      "config self config store\n",
+			consumercontract.FileName("config"): "package main\n\ntype Config struct {\n\tAddr string\n}\n",
+			"main.go": `package main
+
+import "github.com/example/sdk"
+
+func call(c Config) {
+	addr := c.Addr
+	sdk.Connect(addr)
+}
+
+func main() {}
+`,
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, _ := derived(t, checkout(t, of.files))
 			if !d.CouldNotDerive() || d.Cause != consumercontract.CauseExtractionFailed || d.Reported == "" {
 				t.Fatalf("%s derived %s, want could not derive naming the call site", name, d.Describe())
 			}

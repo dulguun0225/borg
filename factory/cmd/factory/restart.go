@@ -134,17 +134,20 @@ func (p *path) restart(ctx context.Context) error {
 		}
 	}
 
-	resumed, err := deploy.Resume(ctx, p.deploys, p, p)
+	if err := deploy.Resume(ctx, p.deploys, p, p); err != nil {
+		return err
+	}
+	// Resume decides every record it reads: complete, failed at a named step,
+	// or returned. What is left started here is a backfill whose copy has not
+	// finished, or a record a partial return left with something still owed
+	// and nothing more this pass can do about it — both stand until a later
+	// restart, or the copy, carries them further.
+	stillStarted, err := deploy.Unfinished(ctx, d.pool)
 	if err != nil {
 		return err
 	}
-	for _, one := range resumed {
-		owed, err := deploy.Partial(ctx, d.pool, one.ID)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(d.out, "The deployer's restart left deploy %s standing, with %d target(s) still owed and nothing to carry it forward or back with\n",
-			one.ID, len(owed))
+	for _, one := range stillStarted {
+		fmt.Fprintf(d.out, "The deployer's restart left deploy %s standing started, with nothing further to do this pass\n", one.ID)
 	}
 
 	// The health monitor's restart is the set of windows the deploy records
@@ -182,7 +185,7 @@ func (p *path) restart(ctx context.Context) error {
 	}
 
 	if p.notifier != nil {
-		delivered, err := p.notifier.Resume(ctx)
+		delivered, err := p.notifier.Resume(ctx, p.d.driftdetector)
 		if err != nil {
 			return err
 		}

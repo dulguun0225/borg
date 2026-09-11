@@ -177,7 +177,7 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 				Branch:               branch,
 				WaitsOn:              waitsOn,
 				RequirementsAnswered: answered,
-			}, areaProjectID, svc.ProjectID, holds)
+			}, areaProjectID, svc.ProjectID)
 			if err != nil {
 				return nil, err
 			}

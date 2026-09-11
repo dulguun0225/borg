@@ -95,7 +95,7 @@ func TestSupersedeTxWritesThePointerInTheWriteThatCreatesTheReplacements(t *test
 	for _, branch := range []string{"item/first", "item/second"} {
 		made, err := decomposition.CreateTx(ctx, tx, decompositionActor, item.New{
 			IntentID: "in_x", ServiceID: "svc_x", Branch: branch, RequirementsAnswered: answers,
-		}, "", "", nil)
+		}, "", "")
 		if err != nil {
 			t.Fatalf("CreateTx %s: %v", branch, err)
 		}

@@ -118,8 +118,13 @@
 // are interfaces because each joins records this package does not read, and
 // [NoAuthorship], [NoWithdrawals] and [NoGroupedReports] are what a composition
 // supplying none hands in. What a withdrawal's provenance names is carried on
-// [Resolution.RoutedTo], which is what routes the Spec row to that human rather
-// than to the owner by default.
+// [Resolution.RoutedTo], which is what routes the Spec row to that human. A
+// constraint-derived or a hazard-derived withdrawal naming nobody the factory
+// can resolve routes to the owner by default; a human-confirmed one naming
+// nobody — the composition found no actor of the introducing decision still
+// holding the row's duty, and no other holder of it either — is unavailable
+// instead, the treatment every other unreadable input takes, and never the
+// owner.
 //
 // [ReportsAndAdvisories] is the third such input and arrives as a seam rather
 // than a parameter, for the reason the harm mark does: it is a join over the
@@ -182,7 +187,7 @@
 // C1227, C1228, C1229, C1230, C1231, C1232, C1233, C1234, C1235, C1237, C1238,
 // C1239, C1242, C1243, C1244, C1245, C1246, C1247, C1250, C1251, C1252, C1253,
 // C1254, C1256, C1257, C1258, C1259, C1260, C1261, C1262, C1264, C1265, C1267,
-// C1268, C1270, C1273, C1275, C1276, C1277, C1278, C1279, C1280, C1282, C1283,
+// C1268, C1270, C1273, C1275, C2997, C1276, C1277, C1278, C1279, C1280, C1282, C1283,
 // C1284, C1285, C1286, C1287, C1288, C1290, C1292, C1294, C1296, C1298, C1299,
 // C1300, C1302, C1303, C1304, C1305, C1306, C1307, C1308, C1309, C1310, C1311,
 // C1315, C1316, C1317); the loop, the held-out
@@ -255,7 +260,8 @@
 // (C1159).
 //
 // [ProtectionRemoved] resolving the Spec row and carrying the routing, and
-// [Resolution.RoutedTo] as the introducing actor still holding the duty, are
+// [Resolution.RoutedTo] as the introducing actor still holding the duty, or
+// another holder of it where that actor no longer does, are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
 // (C1063, C1064);
 //

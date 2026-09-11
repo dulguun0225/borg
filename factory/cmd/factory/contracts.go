@@ -82,7 +82,7 @@ func printContracts(ctx context.Context, p *path, services []service.Service) er
 	// An extractor is shipped with the factory, so which toolchains have one is
 	// a fact of this version and is read here — before a service is adopted
 	// rather than at its first removal.
-	for _, e := range consumercontract.Extractors(factoryVersion) {
+	for _, e := range consumercontract.Extractors(factoryVersion, publishedGoConvention) {
 		fmt.Fprintf(p.d.out, "toolchain %s has an extractor: %s %s, shipped with factory version %s\n",
 			e.Toolchain, e.Name, e.Version, e.FactoryVersion)
 	}

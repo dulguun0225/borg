@@ -11,8 +11,10 @@
 // [Causes], [DerivedTransition], [ScreenDerivation], [Derivation] with
 // [Derivation.Unavailable], and [CheckTransitions] with
 // [ForbiddenTransitionError]. derive.go is the Go extractor —
-// [GoExtractor], [FileName], [DeriveTransitions], and the [Toolchain],
-// [ExtractorName] and [ExtractorVersion] it names itself by. driver.go is
+// [GoExtractor], [FileName], [DeriveTransitions], the [Toolchain],
+// [ExtractorName] and [ExtractorVersion] it names itself by, and
+// [Convention], published for cmd/factory to compose into the consumer
+// contract's own Go extractor's published convention. driver.go is
 // [Driver], [DriverDerivation], [DeriveDrivers], [Drivers] and [CheckDrivers],
 // with [StateNotDrivenError], [DriverNotDeclaredError] and
 // [DriversCouldNotDeriveError]. provenance.go is
@@ -61,7 +63,7 @@
 // [Derivation.Unavailable] is the value that outcome is read by.
 //
 // derive.go's convention — one file per screen at the root of the checkout
-// holding the screen's own transition function — is stated there. It is a
+// holding the screen's own transition function — is [Convention]. It is a
 // departure the design does not settle: the design fixes the check's direction
 // and its outcome and names no source shape, so the shape is this extractor's
 // and the design's text is what it answers to.

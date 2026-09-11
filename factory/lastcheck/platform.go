@@ -20,7 +20,8 @@ import (
 //
 // The room is read and never modelled. Where the platform reports no figure,
 // RoomReported is false and the two counts are what a reader shows: the factory
-// reads what the platform reports and computes nothing over it.
+// reads what the platform reports and computes nothing over it — which is why
+// this holds three counts and derives no fourth.
 type PlatformPass struct {
 	StandingByTheRecords int  `json:"standing_by_the_records"`
 	HeldByThePlatform    int  `json:"held_by_the_platform"`
@@ -28,21 +29,12 @@ type PlatformPass struct {
 	RoomReported         bool `json:"room_reported"`
 }
 
-// Leaked is how many candidate environments the platform holds beyond what the
-// records say stand: a teardown that failed, which the deployer tears down again
-// on its next pass, keyed on the environment. It is never negative — a platform
-// holding fewer than the records say is a platform that lost one, which this
-// count does not describe.
-func (p PlatformPass) Leaked() int {
-	if p.HeldByThePlatform <= p.StandingByTheRecords {
-		return 0
-	}
-	return p.HeldByThePlatform - p.StandingByTheRecords
-}
-
 // RecordPlatformPass writes the deployer's pass over one platform, overwriting
-// the record it keeps for that platform. The subject is the platform's name, as
-// the production environment record declares it.
+// the record it keeps for that platform. The subject is the production
+// environment record that declares the platform, and not the platform's own
+// name: one of each per production environment, the way the maximum concurrent
+// candidate environments is already keyed, so an install whose projects run on
+// two platforms adds neither count across them.
 //
 // It is the one write here that composes the payload rather than taking it as
 // text: the three counts are the design's, a screen reads them back through
@@ -52,21 +44,22 @@ func (p PlatformPass) Leaked() int {
 // It is the sole writer of that record. The pass is the deployer's, which lives
 // in the command-line interface, and the composition calls it once per
 // production environment record that declares a platform, on every production
-// deploy, beside deploy.RecordEnvironmentCheck.
-func (w *Writer) RecordPlatformPass(ctx context.Context, actor record.Actor, platformName string,
+// deploy, beside deploy.RecordTargetCheck over each of that environment's
+// targets.
+func (w *Writer) RecordPlatformPass(ctx context.Context, actor record.Actor, environmentID string,
 	interval time.Duration, pass PlatformPass) (LastCheck, error) {
 
-	if platformName == "" {
-		return LastCheck{}, fmt.Errorf("%w: the deployer's platform record names the platform it passed over",
+	if environmentID == "" {
+		return LastCheck{}, fmt.Errorf("%w: the deployer's platform record names the production environment it passed over",
 			ErrSubjectDoesNotMatchComponent)
 	}
 	payload, err := json.Marshal(pass)
 	if err != nil {
-		return LastCheck{}, fmt.Errorf("lastcheck: encoding the pass over platform %q: %w", platformName, err)
+		return LastCheck{}, fmt.Errorf("lastcheck: encoding the pass over the platform of %q: %w", environmentID, err)
 	}
 	return w.Record(ctx, actor, LastCheck{
 		Component: ComponentDeployer,
-		Subject:   platformName,
+		Subject:   environmentID,
 		Interval:  interval,
 		Payload:   string(payload),
 	})

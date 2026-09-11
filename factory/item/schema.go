@@ -81,7 +81,7 @@ var DDL = []string{
 	service_id text not null,
 	area_id text not null,
 	branch text not null,
-	stage text not null,
+	stage text not null default 'spec',
 	escalated_from_stage text not null default '',
 	waits_on text not null,
 	requirements_answered text not null,
@@ -99,6 +99,13 @@ var DDL = []string{
 	// has the table without the column; this is the same statement a fresh
 	// create already carries, added rather than assumed, so both paths agree.
 	`alter table ` + Table + ` add column if not exists escalated_from_stage text not null default ''`,
+
+	// A store this package already applied before Create stopped naming stage
+	// in its own insert has the column with no default; setting one is
+	// idempotent, so both paths agree the same way. spec is the stage every
+	// item starts at, and [Dispatch.enter] is what writes it, on the same
+	// transaction the insert began, the moment after this default takes.
+	`alter table ` + Table + ` alter column stage set default 'spec'`,
 
 	`create table if not exists ` + StageTable + ` (
 	` + record.Columns + `,

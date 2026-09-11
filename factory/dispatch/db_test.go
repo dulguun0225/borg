@@ -272,7 +272,7 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	c.decomposition = item.NewDecomposition(pool, token)
+	c.decomposition = item.NewDecomposition(pool, token, item.NoHolds{})
 	c.declareTheAreas(t)
 	c.lend(t)
 	c.anEntryPerRole(t, "", fleetentry.MaterialClasses)
@@ -365,7 +365,7 @@ func (c composed) oneItem(t *testing.T, state intent.State) item.Item {
 	it, err := c.decomposition.Create(c.ctx, decompositionActor, item.New{
 		IntentID: in.ID, ServiceID: oneService, AreaChain: []string{c.oneArea}, Branch: "item/health",
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, oneProject, oneProject, nil)
+	}, oneProject, oneProject)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

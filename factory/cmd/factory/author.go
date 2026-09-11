@@ -23,8 +23,20 @@ import (
 	"github.com/dulguun0225/borg/factory/inputmanifest"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/screenstatemachine"
 	"github.com/dulguun0225/borg/factory/service"
 )
+
+// publishedGoConvention is what this factory version publishes as the Go
+// extractor's own convention: [consumercontract.GoConvention], the mirror
+// this file's own derivation reads, composed with what package contract
+// states about the mark, the backfill and the schema change, what package
+// screenstatemachine states about a screen's transition function, and what
+// package criterion states about the mutation tool — the five
+// [_What the derivation records_] treats as the extractor's to state,
+// composed here because consumercontract cannot import every one of them.
+const publishedGoConvention = consumercontract.GoConvention + "; " +
+	contract.Convention + "; " + screenstatemachine.Convention + "; " + criterion.MutationConvention
 
 // implementationStage is one item's implementation version, the consumer
 // contract derived from the same build, the build record, and the measurement.
@@ -378,7 +390,7 @@ func (p *path) Declares(ctx context.Context, c contractcheck.Candidate, allowed 
 // extractor at the same factory version — which is what makes a re-derivation
 // after an upgrade a comparison and not a guess.
 func (p *path) declaresIn(ctx context.Context, repo string, allowed []string) (consumercontract.Derived, error) {
-	derived, err := consumercontract.Derive(repo, allowed, consumercontract.GoExtractor(factoryVersion))
+	derived, err := consumercontract.Derive(repo, allowed, consumercontract.GoExtractor(factoryVersion, publishedGoConvention))
 	if err != nil {
 		return consumercontract.Derived{}, err
 	}

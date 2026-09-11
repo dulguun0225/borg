@@ -75,23 +75,26 @@ type Service struct {
 	// two rates that price hosting outside the factory. OperationCap is how many
 	// operations one release may hold open per interval and OverflowOperation the
 	// name the excess lands in; SearchBudgetBuilds and SearchBudgetSeconds are
-	// what a search may spend before it stops.
-	BakeVolume               gatepolicy.Authored
-	BacklogCap               gatepolicy.Authored
-	InstanceHourRate         gatepolicy.Authored
-	EnvironmentHourRate      gatepolicy.Authored
-	OperationCap             gatepolicy.Authored
-	OverflowOperation        string
-	SearchBudgetBuilds       gatepolicy.Authored
-	SearchBudgetSeconds      gatepolicy.Authored
-	MutantCap                gatepolicy.Authored
-	FailureRecordKeyCap      gatepolicy.Authored
-	UnreliableBound          gatepolicy.Authored
-	IncidentItemBoundSeconds gatepolicy.Authored
-	SnapshotRetentionSeconds gatepolicy.Authored
-	Objective                Objective
-	PagingHours              PagingHours
-	ProductLicence           string
+	// what a search may spend before it stops. FailureRecordKeyCap takes the
+	// same pairing as OperationCap: OverflowFailureRecordBucket is the named
+	// overflow bucket its excess lands in.
+	BakeVolume                  gatepolicy.Authored
+	BacklogCap                  gatepolicy.Authored
+	InstanceHourRate            gatepolicy.Authored
+	EnvironmentHourRate         gatepolicy.Authored
+	OperationCap                gatepolicy.Authored
+	OverflowOperation           string
+	SearchBudgetBuilds          gatepolicy.Authored
+	SearchBudgetSeconds         gatepolicy.Authored
+	MutantCap                   gatepolicy.Authored
+	FailureRecordKeyCap         gatepolicy.Authored
+	OverflowFailureRecordBucket string
+	UnreliableBound             gatepolicy.Authored
+	IncidentItemBoundSeconds    gatepolicy.Authored
+	SnapshotRetentionSeconds    gatepolicy.Authored
+	Objective                   Objective
+	PagingHours                 PagingHours
+	ProductLicence              string
 
 	// Five more of the twelve the design names on this record. MutationFloor is
 	// the mutation score below which Merge to master rejects; KeptFraction is the
@@ -209,22 +212,22 @@ func (w *Writer) CreateIn(ctx context.Context, tx pgx.Tx, actor record.Actor,
 		window_confidence, window_cap_seconds, window_limit, exposure_bound,
 		bake_volume, backlog_cap, instance_hour_rate, environment_hour_rate,
 		operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
-		mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
+		mutant_cap, failure_record_key_cap, overflow_failure_record_bucket, unreliable_bound, incident_item_bound_seconds,
 		snapshot_retention_seconds, objective, objective_period_seconds,
 		mutation_floor, kept_fraction, max_concurrent_kept_fleets, recent_history_run_length, proof_test_rate,
 		paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
-		target_reached, instances_replaceable, rollback_path_present, emission_readable, deployer_wrote_at)
+		target_reached, instances_replaceable, rollback_path_present, emission_readable, taking_traffic, deployer_wrote_at)
 		values ($1, $2, $3, $4, $5, $6, $7, $8, $9,
 		'', '', '', '',
 		'', '',
 		null, null, null, null,
 		null, null, null, null,
 		null, '', null, null,
-		null, null, null, null,
+		null, null, '', null, null,
 		null, null, null,
 		null, null, null, null, null,
 		'', '', '', '',
-		false, false, false, false, '')`,
+		false, false, false, false, false, '')`,
 		s.ID, FormatVersion, string(s.Actor.Kind), s.Actor.Key, string(s.Actor.Basis), s.At,
 		s.Name, s.Repository, s.ProjectID,
 	)
@@ -240,11 +243,11 @@ const selectService = `select id, actor_kind, actor_key, actor_key_basis, at, na
 	window_confidence, window_cap_seconds, window_limit, exposure_bound,
 	bake_volume, backlog_cap, instance_hour_rate, environment_hour_rate,
 	operation_cap, overflow_operation, search_budget_builds, search_budget_seconds,
-	mutant_cap, failure_record_key_cap, unreliable_bound, incident_item_bound_seconds,
+	mutant_cap, failure_record_key_cap, overflow_failure_record_bucket, unreliable_bound, incident_item_bound_seconds,
 	snapshot_retention_seconds, objective, objective_period_seconds,
 	mutation_floor, kept_fraction, max_concurrent_kept_fleets, recent_history_run_length, proof_test_rate,
 	paging_hours_start, paging_hours_end, paging_hours_zone, product_licence,
-	target_reached, instances_replaceable, rollback_path_present, emission_readable, deployer_wrote_at
+	target_reached, instances_replaceable, rollback_path_present, emission_readable, taking_traffic, deployer_wrote_at
 	from ` + Table
 
 // Get is one service by id, with everything on the record: the identity, every
@@ -339,12 +342,13 @@ func scan(row pgx.Row, named string) (Service, error) {
 		&confidence, &capSeconds, &limit, &exposure,
 		&bakeVolume, &backlogCap, &instanceHourRate, &environmentHourRate,
 		&operationCap, &s.OverflowOperation, &searchBudgetBuilds, &searchBudgetSeconds,
-		&mutantCap, &keyCap, &unreliable, &incidentBound,
+		&mutantCap, &keyCap, &s.OverflowFailureRecordBucket, &unreliable, &incidentBound,
 		&snapshotRetention, &objective, &objectivePeriod,
 		&mutationFloor, &keptFraction, &keptFleets, &runLength, &proofTestRate,
 		&s.PagingHours.Start, &s.PagingHours.End, &s.PagingHours.Zone, &s.ProductLicence,
 		&s.Reachability.TargetReached, &s.Reachability.InstancesReplaceable,
-		&s.Reachability.RollbackPathPresent, &s.Reachability.EmissionReadable, &s.Reachability.At)
+		&s.Reachability.RollbackPathPresent, &s.Reachability.EmissionReadable,
+		&s.Reachability.TakingTraffic, &s.Reachability.At)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Service{}, fmt.Errorf("%w: %s", ErrNotFound, named)
 	} else if err != nil {

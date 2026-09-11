@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"net/url"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -27,13 +27,15 @@ var decompositionActor = record.Actor{Kind: record.KindComponent, Key: "decompos
 // against, the service the bound is authored on, and the item the intent it
 // names is decomposed into. It is its own schema-per-test setup rather than
 // [newTable]'s, because that fixture hands out one writer and this one needs
-// four.
+// four. environmentID is the production environment every raising in these
+// tests names, [Writer.Raise] refusing one that is not.
 type graph struct {
-	pool     *pgxpool.Pool
-	incident *incident.Writer
-	services *service.Writer
-	items    *item.Decomposition
-	dispatch *item.Dispatch
+	pool          *pgxpool.Pool
+	incident      *incident.Writer
+	services      *service.Writer
+	items         *item.Decomposition
+	dispatch      *item.Dispatch
+	environmentID string
 }
 
 func newGraph(t *testing.T) (context.Context, graph) {
@@ -69,11 +71,12 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
 	return ctx, graph{
-		pool:     pool,
-		incident: incident.NewWriter(pool, token),
-		services: service.NewWriter(pool, token),
-		items:    item.NewDecomposition(pool, token),
-		dispatch: item.NewDispatch(pool, token),
+		pool:          pool,
+		incident:      incident.NewWriter(pool, token),
+		services:      service.NewWriter(pool, token),
+		items:         item.NewDecomposition(pool, token, item.NoHolds{}),
+		dispatch:      item.NewDispatch(pool, token),
+		environmentID: environmentOfKind(t, ctx, pool, token, environment.KindProduction),
 	}
 }
 
@@ -115,7 +118,7 @@ func (g graph) anItem(ctx context.Context, t *testing.T, intentID, serviceID str
 	it, err := g.items.Create(ctx, decompositionActor, item.New{
 		IntentID: intentID, ServiceID: serviceID, Branch: "item/" + intentID,
 		RequirementsAnswered: []string{"rq_test"},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -127,7 +130,7 @@ func TestOverdueItemsFindsAnItemStillBeingWorkedPastTheBound(t *testing.T) {
 
 	svc := g.aService(ctx, t, "checkout", 60)
 	intentID := record.NewID("int")
-	r := raising()
+	r := raising(g.environmentID)
 	r.ServiceID, r.IntentID = svc.ID, intentID
 	raised, err := g.incident.Raise(ctx, healthMonitor, r)
 	if err != nil {
@@ -162,7 +165,7 @@ func TestOverdueItemsExcludesAnItemNoLongerBeingWorked(t *testing.T) {
 
 	svc := g.aService(ctx, t, "checkout", 60)
 	intentID := record.NewID("int")
-	r := raising()
+	r := raising(g.environmentID)
 	r.ServiceID, r.IntentID = svc.ID, intentID
 	raised, err := g.incident.Raise(ctx, healthMonitor, r)
 	if err != nil {
@@ -190,7 +193,7 @@ func TestOverdueItemsSkipsAnIncidentThatRaisedNoItem(t *testing.T) {
 	ctx, g := newGraph(t)
 
 	svc := g.aService(ctx, t, "checkout", 60)
-	r := raising()
+	r := raising(g.environmentID)
 	r.ServiceID = svc.ID
 	raised, err := g.incident.Raise(ctx, healthMonitor, r)
 	if err != nil {
@@ -218,7 +221,7 @@ func TestOverdueItemsUsesTheShippedDefaultWhereNoBoundIsAuthored(t *testing.T) {
 
 	svc := g.aService(ctx, t, "checkout", 0)
 	intentID := record.NewID("int")
-	r := raising()
+	r := raising(g.environmentID)
 	r.ServiceID, r.IntentID = svc.ID, intentID
 	raised, err := g.incident.Raise(ctx, healthMonitor, r)
 	if err != nil {

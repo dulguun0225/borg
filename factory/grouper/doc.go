@@ -76,9 +76,14 @@
 // boundary costs is a run of reports just after a narrow decomposition
 // showing as linked timelines where a human would call it one problem.
 //
-// A report the reply left in no group stays ungrouped and is counted as such at
-// Factory, which is the answer to a report nobody sees; the next pass reads it
-// again.
+// A report the reply left in no group still ends the pass grouped: it raises
+// an intent of its own, a group of one, applied the same way any other group
+// is. One report from one end user is an intent, so nothing this pass reads
+// stays linked to nothing on the reply's account — what the reply put in no
+// group is a group of one and never a report nobody sees. The count of reports
+// left ungrouped at Factory is what a pass has not yet reached — one held by
+// the admission safeguard, or one arrived since the last pass over its project
+// — and never what a reply declined to place.
 //
 // A harm-marked report grouped into an intent already carrying a page raises
 // no second one: the notifier's own delivery record for that intent is read

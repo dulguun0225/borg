@@ -179,10 +179,11 @@ func TestTheFirstReleaseCreatesTheContractAndItsFirstVersion(t *testing.T) {
 	}
 }
 
-// TestAReleaseWhoseFormIsUnchangedPublishesNoVersion: most releases publish no new
-// contract version at all, which is what keeps the version tracking the form rather
-// than the release.
-func TestAReleaseWhoseFormIsUnchangedPublishesNoVersion(t *testing.T) {
+// TestAReleaseWhoseFormIsUnchangedPublishesAVersionNamingItsOwnRelease: a release
+// that publishes an unchanged form still mints a row naming it, with the same
+// number the version below it carries, so VersionsForRelease reads what a release
+// publishes as every interface and not only the ones whose form moved.
+func TestAReleaseWhoseFormIsUnchangedPublishesAVersionNamingItsOwnRelease(t *testing.T) {
 	ctx, pool := newStore(t)
 
 	one := form(contract.KindInterface, element("Status", "string", true, false))
@@ -191,15 +192,25 @@ func TestAReleaseWhoseFormIsUnchangedPublishesNoVersion(t *testing.T) {
 	if second.Moved || second.Created {
 		t.Fatalf("an unchanged form moved=%v created=%v", second.Moved, second.Created)
 	}
-	if second.Version.ID != first.Version.ID {
-		t.Errorf("the version in force is %s, want the one below it %s", second.Version.ID, first.Version.ID)
+	if second.Version.Semver != first.Version.Semver {
+		t.Errorf("the number minted is %s, want the one below it %s", second.Version.Semver, first.Version.Semver)
+	}
+	if second.Version.ID == first.Version.ID {
+		t.Errorf("the second release reads back the first's row, and it mints one naming its own release instead")
 	}
 	versions, err := contract.VersionsOf(ctx, pool, first.Contract.ID)
 	if err != nil {
 		t.Fatalf("VersionsOf: %v", err)
 	}
-	if len(versions) != 1 {
-		t.Errorf("the contract has %d versions after two releases, want the one the form moved at", len(versions))
+	if len(versions) != 2 {
+		t.Errorf("the contract has %d versions after two releases, want one per release", len(versions))
+	}
+	forSecond, err := contract.VersionsForRelease(ctx, pool, second.Version.ReleaseID)
+	if err != nil {
+		t.Fatalf("VersionsForRelease: %v", err)
+	}
+	if len(forSecond) != 1 || forSecond[0].ID != second.Version.ID {
+		t.Fatalf("the second release publishes %+v, want the row it minted naming its own number", forSecond)
 	}
 }
 
@@ -426,6 +437,26 @@ func TestAVersionIsMintedForAReleaseNamingNoItem(t *testing.T) {
 	}
 	if versions[0].ItemID != "" {
 		t.Errorf("the version reads back naming item %q", versions[0].ItemID)
+	}
+}
+
+// TestTheStoreIndexesTheInboundEdgeFromTheRelease: VersionsForRelease reads a
+// release's inbound edge by release_id, for every release the merge queue mints,
+// so the reading is only as cheap as that edge is indexed.
+func TestTheStoreIndexesTheInboundEdgeFromTheRelease(t *testing.T) {
+	ctx, pool := newStore(t)
+
+	var indexed bool
+	err := pool.QueryRow(ctx, `select exists (
+		select 1 from pg_indexes
+		where schemaname = current_schema() and tablename = $1 and indexdef like '%(release_id)%')`,
+		contract.VersionTable).Scan(&indexed)
+	if err != nil {
+		t.Fatalf("reading the indexes of %s: %v", contract.VersionTable, err)
+	}
+	if !indexed {
+		t.Errorf("no index of %s covers release_id, and VersionsForRelease reads a release's inbound edge by it",
+			contract.VersionTable)
 	}
 }
 

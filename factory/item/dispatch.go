@@ -362,6 +362,21 @@ func countFirstEntry(ctx context.Context, tx pgx.Tx, actor record.Actor, itemID 
 	return nil
 }
 
+// enter is dispatch's write of an item's first stage and its first attempt
+// there, on the transaction [Decomposition.CreateTx] began. The stage column
+// defaults to spec and this is what writes it and the count for it, so
+// decomposition reports the item's first transition here instead of writing
+// the column itself, the way [Dispatch.superseded] is what SupersedeTx
+// reports a transition through. It takes no lock and reads nothing first:
+// the row is the one CreateTx has just inserted, on this same transaction,
+// visible to nothing else until it commits.
+func (d *Dispatch) enter(ctx context.Context, tx pgx.Tx, actor record.Actor, itemID string, stage Stage) error {
+	if _, err := tx.Exec(ctx, `update `+Table+` set stage = $1 where id = $2`, string(stage), itemID); err != nil {
+		return fmt.Errorf("item: writing the first stage of %s: %w", itemID, err)
+	}
+	return countEntry(ctx, tx, actor, itemID, stage)
+}
+
 // superseded is dispatch's write of the superseded stage, on the transaction
 // decomposition began. The stage is dispatch's field wherever the transition
 // comes from, so a re-decomposition reports it here rather than writing the

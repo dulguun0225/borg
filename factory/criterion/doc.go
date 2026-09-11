@@ -14,7 +14,9 @@
 // [ControllingHazard] — and the rejection made from the last,
 // [CheckHazardControlled] with [HazardUncontrolledError].
 // mutation.go is [Mutation] with [Mutation.Score], [Mutation.Derived] and
-// [Mutation.Blocks], and [DeriveMutation] with [MutationTools].
+// [Mutation.Blocks], [DeriveMutation] with [MutationTools], and
+// [MutationConvention], published for cmd/factory to compose into the
+// consumer contract's own Go extractor's published convention.
 // mutationwrite.go is [MutationReading], [RecordMutation], [LatestMutation]
 // and [MutationsForBuild]. schema.go is [Table], [WithdrawalTable],
 // [ResultTable] and [MutationTable], the four id prefixes and format versions,

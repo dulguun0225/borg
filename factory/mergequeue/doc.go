@@ -10,11 +10,12 @@
 // order, and the two comparisons no criterion reads. master.go is [Master],
 // [Queue.readMaster] and [Queue.complete]: the one reading of master against the
 // service's release records that the start, every mint, and a restart each
-// make, against every build the records hold naming the service and the commit
-// — [approvedAtMergeToMaster] reads an item's own stage history for whether it
-// was ever approved, whatever stage it stands at now — with the completion of
-// the queue's own unfinished merge, held as a wait rather than minted where the
-// intent's state stops the item. accept.go is [Queue.AcceptCommit] and
+// make, against every build the records hold naming the service and the
+// commit — [gate.ApprovalTimes] over [gate.MergeToMaster] is what tells a build
+// the queue once approved from one it never did, whatever stage the item
+// stands at now — with the completion of the queue's own unfinished merge,
+// held as a wait rather than minted where the intent's state stops the item.
+// accept.go is [Queue.AcceptCommit] and
 // [Acceptance], which reads master the same way before its own mint and
 // completes an unfinished merge the reading finds rather than minting blind.
 // mint.go is the mint, the two readings the number is taken from — the second
@@ -22,18 +23,21 @@
 // [SkippedNumbersPayload]. reading.go is [Reading], [Rejection] with
 // [Rejection.TeachesNothing], [RejectionPayload], [Moved] and [refuseIfRepeats],
 // the check behind [ErrReverificationRepeats] that a re-verification deciding a
-// candidate's own merit never repeats the run that passed. stop.go is
+// candidate's own merit never names the environment cycle already in force —
+// the build repeating is read as nothing to compare, master already an
+// ancestor of the candidate branch being a no-op merge in git. stop.go is
 // [WaitKind], [WaitPayload] and the four conditions that stop a fast-forward.
 // repository.go is the seams: [Repository], [Verified], [Confirmation],
 // [Numbers], [DesignSystem], [Backlog], [Reverts] and [Reliability], each with
 // the value a factory composed without it uses.
 //
-// The tests are fixtures_test.go and five files by subject: db_test.go for the
+// The tests are fixtures_test.go and six files by subject: db_test.go for the
 // two outcomes, the order, the lock and the reliability reading; master_test.go
-// for the readings of master and the acceptance; mint_test.go for the number
-// after a restore; stop_test.go for the halt, the backlog cap and the intent's
-// state; reading_test.go for the three readings of a failure, the two
-// comparisons and the speculation.
+// for the readings of master; accept_test.go for [Queue.AcceptCommit], split out
+// of master_test.go once the two together passed the line bound; mint_test.go
+// for the number after a restore; stop_test.go for the halt, the backlog cap
+// and the intent's state; reading_test.go for the three readings of a failure,
+// the two comparisons and the speculation.
 //
 // # Who may write what
 //

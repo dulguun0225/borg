@@ -83,7 +83,7 @@ func TestAnItemADetectorRaisedOnThatServicePassesTheBudgetHold(t *testing.T) {
 	fix, err := path.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: raised.ID, ServiceID: svc.ID, Branch: "fix-the-failing-share",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("writing the item the detector's intent decomposes into: %v", err)
 	}

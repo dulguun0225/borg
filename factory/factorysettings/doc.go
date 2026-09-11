@@ -18,7 +18,12 @@
 // [Writer.Ensure] and [Insert], which create it with nothing authored and are
 // idempotent on the singleton constraint, [Insert] inside package policy's own
 // transaction; [Get], which reads the whole record; and
-// [SetAllowedPredicateKinds] and [SetRolePromptOrSkillThreshold]. Every authoring
+// [SetAllowedPredicateKinds], [SetRolePromptOrSkillThreshold] and
+// [SetCurrentPolicyVersionID], the last of which package policy's Factory calls
+// in the same transaction as every version it appends, whichever record the
+// write's own field lands on — [Settings.CurrentPolicyVersionID] is what a gate
+// firing reads for the version in force, never the log the version below it is
+// a row of. Every authoring
 // call takes a transaction. attemptlimit.go is [AttemptLimitSubject] and its six
 // values, [OfStage], [SetAttemptLimit] and [AttemptLimit]. samplerates.go is
 // [SetHeldOutSampleRate], [SetReviewSampleRate] and [ReviewSampleRate].
@@ -50,18 +55,20 @@
 // have yet: intake, on the arrival of a records-retention constraint, that
 // constraint kind not being built.
 //
-// What is not read yet: the advisory severity, the remediation period, the report
-// channel's two rates, the harm mark's page cap and whether it pages, report
-// retention, backup retention, and whether seam 5 is enforced. Each is a field
-// with no reader because the mechanism that would read it — the advisory
-// detector, the report store, the erasure list, the seam — is not built, and the
-// field is here rather than a substitute for it.
+// What is not read yet: the advisory severity, the remediation period, and
+// backup retention. Each is a field with no reader because the mechanism that
+// would read it — the advisory detector and the erasure list's retirement —
+// is not built, and the field is here rather than a substitute for it. The
+// report channel's two rates and report retention are read by package
+// reportstore's arrival and its own retention pass; the harm mark's page cap
+// and whether it pages are read by package notifier; and whether seam 5 is
+// enforced is read by package dispatch's hold.
 //
 // What defines it: what shares this record, and the retention values and rates
 // beside them, are
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
-// (C2200, C2233, C2234, C2246, C2256, C2257, C2258, C2259, C2260, C2261, C2262,
-// C2263, C2264, C2265, C2266, C2269, C2273) and
+// (C2200, C2233, C2234, C2235, C2246, C2256, C2257, C2258, C2259, C2260, C2261,
+// C2262, C2263, C2264, C2265, C2266, C2269, C2273) and
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
 // (C2296, C2297, C2298, C2302, C2308, C2312, C2314, C2315);
 //

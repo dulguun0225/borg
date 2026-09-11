@@ -7,6 +7,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -155,10 +156,14 @@ func (q *Queue) AcceptCommit(ctx context.Context, human record.Actor, serviceID,
 }
 
 // rejectCommit is the row a failed re-verification of an accepted commit leaves.
-// It names no item and no reading: there is no item to send anywhere, so no stage
-// is named and no attempt is counted, and there is no earlier run of the criteria
-// on a candidate environment for a confirming run to disagree with. The wait
-// stands, with this row against it.
+// It names no item: there is no item to send anywhere, so no stage is named and
+// no attempt is counted, and there is no earlier run of the criteria on a
+// candidate environment for a confirming run to disagree with. Its reading is
+// always [ReadingAgainstTheMasterItMerges], the reading a failure no criterion
+// decided takes: the row still names which of the queue's readings it was, the
+// log requiring one of every rejection, and a commit that fails to verify
+// against what master actually holds is that reading whether or not an item put
+// it there. The wait stands, with this row against it.
 func (q *Queue) rejectCommit(ctx context.Context, serviceID, commit string, verified Verified) (string, error) {
 	payload, err := json.Marshal(RejectionPayload{
 		Kind:      RejectionKind,
@@ -166,12 +171,15 @@ func (q *Queue) rejectCommit(ctx context.Context, serviceID, commit string, veri
 		BuildID:   verified.BuildID,
 		Commit:    commit,
 		Why:       verified.Why,
+		Reading:   ReadingAgainstTheMasterItMerges,
+		LearnsAs:  string(gate.VerdictReject),
 	})
 	if err != nil {
 		return "", fmt.Errorf("mergequeue: marshalling the rejection of %s: %w", commit, err)
 	}
 	row, err := q.log.AppendQueueRejection(ctx, decisionlog.Entry{
 		Actor: Actor, Payload: string(payload), FormatVersion: rejectionFormatVersion,
+		Reading: string(ReadingAgainstTheMasterItMerges),
 	})
 	if err != nil {
 		return "", err

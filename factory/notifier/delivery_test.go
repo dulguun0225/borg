@@ -1,10 +1,11 @@
 // delivery_test.go is the three channels and what a delivery records: a
 // refused send on one channel not stopping the next, one delivery record per
-// holder, which of the two kinds a wait is, and the harm mark's cap. It is one
-// external test package with db_test.go, pageevents_test.go,
-// driftpass_test.go and deliveryread_test.go, split by subject so each file
-// stays under the line bound — deliveryread_test.go holds [notifier.DeliveryRecord.FirstAcceptedAt]
-// and [notifier.DeliveriesOf].
+// holder, and which of the two kinds a wait is. It is one external test
+// package with db_test.go, pageevents_test.go, driftpass_test.go,
+// deliveryread_test.go and harmmark_test.go, split by subject so each file
+// stays under the line bound — deliveryread_test.go holds
+// [notifier.DeliveryRecord.FirstAcceptedAt] and [notifier.DeliveriesOf], and
+// harmmark_test.go holds the harm mark's off switch and its cap.
 package notifier_test
 
 import (
@@ -302,60 +303,6 @@ func authorHoursCovering(t *testing.T, ctx context.Context, pool *pgxpool.Pool,
 	}
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("committing: %v", err)
-	}
-}
-
-// TestTheHarmMarkCapPagesOncePerIntervalPastIt is the cap: past it a marked
-// intent's own page channel is skipped and one page goes out naming the service
-// and how many arrived past it.
-func TestTheHarmMarkCapPagesOncePerIntervalPastIt(t *testing.T) {
-	ctx, pool, token, n, channels := newNotifier(t)
-	serviceID := aServiceWithNoPagingHoursNow(t, ctx, pool, token)
-
-	for i, row := range []string{"int_one", "int_two", "int_three"} {
-		if _, err := n.Notify(ctx, markedWait(row, serviceID)); err != nil {
-			t.Fatalf("Notify of marked intent %d: %v", i, err)
-		}
-	}
-	if channels.on(notifier.ChannelPage) != 3 {
-		t.Fatalf("the first three marked intents paged %d time(s), want the shipped cap of three",
-			channels.on(notifier.ChannelPage))
-	}
-
-	events, err := n.Notify(ctx, markedWait("int_four", serviceID))
-	if err != nil {
-		t.Fatalf("Notify past the cap: %v", err)
-	}
-	if len(events) != 0 {
-		t.Errorf("the marked intent past the cap paged on its own row: %d event(s)", len(events))
-	}
-	overTheCap, err := n.EventsFor(ctx, "harm_mark_page_cap:"+serviceID)
-	if err != nil {
-		t.Fatalf("EventsFor the cap's own row: %v", err)
-	}
-	if len(overTheCap) != 1 {
-		t.Fatalf("the cap's own row holds %d event(s), want the one page per interval", len(overTheCap))
-	}
-
-	// A second intent past the cap inside the same interval adds no second page.
-	if _, err := n.Notify(ctx, markedWait("int_five", serviceID)); err != nil {
-		t.Fatalf("Notify of a second intent past the cap: %v", err)
-	}
-	again, err := n.EventsFor(ctx, "harm_mark_page_cap:"+serviceID)
-	if err != nil {
-		t.Fatalf("EventsFor the cap's own row: %v", err)
-	}
-	if len(again) != 1 {
-		t.Errorf("the cap's own row holds %d event(s) after a second intent past it, want one per interval", len(again))
-	}
-}
-
-// markedWait is one report marked as describing harm to a person, waiting on
-// whoever holds (2).
-func markedWait(row, serviceID string) notifier.Wait {
-	return notifier.Wait{
-		Row: row, Kind: notifier.KindHarmMarkedReport, ServiceID: serviceID, Worse: true,
-		Waiting: "a report marked as describing harm to a person",
 	}
 }
 

@@ -43,7 +43,7 @@ func TestACandidatesEnvironmentIsComposedFromWhatItsConsumerContractNames(t *tes
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: newIntent(t, ctx, g), ServiceID: g.consumer.ID, Branch: "item/" + record.NewID("in"),
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestACandidateComposesNothingForItsOwnStoreOrAProducerRunningNothing(t *tes
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: newIntent(t, ctx, g), ServiceID: g.consumer.ID, Branch: "item/" + record.NewID("in"),
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
 	}

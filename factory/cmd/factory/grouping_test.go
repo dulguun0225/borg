@@ -75,14 +75,11 @@ func TestReportsBecomeIntents(t *testing.T) {
 	client := overTheSocket(socket)
 
 	decisions, versions := decisionsWritten(t, ctx, d), versionsWritten(t, ctx, d)
+	// Submit hands each report to the grouper's own pass at once — C0384 — so
+	// both are already grouped the moment reportThrough returns, with no call
+	// to Tick in between.
 	reportThrough(t, client, firstReport, "bug", false)
 	reportThrough(t, client, secondReport, "bug", false)
-
-	if moved, err := ps.Tick(ctx, passGrouper); err != nil {
-		t.Fatalf("the first grouper pass: %v\n%s", err, out)
-	} else if !moved {
-		t.Errorf("the grouper pass over two arrived reports announced nothing:\n%s", out)
-	}
 
 	// Two reports about two problems are two intents, each raised by the first
 	// report of its group: nothing waited for a batch or a count.
@@ -130,11 +127,6 @@ func TestReportsBecomeIntents(t *testing.T) {
 	// marking harm fires one page for the intent it landed in.
 	statement, since := in.Statement, record.Now()
 	reportThrough(t, client, thirdReport, "complaint", true)
-	if moved, err := ps.Tick(ctx, passGrouper); err != nil {
-		t.Fatalf("the second grouper pass: %v\n%s", err, out)
-	} else if !moved {
-		t.Errorf("the grouper pass over an arrived report announced nothing:\n%s", out)
-	}
 	if attached := reportIntents(t, ctx, d, p); len(attached) != 2 {
 		t.Errorf("a third report made %d intent(s), want the same 2: a later report attaches",
 			len(attached))
@@ -172,10 +164,10 @@ func TestReportsBecomeIntents(t *testing.T) {
 func assertTheSourceResolvesAtSpec(t *testing.T, ctx context.Context, d deps, p *path,
 	serviceID, intentID string) {
 	t.Helper()
-	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: intentID, ServiceID: serviceID, AreaChain: []string{p.areaID}, Branch: "candidate/reports",
 		RequirementsAnswered: oneRequirement,
-	}, p.projectID, p.projectID, nil)
+	}, p.projectID, p.projectID)
 	if err != nil {
 		t.Fatalf("writing an item of the intent grouped from reports: %v", err)
 	}

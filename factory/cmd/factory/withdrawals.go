@@ -111,15 +111,18 @@ func provenanceOf(source criterion.Provenance) (string, bool) {
 	}
 }
 
-// stillHolding is the human the provenance names where that human still holds
-// the row's duty, and nobody otherwise — which routes the row to another holder
-// of that duty, the way the design says a withdrawal of a human-confirmed
-// criterion routes when its decider no longer holds it.
+// stillHolding is the human the provenance names: the decider, where the
+// decider still holds the row's duty, another holder of that duty where the
+// decider no longer holds it, and nobody where nobody holds it at all — which
+// is the score's own case to refuse rather than route to the owner.
 func stillHolding(decider string, holders []string) string {
-	if decider == "" || !slices.Contains(holders, decider) {
-		return ""
+	if decider != "" && slices.Contains(holders, decider) {
+		return decider
 	}
-	return decider
+	if len(holders) > 0 {
+		return holders[0]
+	}
+	return ""
 }
 
 // humanConfirmedSpecVersions is every spec version a human decided, and who

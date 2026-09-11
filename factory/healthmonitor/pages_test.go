@@ -33,7 +33,7 @@ func TestARollbackNotCompleteAtTheDeployersNextCheckPages(t *testing.T) {
 	// The rollback the health monitor called for, started and never completed on
 	// its target.
 	rollback, err := g.deploys.StartUndoing(ctx, theActor, deploy.Beginning{
-		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		ServiceID: g.serviceID, EnvironmentID: g.environmentID,
 		What:    deploy.OfRelease(below.ID, below.BuildID),
 		Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
 	}, deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed})

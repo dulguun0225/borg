@@ -64,7 +64,7 @@ func TestAReportDerivedIntentWaitsForAHumansAdmission(t *testing.T) {
 	it, err := c.decomposition.Create(c.ctx, decompositionActor, item.New{
 		IntentID: in.ID, ServiceID: oneService, AreaChain: []string{c.oneArea}, Branch: "item/save",
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, oneProject, oneProject, nil)
+	}, oneProject, oneProject)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}

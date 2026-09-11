@@ -123,7 +123,13 @@ func newFactory(t *testing.T) (context.Context, installed) {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
 
-	factory := policy.NewFactory(pool, token)
+	// noRates is the stub every fixture composes Factory with: a test that
+	// cares what a threshold write froze sets in.factory.AutoPassRates itself,
+	// autopassrate_test.go being the one that does.
+	noRates := func(context.Context, policy.Scope, string, float64) ([]policy.AutoPassRate, error) {
+		return nil, nil
+	}
+	factory := policy.NewFactory(pool, token, noRates)
 	install, err := factory.Install(ctx, owner, "acme", []string{"/srv/targets"}, credential, 8)
 	if err != nil {
 		t.Fatalf("Install: %v", err)

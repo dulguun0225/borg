@@ -95,10 +95,10 @@ func TestAChangeFreezePassesARevert(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("OnEvidence over the revert = found %v, %v", found, err)
 	}
-	revertItem, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	revertItem, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: revert.ID, ServiceID: svc.ID, Branch: "item/revert",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the revert item: %v", err)
 	}
@@ -133,7 +133,7 @@ func TestAChangeFreezePassesAnItemTheHealthMonitorRaised(t *testing.T) {
 	fix, err := path.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: raised.ID, ServiceID: svc.ID, Branch: "fix-the-failing-share",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("writing the item the health monitor's intent decomposes into: %v", err)
 	}

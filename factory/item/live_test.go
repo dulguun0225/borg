@@ -49,7 +49,7 @@ func newLiveStore(t *testing.T) (context.Context, *pgxpool.Pool, *item.Decomposi
 			}
 		}
 	}
-	return ctx, pool, item.NewDecomposition(pool, token), item.NewDispatch(pool, token),
+	return ctx, pool, item.NewDecomposition(pool, token, item.NoHolds{}), item.NewDispatch(pool, token),
 		release.NewWriter(pool, token), deploy.NewWriter(pool, token)
 }
 
@@ -61,7 +61,7 @@ func itemOn(ctx context.Context, t *testing.T, decomposition *item.Decomposition
 	it, err := decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: intentID, ServiceID: serviceID, Branch: branch,
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing %s: %v", branch, err)
 	}

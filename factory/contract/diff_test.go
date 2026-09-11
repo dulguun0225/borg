@@ -148,24 +148,24 @@ func TestAStoreBreaksOnAPopulatedAdditionAndOnAConstraint(t *testing.T) {
 			asInterface.Breaking)
 	}
 
-	// A not-null constraint and a domain check are the store rule's addable
-	// pair: whether either breaks turns on the declarations in force, which this
-	// does not see, so it reports them and leaves Breaking to what breaks
-	// whatever is declared. A caller that minted a major from Breaking alone
-	// would otherwise promise a break an addable constraint does not cause.
+	// A not-null constraint added to a store element breaks the forward promise
+	// outright: the build being restored writes what it always wrote, and a
+	// write that leaves the element empty is what the newer schema now refuses.
 	constrained := form(contract.KindStore, element("Ledger.ID", "string", true, false))
 	constrained.Elements[0].NotNull = true
 	change := contract.Diff(before, constrained)
-	if !slices.Equal(change.Constrained, []string{"Ledger.ID"}) || len(change.Breaking) != 0 {
-		t.Fatalf("a not-null constraint added to a store element is %s and breaks %v, and whether it breaks is the declarations' to say",
+	if !slices.Equal(change.Constrained, []string{"Ledger.ID"}) || !slices.Equal(change.Breaking, []string{"Ledger.ID"}) {
+		t.Fatalf("a not-null constraint added to a store element is %s and breaks %v, want it breaking",
 			change.Describe(), change.Breaking)
 	}
 
+	// A domain narrowed on a store element breaks the same way: the newer form
+	// refuses a value the build being restored still writes.
 	narrowed := form(contract.KindStore, element("Ledger.ID", "string", true, false))
 	narrowed.Elements[0].Domain = []string{"ok"}
 	domainCheck := contract.Diff(before, narrowed)
-	if !slices.Equal(domainCheck.Narrowed, []string{"Ledger.ID"}) || len(domainCheck.Breaking) != 0 {
-		t.Fatalf("a domain check added to a store element is %s and breaks %v, and whether it breaks is the declarations' to say",
+	if !slices.Equal(domainCheck.Narrowed, []string{"Ledger.ID"}) || !slices.Equal(domainCheck.Breaking, []string{"Ledger.ID"}) {
+		t.Fatalf("a domain check added to a store element is %s and breaks %v, want it breaking",
 			domainCheck.Describe(), domainCheck.Breaking)
 	}
 

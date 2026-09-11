@@ -82,6 +82,12 @@ type Settings struct {
 	// Seam5Enforced is whether seam 5 is enforced. It is off at install and an
 	// owner turns it on once; nothing turns it off again.
 	Seam5Enforced bool
+	// CurrentPolicyVersionID is the id of the newest policy version, written by
+	// [SetCurrentPolicyVersionID] in the same transaction as every append to
+	// the decision log. A gate firing reads this field for the version in
+	// force rather than the log: the version below is the copy the audit
+	// trail keeps, and never what a mechanism reads.
+	CurrentPolicyVersionID string
 }
 
 // Writer creates the record, as Factory.
@@ -156,6 +162,25 @@ func SetRolePromptOrSkillThreshold(ctx context.Context, tx pgx.Tx, settingsID st
 	return update(ctx, tx, settingsID, `role_prompt_or_skill_threshold = $1`, threshold)
 }
 
+// SetCurrentPolicyVersionID writes the policy version most recently appended,
+// inside tx. Package policy's Factory.append is the one caller, and it calls
+// this in the same transaction as every version it appends — a creation
+// included, whose apply runs first and so has already inserted the record this
+// writes onto — so the field and the version below it commit together or not
+// at all. It reads by the singleton constraint rather than by id, because the
+// id is not always at hand where the caller only otherwise touches a
+// different record's field.
+func SetCurrentPolicyVersionID(ctx context.Context, tx pgx.Tx, versionID string) error {
+	tag, err := tx.Exec(ctx, `update `+Table+` set current_policy_version_id = $1 where only_row`, versionID)
+	if err != nil {
+		return fmt.Errorf("factorysettings: recording the current policy version: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // update writes one field of the record inside tx. assignment is a constant of
 // this package and never input, so writing it into the statement is not a place
 // anything can be injected.
@@ -196,7 +221,8 @@ func insertKeyed(ctx context.Context, tx pgx.Tx, actor record.Actor, table, pref
 const selectSettings = `select id, actor_kind, actor_key, actor_key_basis, at, allowed_predicate_kinds,
 	role_prompt_or_skill_threshold, advisory_severity, held_out_sample_rate,
 	decision_log_retention_seconds, report_retention_seconds, backup_retention_seconds,
-	retention_floor_seconds, report_channel_rate, harm_mark_pages, seam_5_enforced
+	retention_floor_seconds, report_channel_rate, harm_mark_pages, seam_5_enforced,
+	current_policy_version_id
 	from ` + Table + ` where only_row`
 
 // Get is the factory-wide settings record. It takes the pool and not a [Writer],
@@ -218,7 +244,8 @@ func scanSettings(row pgx.Row) (Settings, error) {
 	var decisionLog, report, backup, floor, rate *int64
 	err := row.Scan(&s.ID, &kind, &s.Actor.Key, &basis, &s.At, &allowed,
 		&threshold, &severity, &heldOut,
-		&decisionLog, &report, &backup, &floor, &rate, &s.HarmMarkPages, &s.Seam5Enforced)
+		&decisionLog, &report, &backup, &floor, &rate, &s.HarmMarkPages, &s.Seam5Enforced,
+		&s.CurrentPolicyVersionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Settings{}, ErrNotFound
 	} else if err != nil {

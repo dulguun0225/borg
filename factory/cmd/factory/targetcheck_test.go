@@ -1,6 +1,5 @@
-// The deployer's own last check for one production environment: what it says
-// about whether a further pass is owed, which is what tells a component that
-// stopped from a rollout that has finished.
+// The deployer's own last check per target of a persistent environment, and
+// its own last check per platform, both written on every production deploy.
 package main
 
 import (
@@ -13,17 +12,20 @@ import (
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
-// TestTheDeployersLastCheckOwesAFurtherPassOnlyWhereTheRolloutHasNotFinished is
-// the promise the record carries. A record past its interval with a further
-// pass owed is always something that stopped, so an environment the rollout
-// has finished on every target of records that this pass was the last one
-// owed there — otherwise every completed run would leave a record that goes
-// stale on its own and raises a stale-component mismatch holding every
-// service on that environment. An environment with a target the rollout has
-// not reached still owes one, which is what the drift detector's rollout
-// exemption is bounded by. The record is keyed by the production environment
-// and not by any one target, so both readings are the same one row.
-func TestTheDeployersLastCheckOwesAFurtherPassOnlyWhereTheRolloutHasNotFinished(t *testing.T) {
+// TestTheDeployersLastCheckIsWrittenPerTargetAndAlwaysOwesAFurtherPass is the
+// promise the record carries. A rollout advances only while the deployer
+// runs, so a target whose deployer last check is past the interval it names,
+// with a further pass owed, is what stops a drift-detection exemption
+// standing on a rollout that is not advancing — and every check this write
+// makes names a further pass owed, whether or not the rollout has reached
+// that target yet, because the deployer keeps passing over a persistent
+// target for as long as it is in the environment. That is what makes a
+// rollout finished with a target and a deployer that has simply stopped
+// running read the same way once the interval passes: only staleness answers
+// it, and never the rollout's own progress. The record is keyed by the
+// target's own address, so a target the rollout has not reached yet gets its
+// own row and the target it has reached is untouched by it.
+func TestTheDeployersLastCheckIsWrittenPerTargetAndAlwaysOwesAFurtherPass(t *testing.T) {
 	ctx, d, _ := newPath(t, "")
 	path := p(ctx, t, d)
 	svc := theServiceRecord(t, ctx, path)
@@ -47,41 +49,24 @@ func TestTheDeployersLastCheckOwesAFurtherPassOnlyWhereTheRolloutHasNotFinished(
 		t.Fatalf("completing the target the rollout reached: %v", err)
 	}
 
-	if err := path.recordEnvironmentCheck(ctx, dep); err != nil {
-		t.Fatalf("recording the deployer's last check: %v", err)
+	if err := path.recordTargetChecks(ctx, dep); err != nil {
+		t.Fatalf("recording the deployer's last checks: %v", err)
 	}
 
 	// Long enough after that any interval this interface promises has passed.
 	longAfter := time.Now().Add(24 * time.Hour)
 
-	owed, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, path.production.ID)
-	if err != nil || !found {
-		t.Fatalf("Get(the deployer's check on the production environment) = found %v, %v", found, err)
-	}
-	if !owed.FurtherPassOwed() {
-		t.Error("the deployer owes no further pass while a target of the environment has not been reached")
-	}
-	if stale, err := owed.Stale(longAfter); err != nil || !stale {
-		t.Errorf("Stale a day later = %v, %v; a rollout that stopped part way is what this reads as", stale, err)
-	}
-
-	if err := deploy.NewWriter(d.pool, d.token).CompleteTarget(ctx, dep.ID, unreached,
-		targetseam.ReplacementDrained); err != nil {
-		t.Fatalf("completing the second target the rollout reached: %v", err)
-	}
-	if err := path.recordEnvironmentCheck(ctx, dep); err != nil {
-		t.Fatalf("recording the deployer's last check again: %v", err)
-	}
-
-	finished, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, path.production.ID)
-	if err != nil || !found {
-		t.Fatalf("Get(the deployer's check on the production environment) = found %v, %v", found, err)
-	}
-	if finished.FurtherPassOwed() {
-		t.Error("the deployer promised a further pass over an environment its rollout has finished with, and nothing here makes one")
-	}
-	if stale, err := finished.Stale(longAfter); err != nil || stale {
-		t.Errorf("Stale a day later = %v, %v; a record owed no further pass never goes stale", stale, err)
+	for _, address := range []string{d.dir, unreached} {
+		check, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, address)
+		if err != nil || !found {
+			t.Fatalf("Get(the deployer's check on %s) = found %v, %v", address, found, err)
+		}
+		if !check.FurtherPassOwed() {
+			t.Errorf("the deployer's check on %s owes no further pass, want one owed until the target leaves the environment", address)
+		}
+		if stale, err := check.Stale(longAfter); err != nil || !stale {
+			t.Errorf("Stale a day later on %s = %v, %v; nothing here promises a further pass and never makes one", address, stale, err)
+		}
 	}
 }
 
@@ -89,7 +74,9 @@ func TestTheDeployersLastCheckOwesAFurtherPassOnlyWhereTheRolloutHasNotFinished(
 // lastcheck.Writer.RecordPlatformPass, the sole writer of the deployer's
 // per-platform record, exercised through the composition: package deploy no
 // longer has a second writer of its own, and this is what calls the one that
-// is left.
+// is left — keyed by the production environment record's own id and not by
+// the platform's name, so an install whose projects run on two platforms adds
+// neither count across them.
 func TestTheDeployersPlatformCheckIsWrittenOnEveryProductionDeploy(t *testing.T) {
 	ctx, d, _ := newPath(t, "")
 	path := p(ctx, t, d)
@@ -98,7 +85,7 @@ func TestTheDeployersPlatformCheckIsWrittenOnEveryProductionDeploy(t *testing.T)
 		t.Fatalf("recording the deployer's platform check: %v", err)
 	}
 
-	check, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, path.production.Platform.Name)
+	check, found, err := lastcheck.Get(ctx, d.pool, lastcheck.ComponentDeployer, path.production.ID)
 	if err != nil || !found {
 		t.Fatalf("Get(the deployer's check on the platform) = found %v, %v", found, err)
 	}

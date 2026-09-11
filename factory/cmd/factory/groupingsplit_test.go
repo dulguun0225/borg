@@ -5,7 +5,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -51,15 +50,15 @@ func TestASplitMovesReportsBeforeDecomposition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("composing the path that groups: %v\n%s", err, out)
 	}
-	ps := newPasses(p, nil, nil)
 	socket := localtarget.WayInSocket(d.dir, theService)
 	waitForTheWayIn(t, socket)
 	client := overTheSocket(socket)
 
-	// One group, one intent, both reports in it.
+	// One group, one intent, both reports in it. Arrival makes each report its
+	// own pass, so both stand grouped the moment the second reportThrough
+	// returns.
 	reportThrough(t, client, splitStays, "bug", false)
 	reportThrough(t, client, splitMoves, "complaint", false)
-	tick(t, ctx, ps, out, "the first grouper pass")
 	first := reportIntents(t, ctx, d, p)
 	if len(first) != 1 {
 		t.Fatalf("%d intent(s) from one group, want one: %v\n%s", len(first), first, out)
@@ -69,12 +68,11 @@ func TestASplitMovesReportsBeforeDecomposition(t *testing.T) {
 		t.Fatalf("the store holds %d report(s), want the two submitted", len(ids))
 	}
 
-	// The role changes its mind. A third report is what makes the pass read at
-	// all — a pass with nothing ungrouped does nothing — and the split is over
-	// the reports it reads again.
+	// The role changes its mind. A third report is what makes arrival's own
+	// pass read at all — a pass with nothing ungrouped does nothing — and the
+	// split is over the reports that pass reads again.
 	fake.apart = splitApart
 	reportThrough(t, client, splitThird, "bug", false)
-	tick(t, ctx, ps, out, "the grouper pass that splits")
 
 	if got := intentOfReport(t, ctx, d, ids[0]); got != first[0] {
 		t.Errorf("the report that raised the intent is now in %q, want it left in %s", got, first[0])
@@ -95,7 +93,6 @@ func TestASplitMovesReportsBeforeDecomposition(t *testing.T) {
 	// split left move into the first and are ended holding nothing.
 	fake.apart, fake.allTogether = "", true
 	reportThrough(t, client, splitFourth, "bug", false)
-	tick(t, ctx, ps, out, "the grouper pass that merges")
 
 	for _, id := range reportIDs(t, ctx, d, p) {
 		if got := intentOfReport(t, ctx, d, id); got != first[0] {
@@ -138,14 +135,12 @@ func TestAReportDoesNotMoveOutOfADecomposedIntent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("composing the path that groups: %v\n%s", err, out)
 	}
-	ps := newPasses(p, nil, nil)
 	socket := localtarget.WayInSocket(d.dir, theService)
 	waitForTheWayIn(t, socket)
 	client := overTheSocket(socket)
 
 	reportThrough(t, client, splitStays, "bug", false)
 	reportThrough(t, client, splitMoves, "complaint", false)
-	tick(t, ctx, ps, out, "the first grouper pass")
 	grouped := reportIntents(t, ctx, d, p)
 	if len(grouped) != 1 {
 		t.Fatalf("%d intent(s) from one group, want one: %v\n%s", len(grouped), grouped, out)
@@ -157,16 +152,15 @@ func TestAReportDoesNotMoveOutOfADecomposedIntent(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reading the service: %v, found %v", err, found)
 	}
-	if _, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	if _, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: grouped[0], ServiceID: svc.ID, AreaChain: []string{p.areaID}, Branch: "candidate/grouped",
 		RequirementsAnswered: oneRequirement,
-	}, p.projectID, p.projectID, nil); err != nil {
+	}, p.projectID, p.projectID); err != nil {
 		t.Fatalf("decomposing the report-derived intent: %v", err)
 	}
 
 	fake.apart = splitApart
 	reportThrough(t, client, splitThird, "bug", false)
-	tick(t, ctx, ps, out, "the grouper pass after decomposition")
 
 	for n, id := range ids {
 		if got := intentOfReport(t, ctx, d, id); got != grouped[0] {
@@ -179,16 +173,6 @@ func TestAReportDoesNotMoveOutOfADecomposedIntent(t *testing.T) {
 	}
 	if raised := reportIntents(t, ctx, d, p); len(raised) != 2 {
 		t.Errorf("%d intent(s), want the decomposed one and the third report's own", len(raised))
-	}
-}
-
-// tick runs the grouper's pass once and fails the test where it did not.
-func tick(t *testing.T, ctx context.Context, ps *passes, out fmt.Stringer, what string) {
-	t.Helper()
-	if moved, err := ps.Tick(ctx, passGrouper); err != nil {
-		t.Fatalf("%s: %v\n%s", what, err, out)
-	} else if !moved {
-		t.Fatalf("%s wrote nothing:\n%s", what, out)
 	}
 }
 

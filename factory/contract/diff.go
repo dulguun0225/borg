@@ -24,17 +24,17 @@ type Change struct {
 	// anything.
 	Required []string
 	// Narrowed is an accepted value withdrawn from a domain or a range made
-	// tighter, and Widened is the other direction, which breaks nobody.
+	// tighter, and Widened is the other direction, which breaks nobody. In input
+	// position a narrowing breaks whoever sends what it no longer accepts, and on
+	// a store it breaks the forward promise: the build being restored still
+	// writes what the narrower form now refuses.
 	Narrowed []string
 	Widened  []string
-	// Constrained is a store element that gained a not-null constraint, a
-	// uniqueness rule, or a domain check. A uniqueness rule is breaking on its
-	// own — no declaration can say a write would not collide with another's —
-	// and the other two are not here: they are breaking where a write a
-	// declaration in force still makes would violate the new form, which is a
-	// question about the declarations and so enforcement's rather than the
-	// diff's. So neither list puts such an element in Breaking, and a reader
-	// that has the declarations decides it from these two lists and the forms.
+	// Constrained is a store element that gained a not-null constraint or a
+	// uniqueness rule, both breaking the forward promise on their own — a
+	// uniqueness rule because no declaration can say a write would not collide
+	// with another's, and a not-null constraint because a restored build's write
+	// still leaves the element empty.
 	Constrained []string
 	Marked      []string
 	Unmarked    []string
@@ -96,19 +96,15 @@ func (c Change) Describe() string {
 // accepts.
 //
 // A store is read and written by the same service, so its promise runs forward as
-// well and its elements break on the union of the two: an element added and
-// always populated (the build being restored does not write it), an element
-// removed, retyped or weakened, and a uniqueness rule added, which no
-// declaration can say a write would not collide with.
-//
-// A not-null constraint and a domain check are the store rule's addable pair and
-// are not in Breaking. They break where a write a declaration in force still
-// makes would violate the new form, and the declarations are not something this
-// sees — so they are reported in Constrained and Narrowed, and the reader that
-// holds the declarations decides them, as it decides the backfill's completion.
-// Breaking is therefore what breaks whatever is declared, and a caller that
-// minted a major from it alone would promise a break an addable constraint does
-// not cause.
+// well as backward, over writes as well as reads: the build being restored reads
+// what the newer one wrote, and the schema the newer one installed still has to
+// accept what the restored build writes. Its elements break on the union of the
+// two directions: an element added and always populated (the build being
+// restored does not write it), an element removed, retyped or weakened, a
+// uniqueness rule added — which no declaration can say a write would not collide
+// with — a not-null constraint added, and a domain or a range narrowed: each of
+// the last two is a write the restored build always made and the newer form now
+// refuses, so both break outright rather than turning on what is declared.
 //
 // before is the zero [Form] where the contract is published for the first time,
 // and everything is then an addition — which breaks nothing in any position: there
@@ -174,11 +170,11 @@ func (c *Change) compare(was, e Element) {
 	narrowed, widened := accepted(was, e)
 	if narrowed {
 		c.Narrowed = append(c.Narrowed, e.Name)
-		// A narrowing on a store element is the domain check of the store rule's
-		// addable list, so whether it breaks is enforcement's question and not
-		// this one's; in input position it breaks whoever sends what it no
-		// longer accepts.
-		if e.Position == PositionInput {
+		// In input position a narrowing breaks whoever sends what it no longer
+		// accepts; on a store it breaks the forward promise the same way — the
+		// build being restored still writes what the domain or the range no
+		// longer admits.
+		if e.Position == PositionInput || e.Position == PositionStore {
 			c.breaks(e.Name)
 		}
 	}
@@ -187,11 +183,11 @@ func (c *Change) compare(was, e Element) {
 	}
 	if constrained(was, e) {
 		c.Constrained = append(c.Constrained, e.Name)
-		// A uniqueness rule is not on the addable list: no predicate can say a
-		// write would not collide with another's, so it breaks on its own. A
-		// not-null constraint is the other addable one and is left to
-		// enforcement with the narrowing.
-		if e.Position == PositionStore && !was.Unique && e.Unique {
+		// Both of a store element's own constraints break the forward promise
+		// outright: a uniqueness rule refuses whatever collides, which no
+		// predicate can say would not happen, and a not-null constraint refuses
+		// what a restored build's write leaves empty, which it always did.
+		if e.Position == PositionStore {
 			c.breaks(e.Name)
 		}
 	}

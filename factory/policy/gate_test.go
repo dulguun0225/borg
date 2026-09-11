@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -221,4 +223,47 @@ func TestEveryRowButADeployIntoAPersistentEnvironmentReadsProductionsThreshold(t
 	if applied.Threshold != 0.11 {
 		t.Errorf("a firing against production read %v, want the 0.11 authored there", applied.Threshold)
 	}
+}
+
+// TestAtGateNamesTheVersionWithNoLogRead is C2235 "The policy version below is
+// the copy the audit trail keeps, and never what a mechanism reads, so no gate
+// reads the log to fire": the version in force is read off the factory-wide
+// settings record's own field, which Factory.append writes in the same
+// transaction as every version it appends, and never off a scan of the log.
+//
+// The row here names no environment and nothing is authored on it, so
+// [Reader.scoreVersionAt] takes its own early return and never reaches
+// [score.InForceAt] — which does read the log, for a reason of its own, an
+// authored threshold's confirmation, that is no part of this claim.
+func TestAtGateNamesTheVersionWithNoLogRead(t *testing.T) {
+	ctx, in := newFactory(t)
+	newest := newestVersion(t, ctx, in)
+
+	before := readEventCount(t, ctx, in.pool)
+	applied, err := in.reader.AtGate(ctx, ownerReading, policy.Subjects{GateRow: "merge_to_master"})
+	if err != nil {
+		t.Fatalf("AtGate: %v", err)
+	}
+	after := readEventCount(t, ctx, in.pool)
+
+	if applied.PolicyVersion != newest.ID {
+		t.Errorf("AtGate named version %q, want the newest %q", applied.PolicyVersion, newest.ID)
+	}
+	if after != before {
+		t.Errorf("AtGate appended %d read event(s) to the log, want none", after-before)
+	}
+}
+
+// readEventCount is a raw count of the log's own read events, run without
+// going through [decisionlog.Reader]: every one of its own read methods
+// appends a read event of its own, which would make the count it took the
+// thing it changed.
+func readEventCount(t *testing.T, ctx context.Context, pool *pgxpool.Pool) int {
+	t.Helper()
+	var count int
+	if err := pool.QueryRow(ctx, `select count(*) from `+decisionlog.Table+` where shape = $1`,
+		string(decisionlog.ShapeReadEvent)).Scan(&count); err != nil {
+		t.Fatalf("counting read events: %v", err)
+	}
+	return count
 }

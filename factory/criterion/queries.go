@@ -2,8 +2,11 @@ package criterion
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // Provenance is one of the three sources that name an authority a withdrawal is
@@ -29,25 +32,66 @@ var Provenances = []Provenance{
 	ProvenanceHumanConfirmed, ProvenanceConstraintDerived, ProvenanceHazardDerived,
 }
 
-// HumanConfirmed is every criterion in force for the build whose introducing
-// spec version a human decided. Human-confirmed is not a field: it is a query
-// over that version's decision, the way in force is already a query, and the
-// decision is the decision log's fact and not this table's — so the caller
-// reads which spec versions a human decided and passes what it read, the way
-// [CheckHazardControlled] takes the grade.
+// IntroducingDecision is the seam [HumanConfirmed] reads: the actor of the
+// decision that introduced the spec version named, and whether such a
+// decision was found at all. Human-confirmed is not a field of this table —
+// it is a query over that decision, the way in force is already a query — and
+// the decision is the decision log's fact and not this package's, which
+// criterion may not import per deps.txt; cmd/factory implements this over the
+// log so the package decides human-confirmed itself rather than a caller
+// filtering a list it assembled.
 //
-// A criterion whose introducing decision the log's retention cut removed is not
-// in the set the caller assembled and reads here as unknown provenance, which
-// is the cost the design states.
+// found is false where the log holds no such decision at all — cut by
+// retention, or none ever opened — which [HumanConfirmed] then reads as
+// unknown provenance rather than as confirmed, the cost the design states.
+type IntroducingDecision interface {
+	IntroducingDecision(ctx context.Context, specArtifactID string) (actor record.Actor, found bool, err error)
+}
+
+// HumanConfirmed is every criterion in force for the build whose introducing
+// spec version a human decided, read through decisions: for each criterion in
+// force, [IntroducingDecision.IntroducingDecision] on its spec artifact id
+// answers who decided it, and human-confirmed is that decision found and its
+// actor a human.
 func HumanConfirmed(ctx context.Context, pool *pgxpool.Pool, serviceID string,
-	itemIDs, humanConfirmedSpecVersions []string) ([]Criterion, error) {
-	if len(itemIDs) == 0 || len(humanConfirmedSpecVersions) == 0 {
+	itemIDs []string, decisions IntroducingDecision) ([]Criterion, error) {
+	if len(itemIDs) == 0 {
 		return nil, nil
 	}
-	return query(ctx, pool, serviceID,
-		selectCriterion+` where service_id = $1 and item_id = any($2) and spec_artifact_id = any($3)`+
-			notWithdrawn+` order by at`,
-		serviceID, itemIDs, humanConfirmedSpecVersions)
+	inForce, err := InForce(ctx, pool, serviceID, itemIDs)
+	if err != nil {
+		return nil, err
+	}
+	confirmed := make([]Criterion, 0, len(inForce))
+	for _, c := range inForce {
+		actor, found, err := decisions.IntroducingDecision(ctx, c.SpecArtifactID)
+		if err != nil {
+			return nil, fmt.Errorf("criterion: reading the introducing decision of %s: %w", c.SpecArtifactID, err)
+		}
+		if found && actor.Kind == record.KindHuman {
+			confirmed = append(confirmed, c)
+		}
+	}
+	return confirmed, nil
+}
+
+// CountNoPattern is how many criteria in force for the build fit no pattern —
+// a form everything can escape is not a form, so it is counted the way
+// [_Factory_] counts every criterion admitted as an exception. It is the
+// in-force set narrowed to [PatternNoPattern], and a build with no items is no
+// criteria and no error, the way [InForce] reads that build.
+func CountNoPattern(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string) (int, error) {
+	if len(itemIDs) == 0 {
+		return 0, nil
+	}
+	var count int
+	err := pool.QueryRow(ctx, `select count(*) from `+Table+`
+		where service_id = $1 and item_id = any($2) and pattern = $3`+notWithdrawn,
+		serviceID, itemIDs, string(PatternNoPattern)).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("criterion: counting the no-pattern criteria of %s: %w", serviceID, err)
+	}
+	return count, nil
 }
 
 // WithdrawalWithAnAuthority is one criterion a spec version withdraws whose

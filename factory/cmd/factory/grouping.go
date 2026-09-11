@@ -119,8 +119,9 @@ func (p *path) groupReports(ctx context.Context) (bool, error) {
 	for _, dropped := range did.Dropped {
 		fmt.Fprintf(p.d.out, "%s was left holding no report by that split and is ended\n", dropped)
 	}
-	if did.LeftUngrouped > 0 {
-		fmt.Fprintf(p.d.out, "%d report(s) were left in no group and stay ungrouped\n", did.LeftUngrouped)
+	if did.Declined > 0 {
+		fmt.Fprintf(p.d.out, "%d report(s) the reply left in no group were each raised as an intent of their own\n",
+			did.Declined)
 	}
 	return did.Wrote(), err
 }

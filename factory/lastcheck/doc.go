@@ -8,15 +8,15 @@
 // [LastCheck.Stale], the [Components] that write one and the constant per
 // component, [Writer] and [NewWriter] with [Writer.Record], and the reads [All],
 // [ForComponent], [Get] and [Stale]. platform.go is the deployer's per-platform
-// record: [PlatformPass] with [PlatformPass.Leaked],
-// [Writer.RecordPlatformPass] and [PlatformPassOf]. schema.go is [Table],
-// [IDPrefix], [FormatVersion] and [DDL].
+// record: [PlatformPass], [Writer.RecordPlatformPass] and [PlatformPassOf].
+// schema.go is [Table], [IDPrefix], [FormatVersion] and [DDL].
 //
 // The tests are db_test.go, every one of them against the database.
 //
 // One record type, overwritten per component and subject: an insert that
 // conflicts on the pair and updates. The subject is a service id, a target
-// address, a platform name, or empty on the record a component keeps for itself.
+// address, a production environment record's id, or empty on the record a
+// component keeps for itself.
 // The payload is the counts the writer reports, stored as the text the writer
 // wrote and read here for one shape only: the deployer's per-platform record,
 // whose three counts the design names and a screen reads back, which is what
@@ -43,13 +43,13 @@
 // every pass it makes over that service's windows; the notifier writes its
 // single one for itself on the pass that reads the drift detector's store; the
 // deployer writes two kinds of its own, both on every production deploy: one
-// per production environment, keyed by that record and not by any one
-// target, through deploy.RecordEnvironmentCheck, and one per platform a
-// production environment record declares, beside it,
-// through [Writer.RecordPlatformPass] here — the sole writer of that record,
-// composing the payload from the three counts the design names rather than
-// taking it as text; and package contractcheck's pass over the deprecation
-// list writes its single one for itself on every pass of
+// per target of a persistent environment, keyed by the target's own address,
+// through deploy.RecordTargetCheck, and one per platform a production
+// environment record declares, keyed by that record's own id and not by the
+// platform's name, through [Writer.RecordPlatformPass] here — the sole writer
+// of that record, composing the payload from the three counts the design
+// names rather than taking it as text; and package contractcheck's pass over
+// the deprecation list writes its single one for itself on every pass of
 // [contractcheck.Check.Raise], the shape this and the notifier's own already
 // have. The other three are not
 // wired: a single record each for the pass over the constraints in force, the
@@ -73,8 +73,7 @@
 // reports.
 //
 // The deployer's last check making the state readable is
-// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1756), and
-// the newest record the health monitor writes onto its own is
-// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
-// (C1977).
+// ../../end-goal/how-the-factory-works/06-releases/06-rollback.md (C1756); the
+// newest record the health monitor writes onto its own is a field here and a
+// reading the health monitor makes, cited there.
 package lastcheck

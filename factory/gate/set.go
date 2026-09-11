@@ -113,6 +113,12 @@ type SetFiring struct {
 	// other gates the close-by-the-author refusal applies at: the editor is
 	// carried here instead, and the row bars them from closing it.
 	editedBy string
+	// referrers is every holder who has already referred this row, set by
+	// [Gate.Refer] and by nothing else — the field [Firing.referrers] keeps one
+	// level down, carried here because this row's open event names the intent
+	// and the members and has no firing of its own to keep it on between the
+	// two calls a refer makes.
+	referrers []string
 }
 
 // SetMemberPayload is one member as the open event stores it.
@@ -165,6 +171,12 @@ type SetOpeningPayload struct {
 	// Supersedes is the open event an Edit in place superseded, and is empty on
 	// every other firing. The superseded row is ended by an abandonment.
 	Supersedes string `json:"supersedes,omitempty"`
+	// Referrers is every holder who has referred this row, carried forward from
+	// one firing to the next the way [OpeningPayload.Referrers] is at every
+	// other row, so a refer at a re-fired Decomposition row is refused against a
+	// holder who has already referred it rather than only against the holders a
+	// fresh read of the People declaration finds.
+	Referrers []string `json:"referrers,omitempty"`
 }
 
 // FireSet fires the Decomposition row over one decomposition. It asks the score
@@ -277,6 +289,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 	if err != nil {
 		return Opened{}, err
 	}
+	waits.Holders = withoutReferrers(waits.Holders, f.referrers)
 	opened := Opened{
 		Gate:         Decomposition,
 		Subject:      Subjects{Row: Decomposition, IntentID: f.IntentID, EnvironmentID: f.EnvironmentID},
@@ -285,6 +298,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		HumanDecides: len(marks) > 0,
 		Marks:        marks,
 		WaitsOn:      waits,
+		Referrers:    f.referrers,
 	}
 	if !opened.HumanDecides {
 		opened.WaitsOn = Waits{}
@@ -310,6 +324,7 @@ func (g *Gate) FireSet(ctx context.Context, f SetFiring) (Opened, error) {
 		ReDecomposition:  f.ReDecomposition,
 		WaitsOn:          opened.WaitsOn,
 		Supersedes:       f.supersedes,
+		Referrers:        f.referrers,
 	})
 	if err != nil {
 		return Opened{}, fmt.Errorf("gate: marshalling the opening payload of decomposition: %w", err)

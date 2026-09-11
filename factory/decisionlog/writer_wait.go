@@ -2,10 +2,18 @@ package decisionlog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/dulguun0225/borg/factory/record"
 )
+
+// ErrWaitOpenNotComponent is returned by [Writer.AppendWaitOpen] for an actor
+// that is not a component: the component that met the condition is the
+// caller and the actor, so Work has a row to show.
+var ErrWaitOpenNotComponent = errors.New("decisionlog: only a component opens a wait")
 
 // AppendWaitOpen appends a wait's opening, written when the factory meets a
 // condition it could not compute at a firing. It closes nothing and names
@@ -16,6 +24,9 @@ func (w *Writer) AppendWaitOpen(ctx context.Context, e Entry) (Row, error) {
 	}
 	if e.Closes != "" {
 		return Row{}, fmt.Errorf("%w: %q", ErrClosesRefused, e.Closes)
+	}
+	if e.Actor.Kind != record.KindComponent {
+		return Row{}, fmt.Errorf("%w: actor kind %q", ErrWaitOpenNotComponent, e.Actor.Kind)
 	}
 	if err := refuseVersionsAndClosingOnlyFields("a wait's opening", e); err != nil {
 		return Row{}, err

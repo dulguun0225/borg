@@ -83,6 +83,10 @@ const (
 // name the excess lands in, so a service that names an operation per identifier
 // grows the store by the cap and no further. The two are authored together and
 // are absent together, which operation_cap_names_its_overflow enforces.
+// failure_record_key_cap takes the same pairing: overflow_failure_record_bucket
+// is the named overflow bucket the excess lands in, so the count stays true and
+// where it was truncated stays visible, the two authored together and absent
+// together, which failure_record_key_cap_names_its_overflow enforces.
 //
 // environment_hour_rate and instance_hour_rate price the hosting a candidate and
 // a kept fleet consume outside the factory: converted at the write, they turn the
@@ -117,9 +121,13 @@ const (
 // absent one being a deploy record whose amount and rate are null together and
 // not an amount of zero. A rate of zero is a real value and is not absence.
 //
-// The four booleans are the deployer's and false until it writes them, which is
+// The five booleans are the deployer's and false until it writes them, which is
 // what deployer_wrote_at tells apart from a deployer that wrote false: absent
-// where nothing has adopted the service.
+// where nothing has adopted the service. taking_traffic is the last of the
+// five: whether the emission reported a request rate above zero on the target,
+// which is "already taking organic traffic" in the shape adoption admits and
+// a fact distinct from emission_readable, the health monitor's own separate
+// need to read something at all.
 //
 // The repository credential is two names on a host that can tell master from a
 // branch and one where it cannot, which is what
@@ -170,6 +178,7 @@ var DDL = []string{
 	instances_replaceable boolean not null,
 	rollback_path_present boolean not null,
 	emission_readable boolean not null,
+	taking_traffic boolean not null default false,
 	deployer_wrote_at text not null,
 	` + record.Constraints + `,
 	constraint name_present check (name <> ''),
@@ -215,6 +224,11 @@ var DDL = []string{
 		or (paging_hours_start <> '' and paging_hours_end <> '' and paging_hours_zone <> '')
 	)
 )`,
+
+	// A store this package already applied before taking_traffic existed has the
+	// table without the column; this is the same statement a fresh create
+	// already carries, added rather than assumed, so both paths agree.
+	`alter table ` + Table + ` add column if not exists taking_traffic boolean not null default false`,
 
 	`create table if not exists ` + WindowSizeTable + ` (
 	` + record.Columns + `,
@@ -307,4 +321,13 @@ var DDL = []string{
 	constraint service_id_present check (service_id <> ''),
 	constraint digest_present check (digest <> '')
 )`,
+
+	// The failure-record key cap's named overflow bucket, added beside the cap
+	// the way overflow_operation stands beside operation_cap: a store this
+	// package already applied before the column existed has the table without
+	// it.
+	`alter table ` + Table + ` add column if not exists overflow_failure_record_bucket text not null default ''`,
+	`alter table ` + Table + ` drop constraint if exists failure_record_key_cap_names_its_overflow`,
+	`alter table ` + Table + ` add constraint failure_record_key_cap_names_its_overflow check (
+		(failure_record_key_cap is null) = (overflow_failure_record_bucket = ''))`,
 }

@@ -87,6 +87,22 @@ const (
 	messageType = "struct"
 )
 
+// Convention is where a Go checkout states the mark, the backfill, and the
+// schema change — published beside the extractors that read them rather than
+// left for a reader to find in three files, the way [_What the derivation
+// records_] asks every extractor to publish what it states. The mark is
+// [TagDeprecated] in a `borg` struct tag, or a deprecatedDirective line on an
+// operation's doc comment, both read in this file. The backfill and the
+// schema change are read by the build runner rather than by this package's
+// own derivation — one file per store contract at the checkout's root,
+// backfill.<store>.go, carrying one "//borg:backfill <element> from
+// <element>" line, and a diff touching a path under a migrations or a schema
+// directory — and are published here because the design treats where all
+// three sit as one fact of the factory's version.
+const Convention = "the mark: `deprecated` in a `borg` struct tag, or a `//borg:deprecated` line on an operation's doc comment; " +
+	"the backfill: one file per store contract at the checkout's root, backfill.<store>.go, carrying one `//borg:backfill <element> from <element>` line; " +
+	"the schema change: a diff touching a path under a migrations or a schema directory"
+
 // ErrDerivation is returned where a file follows the naming convention and is not
 // something a form can be derived from: it does not parse, it declares no exported
 // operation and no exported struct type, an argument of an operation has no name,

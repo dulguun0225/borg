@@ -97,6 +97,10 @@ func TestARecordNoTargetReachedIsReturnedAcrossEveryTarget(t *testing.T) {
 	if _, err := deploy.Perform(ctx, w, first); err != nil {
 		t.Fatalf("the first deploy, of the release this one stops above: %v", err)
 	}
+	calledSoFar := make([]int, len(fakes))
+	for n, fake := range fakes {
+		calledSoFar[n] = len(fake.Calls())
+	}
 
 	stopped, err := w.Start(ctx, deployer, deploy.Beginning{
 		ServiceID: serviceID, EnvironmentID: productionID,
@@ -132,10 +136,10 @@ func TestARecordNoTargetReachedIsReturnedAcrossEveryTarget(t *testing.T) {
 			t.Errorf("%s reads %s, want rolled back", target.Address, target.Completion)
 		}
 	}
-	for _, fake := range fakes {
-		for _, call := range fake.Calls() {
-			if call.Op != targetseam.OpShiftTraffic {
-				t.Errorf("the return path called %s, want a traffic shift onto what it kept", call.Op)
+	for n, fake := range fakes {
+		for _, call := range fake.Calls()[calledSoFar[n]:] {
+			if call.Op != targetseam.OpShiftTraffic && call.Op != targetseam.OpReconfigure {
+				t.Errorf("the return path called %s, want the fresh token handed over and a traffic shift onto what it kept", call.Op)
 			}
 		}
 	}
@@ -246,8 +250,8 @@ func TestResumeReturnsTheReachedTargetWhenItCannotRebuild(t *testing.T) {
 		t.Errorf("CurrentOnTarget(/srv/one) = %+v, found %v, %v, want %s returned to", current, found, err, below.ID)
 	}
 	for _, call := range fakes[0].Calls()[calledSoFar:] {
-		if call.Op != targetseam.OpShiftTraffic {
-			t.Errorf("the return path called %s on the target it reached, want a traffic shift onto what it kept", call.Op)
+		if call.Op != targetseam.OpShiftTraffic && call.Op != targetseam.OpReconfigure {
+			t.Errorf("the return path called %s on the target it reached, want the fresh token handed over and a traffic shift onto what it kept", call.Op)
 		}
 	}
 }

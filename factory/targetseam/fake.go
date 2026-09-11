@@ -55,6 +55,11 @@ type Fake struct {
 	// replacement answers instead of reporting one: [Fake.Deploy] and
 	// [Fake.Stop] both return it rather than recording the call.
 	RefuseDrain error
+	// RefuseReconfigure is what a platform unable to hand a fresh
+	// configuration to instances already running answers instead of
+	// reporting one: [Fake.Reconfigure] returns it rather than recording the
+	// call, which is what makes the fast rollback fall back to the slow way.
+	RefuseReconfigure error
 }
 
 var _ Target = (*Fake)(nil)
@@ -219,6 +224,27 @@ func (f *Fake) DeleteSnapshot(_ context.Context, p principal.Principal, s Snapsh
 	}
 	f.Snapshots = kept
 	return nil
+}
+
+// Reconfigure records the call and remembers the build as what is running for
+// that service, the same way [Fake.Deploy] does: this fake reaches nothing, so
+// handing a fresh configuration to an instance already running and starting
+// one cold leave the same trace.
+func (f *Fake) Reconfigure(_ context.Context, p principal.Principal, r Reconfiguration) (Placement, error) {
+	if err := CheckPrincipal(p); err != nil {
+		return Placement{}, err
+	}
+	if err := r.Validate(); err != nil {
+		return Placement{}, err
+	}
+	if f.RefuseReconfigure != nil {
+		return Placement{}, f.RefuseReconfigure
+	}
+	f.calls = append(f.calls, Call{
+		Op: OpReconfigure, Principal: p, Service: r.Service, Build: r.Build, Credential: r.Credential,
+	})
+	f.running[r.Service] = r.Build
+	return Placement{Replacement: ReplacementDrained}, nil
 }
 
 // Calls is every operation performed on the fake, in the order it was

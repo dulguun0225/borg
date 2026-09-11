@@ -353,6 +353,43 @@ func TestAStoppedHealthMonitorPagesTheWindowCapCondition(t *testing.T) {
 	}
 }
 
+// TestAMismatchOnTheNotifiersOwnLastCheckDeliversNoPage is C2111: nothing
+// pages when the notifier is what stopped, the channel that would carry that
+// page being the thing the mismatch is about. The drift detector's own
+// delivery to the owner's address, already built, is the design's answer
+// instead, and the mismatch is left waiting rather than answered.
+func TestAMismatchOnTheNotifiersOwnLastCheckDeliversNoPage(t *testing.T) {
+	ctx, pool, token, n, channels := newNotifier(t)
+	if _, err := peopleWriter(pool, token).Declare(ctx, theHumanOwner, "hk_sre",
+		people.OfObligation(people.ObligationDriftDetector)); err != nil {
+		t.Fatalf("declaring who installed the drift detector: %v", err)
+	}
+
+	drift := driftTestPool(t, ctx)
+	raised, err := driftdetector.NewWriter(drift).RaiseStaleComponent(ctx, driftdetector.StaleComponent{
+		Component: lastcheck.ComponentNotifier,
+		Why:       "the notifier's own last check is stale",
+	})
+	if err != nil || raised == "" {
+		t.Fatalf("RaiseStaleComponent = %q, %v", raised, err)
+	}
+
+	if err := n.SweepDriftDetector(ctx, drift); err != nil {
+		t.Fatalf("SweepDriftDetector: %v", err)
+	}
+	if channels.on(notifier.ChannelPage) != 0 {
+		t.Errorf("a mismatch on the notifier's own last check paged %d time(s), want none",
+			channels.on(notifier.ChannelPage))
+	}
+	events, err := n.EventsFor(ctx, raised)
+	if err != nil {
+		t.Fatalf("EventsFor: %v", err)
+	}
+	if len(events) != 0 {
+		t.Errorf("the mismatch holds %+v, want no page event: nothing here pages it", events)
+	}
+}
+
 // TestAMismatchHeldToTheHoursIsNotRenotifiedAndIsNotPagedOnceCleared is what a
 // wait with nothing waiting on it costs. A mismatch on a service whose paging
 // hours are closed reaches mail and chat and holds the page channel back, so no

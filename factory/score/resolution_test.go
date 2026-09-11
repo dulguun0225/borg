@@ -53,6 +53,7 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	// the same treatment, which is what the design says of it.
 	s = &Score{withdrawals: fakeWithdrawals{removed: []ProtectionRemoved{{
 		What: RemovedScreenTransition, SubjectID: "ssm_a", Provenance: ProvenanceHumanConfirmed,
+		RoutedTo: "hum_a",
 	}}}}
 	r, err = s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
 	if err != nil {
@@ -72,6 +73,47 @@ func TestWithdrawingAProtectedCriterionResolvesAtSpec(t *testing.T) {
 	}
 	if r.resolved != "" || r.unavailable != "" || r.level != 0 {
 		t.Errorf("a version withdrawing nothing reads %+v, want nothing", r)
+	}
+}
+
+// TestAHumanConfirmedWithdrawalWithNoRoutingIsUnavailableRatherThanTheOwner: the
+// seam answers who a human-confirmed withdrawal routes to — the introducing
+// decision's actor, or another holder of the row's duty where that actor no
+// longer holds it — and where it names neither, the score does not send the
+// row to the owner by default: the factor is unavailable, the treatment every
+// input this package could not read already takes.
+func TestAHumanConfirmedWithdrawalWithNoRoutingIsUnavailableRatherThanTheOwner(t *testing.T) {
+	ctx := t.Context()
+	s := &Score{withdrawals: fakeWithdrawals{removed: []ProtectionRemoved{{
+		What: RemovedCriterion, SubjectID: "cri_a", Provenance: ProvenanceHumanConfirmed,
+	}}}}
+	r, err := s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
+	if err != nil {
+		t.Fatalf("protectionWithdrawn: %v", err)
+	}
+	if r.unavailable == "" {
+		t.Fatalf("a human-confirmed withdrawal naming nobody reads %+v, want the factor unavailable", r)
+	}
+	if r.resolved != "" || r.cause == CauseProtectionWithdrawn {
+		t.Errorf("the reading resolves as %+v, want no owner default", r)
+	}
+	if !strings.Contains(r.unavailable, "cri_a") {
+		t.Errorf("the unavailable reading is %q, want the criterion it names", r.unavailable)
+	}
+
+	// A constraint-derived or a hazard-derived withdrawal still routes to the
+	// owner where the record it derives from names nobody — that fallback is
+	// the design's own for those two, and only the human-confirmed provenance
+	// has no owner to fall back to.
+	s = &Score{withdrawals: fakeWithdrawals{removed: []ProtectionRemoved{{
+		What: RemovedCriterion, SubjectID: "cri_b", Provenance: ProvenanceConstraintDerived,
+	}}}}
+	r, err = s.protectionWithdrawn(ctx, Version{}, Change{ArtifactID: "art_a", AtSpec: true})
+	if err != nil {
+		t.Fatalf("protectionWithdrawn: %v", err)
+	}
+	if r.unavailable != "" || r.cause != CauseProtectionWithdrawn {
+		t.Errorf("a constraint-derived withdrawal naming nobody reads %+v, want it still resolved", r)
 	}
 }
 

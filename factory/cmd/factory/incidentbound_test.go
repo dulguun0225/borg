@@ -47,13 +47,13 @@ func TestIncidentBoundExceededPagesOnceUncleared(t *testing.T) {
 	it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: intentID, ServiceID: svc.ID, Branch: "item/bound-test",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
 
 	if _, err := incident.NewWriter(p.d.pool, p.d.token).Raise(ctx, healthmonitor.Actor, incident.Raising{
-		EnvironmentID: record.NewID("env"), ServiceID: svc.ID, ReleaseID: record.NewID("rel"), DeployID: record.NewID("dep"),
+		EnvironmentID: p.production.ID, ServiceID: svc.ID, ReleaseID: record.NewID("rel"), DeployID: record.NewID("dep"),
 		Reading: incident.ReadingComparison, Quantity: "error_rate", Size: 0.02, Confidence: 0.99,
 		BoundaryVersion: "interval-paired-difference/v1", PolicyVersion: "pv_test", ScoreVersion: "scv_test",
 		FailureRecords: `[]`, IntentID: intentID,

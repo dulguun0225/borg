@@ -12,21 +12,29 @@
 // [Sequence], [IDPrefix], [AdvisoryLockKey], and [DDL]. writer_core.go holds
 // [Writer], [NewWriter], and the transaction machinery every append method
 // shares: taking the lease's fence and this package's advisory lock, reading
-// the head, taking the next sequence value, hashing, and inserting.
+// the head, taking the next sequence value, validating [Entry.Principal]
+// where the caller set one, hashing, and inserting.
 // writer_decision.go holds the four decision methods —
 // [Writer.AppendDecisionOpen], [Writer.AppendDecisionClose],
-// [Writer.AppendDecisionAbandonment], [Writer.AppendDecisionAcknowledgement].
-// writer_wait.go holds [Writer.AppendWaitOpen] and [Writer.AppendWaitClose].
+// [Writer.AppendDecisionAbandonment], [Writer.AppendDecisionAcknowledgement] —
+// and the checks shared across more than one of them: [refuseClosingOnlyFields]
+// and the actor-kind rule an abandonment and an acknowledgement each take.
+// writer_wait.go holds [Writer.AppendWaitOpen] and [Writer.AppendWaitClose],
+// the former refusing an actor that is not a component.
 // writer_shapes.go holds the six one-row methods that name no version and
-// close nothing: [Writer.AppendPageEvent], [Writer.AppendReworkRequest],
-// [Writer.AppendQueueRejection], [Writer.AppendPolicyVersion],
-// [Writer.AppendScoreVersion], [Writer.AppendInstallEvent], and
-// [Writer.AppendPolicyVersionInTx], the one append a caller's own
-// transaction holds — package policy's, which writes the scope record's
-// field in the same one. truncate.go holds
+// close nothing: [Writer.AppendPageEvent], [Writer.AppendReworkRequest] —
+// which admits [Entry.Reason] and [Entry.ReturnsTo], both required —
+// [Writer.AppendQueueRejection] — which admits [Entry.Reading], required, and
+// [Entry.MovedRelease], which may be empty — [Writer.AppendPolicyVersion],
+// [Writer.AppendScoreVersion], [Writer.AppendInstallEvent], and the two
+// appends a caller's own transaction holds — [Writer.AppendPolicyVersionInTx],
+// package policy's, which writes the scope record's field in the same one, and
+// [Writer.AppendPageEventInTx], package notifier's, which answers a wait at
+// the same write the component that ends it makes. truncate.go holds
 // [Cut] and [Writer.Truncate]. read.go holds [Reader], [NewReader], and
 // [Reader.Read], [Reader.Verify], [Reader.ClosedDecisions], [Reader.Pending],
-// [Reader.ByShape], each of which takes a [principal.Principal] and appends a
+// [Reader.PendingWaits], [Reader.ClosedWaits], [Reader.ByShape], each of which
+// takes a [principal.Principal] and appends a
 // read event naming it before it answers — the actor's three fields in the
 // row's own columns and the dispatch and the scope in the payload — and
 // [Reader.AppendReadEvent], the same append for a reader of stored report text
@@ -34,7 +42,8 @@
 // not this one. verify.go holds the
 // chain walk beneath [Reader.Verify], with [Break] and [BrokenError] naming
 // the first row that breaks it. closed.go holds [Closed] and the pairing
-// beneath [Reader.ClosedDecisions].
+// beneath [Reader.ClosedDecisions]; closedwait.go holds [ClosedWait] and the
+// same pairing beneath [Reader.ClosedWaits].
 //
 // A row is one of ten shapes, and there is a method per shape and part rather
 // than a shape argument on one method. A decision is four possible rows: an
@@ -64,6 +73,8 @@
 //	policy_version, score_version
 //	part, closes
 //	verdict, reason, opened_in_work_at, self_approval
+//	returns_to, reading, moved_release
+//	caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope
 //
 // Each field is written as its length in bytes, big-endian in eight bytes,
 // then the bytes themselves, so no two different rows serialise the same way.
@@ -71,14 +82,22 @@
 // [Row.ChainHash] on the stored format version; today there is one branch.
 //
 // The close event's columns — verdict, reason, opened_in_work_at,
-// self_approval — sit beside the payload rather than inside it, because the
-// writer enforces rules over them: a reject or a hold requires a reason, and
-// only a decision closing carries a verdict at all. This package reuses the
-// reason column for a decision abandonment's own reason, the field the design
-// calls "why no verdict is coming": the two never occur on the same row, since
-// a row is either a closing or an abandonment and never both, and one column
-// serving both keeps the schema at one reason field rather than two that
-// would only ever hold one value between them. [Entry.Reason] carries either.
+// self_approval, returns_to — sit beside the payload rather than inside it,
+// because the writer enforces rules over them: a reject or a hold requires a
+// reason, only a decision closing carries a verdict at all, and a non-empty
+// opened_in_work_at requires the caller to be the Work screen
+// ([ErrOpenedInWorkAtCaller]). This package reuses the reason column for a
+// decision abandonment's own reason, the field the design calls "why no
+// verdict is coming", and for a rework request's defect stated; it reuses the
+// returns_to column for a rework request's own target, the field a reject's
+// close event carries, handed the target the same way. None of the shapes
+// that share a column occur on the same row — a row is either a closing, an
+// abandonment, or a rework request, and never two of them — so one column
+// serving all of them keeps the schema at one field rather than several that
+// would only ever hold one value between them. [Entry.Reason] and
+// [Entry.ReturnsTo] carry whichever the row's shape and part give them.
+// reading and moved_release are the same shape of reuse, a queue rejection's
+// own pair, and carry no other shape's field at all.
 //
 // The log's writer refuses five closes, and three of the five are checked
 // here. [Writer.AppendDecisionClose] refuses a reject or a hold with no
@@ -104,6 +123,27 @@
 // and the row that ends it, so one appended after a close or an abandonment
 // would report a shared duty's time on a decision nobody was deciding.
 //
+// Three rows fix the kind of actor that may write them, over and above
+// [record.Actor.Validate]'s own rule that a kind be one of [record.Kinds]:
+// only a human acknowledges ([ErrAcknowledgementNotHuman]), only a component
+// abandons ([ErrAbandonmentNotComponent]), and only a component opens a wait
+// ([ErrWaitOpenNotComponent]) — the component that met the condition being
+// the design's own actor for that row. A wait's closing takes no such rule:
+// whichever component next reaches the work the wait stopped may write it,
+// and that may not be the one that met the condition.
+//
+// [Entry.Principal] is who made the call, carried beside [Entry.Actor], who
+// decided; the two are different facts and often the same value, and most
+// callers — every one not yet composed for seam 5 — leave the zero value,
+// which stores no caller at all. Where it is set it is validated the way
+// [Reader]'s methods validate the principal a read names, and stored in the
+// caller_kind, caller_key, caller_key_basis, caller_dispatch_id and
+// caller_scope columns beside the actor's own. [Writer.AppendDecisionClose]
+// is the one caller this package itself gives a rule to: a non-empty
+// opened_in_work_at is refused unless the principal is the Work screen's own
+// component principal, since the field is Work's report of when the human
+// opened the row there and not the human's.
+//
 // [Writer.Truncate] appends a [Cut] as a truncation row and then deletes every
 // row with a lower sequence, in one transaction under the lock and the fence.
 // It takes the legal holds standing beside the cut and refuses the truncation
@@ -120,7 +160,9 @@
 // a human named.
 // [Writer.AppendReworkRequest] has no caller either: what writes one is
 // whoever was authoring at the stage, through the component that dispatches,
-// and nothing in the module makes that call yet.
+// and nothing in the module makes that call yet. What it will carry is built
+// here regardless: [Entry.Reason], the defect found, and [Entry.ReturnsTo],
+// what owns it, both required.
 //
 // [Reader.Verify] treats the oldest remaining row as the chain's checkpoint: a
 // truncation row anywhere in what remains naming that row as its boundary is
@@ -163,7 +205,7 @@
 // C0059, C0060, C0061, C0062, C0063, C0064, C0065, C0066, C0067, C0068, C0071,
 // C0073, C0075, C0076, C0077, C0079, C0082, C0083, C0110, C0111), which is also
 // where the read event naming the principal is stated and where the principal
-// on a call is seam 5. The four rows of a decision are
+// on a call, carried on a write too, is seam 5. The four rows of a decision are
 // ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
 // (C0838, C0839, C0840, C0847, C0848, C0850, C0851, C0852, C0853, C0859, C0860,
 // C0861, C0862, C0867, C0872, C0873, C0874, C0878, C0881, C0893).

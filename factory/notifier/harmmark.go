@@ -28,13 +28,30 @@ func harmMarkPagesOff(ctx context.Context, pool *pgxpool.Pool) (bool, error) {
 	return !settings.HarmMarkPages, nil
 }
 
-// capRow is the row the one page per interval is delivered about, per service:
-// the cap's own page is not about any one intent, so it takes a row of its own
+// capRowPrefix names every row [capRow] mints, ahead of the service and the
+// interval it names. [Notifier.stillWaitingBySubject] reads it to tell the
+// cap's own row apart from an ordinary marked report's, the two sharing
+// [KindHarmMarkedReport] and nothing else naming which is which.
+const capRowPrefix = "harm_mark_page_cap:"
+
+// capRow is the row one interval's page is delivered about, per service: the
+// cap's own page is not about any one intent, so it takes a row of its own
 // rather than the row of whichever marked intent happened to arrive past the
-// cap. It repeats per interval the way [driftDetectorStaleRow] repeats per
-// episode, the events since the last answered one describing the interval this
-// call is deciding about.
-func capRow(serviceID string) string { return "harm_mark_page_cap:" + serviceID }
+// cap. bucket names which interval, so the interval after the one a row
+// already answered for gets a row of its own and pages again — nothing ever
+// answers this row itself, there being no closing act for a page about a
+// volume rather than about one thing.
+func capRow(serviceID string, bucket int64) string {
+	return fmt.Sprintf("%s%s:%d", capRowPrefix, serviceID, bucket)
+}
+
+// intervalBucket is which fixed-width interval of intervalSeconds, counted
+// from the Unix epoch, now falls in — what makes two calls inside one
+// interval agree on the row [capRow] names and a call in the interval after
+// mint a row of its own.
+func intervalBucket(now time.Time, intervalSeconds int64) int64 {
+	return now.Unix() / intervalSeconds
+}
 
 // overHarmMarkCap is the harm mark's cap read for one wait: how many intents of
 // this service's marked reports have already been paged inside the interval in
@@ -45,9 +62,14 @@ func capRow(serviceID string) string { return "harm_mark_page_cap:" + serviceID 
 //
 // A wait naming no service is never over the cap: the cap is per service, and
 // the value in force is read against one.
-func (n *Notifier) overHarmMarkCap(ctx context.Context, w Wait, now time.Time) (bool, int, error) {
+//
+// It returns, beside whether the wait is over the cap and how many arrived
+// past it, the interval in force in seconds: what [Notifier.pageOverTheCap]
+// and [Notifier.stillWaitingBySubject] need to name the interval a cap row is
+// for, without reading the settings record a second time.
+func (n *Notifier) overHarmMarkCap(ctx context.Context, w Wait, now time.Time) (bool, int, int64, error) {
 	if w.ServiceID == "" {
-		return false, 0, nil
+		return false, 0, 0, nil
 	}
 	// The shipped cap holds whether or not a settings record exists: an install
 	// with none has authored nothing, which is the default and not the absence
@@ -57,42 +79,41 @@ func (n *Notifier) overHarmMarkCap(ctx context.Context, w Wait, now time.Time) (
 	}
 	settings, err := factorysettings.Get(ctx, n.pool)
 	if err != nil && !errors.Is(err, factorysettings.ErrNotFound) {
-		return false, 0, fmt.Errorf("notifier: reading the harm mark's cap: %w", err)
+		return false, 0, 0, fmt.Errorf("notifier: reading the harm mark's cap: %w", err)
 	}
 	if err == nil {
 		if inForce, err = factorysettings.HarmMarkPageCap(ctx, n.pool, settings.ID, w.ServiceID); err != nil {
-			return false, 0, err
+			return false, 0, 0, err
 		}
 	}
 	since := record.FormatTime(now.Add(-time.Duration(inForce.IntervalSeconds) * time.Second))
 	paged, err := PagedRowsSince(ctx, n.pool, w.ServiceID, KindHarmMarkedReport, since)
 	if err != nil {
-		return false, 0, err
+		return false, 0, 0, err
 	}
 	if paged < inForce.Cap {
-		return false, 0, nil
+		return false, 0, inForce.IntervalSeconds, nil
 	}
 	// Past the cap, the count this page reports is every marked intent beyond
 	// it, this one included: paged holds the ones that went out, and the excess
 	// is what waited plus the one being decided now.
-	return true, paged - inForce.Cap + 1, nil
+	return true, paged - inForce.Cap + 1, inForce.IntervalSeconds, nil
 }
 
 // pageOverTheCap is the one page per interval that goes out instead of the
 // marked intent's own: it names the service and how many marked intents
 // arrived past the cap, so the human reached reads that volume is what they
-// are looking at. It is delivered once per interval, which is the row's own
-// events since the last answered one saying nothing has been delivered yet.
-func (n *Notifier) pageOverTheCap(ctx context.Context, w Wait, past int) error {
-	row := capRow(w.ServiceID)
+// are looking at. intervalSeconds and now are what [capRow] names its own
+// row's interval from, so a call in the interval after the one a row already
+// answered for mints a row of its own: nothing ever answers this row, there
+// being no closing act for a page about a volume rather than about one thing,
+// and a row with a reached event already on it is this interval's own page
+// already sent.
+func (n *Notifier) pageOverTheCap(ctx context.Context, w Wait, past int, intervalSeconds int64, now time.Time) error {
+	row := capRow(w.ServiceID, intervalBucket(now, intervalSeconds))
 	events, err := n.EventsFor(ctx, row)
 	if err != nil {
 		return err
-	}
-	for i, e := range events {
-		if Event(e.Event) == EventAnswered {
-			events = events[i+1:]
-		}
 	}
 	for _, e := range events {
 		if Event(e.Event) == EventReached {

@@ -22,7 +22,7 @@ const FormatVersion = "last_check/2"
 // subject_matches_component is the shape of the seam between the components that
 // keep one record per thing and the ones that keep a single record for
 // themselves: the health monitor's names a service, the deployer's a target
-// address or a platform name, and the notifier's, the three passes' and
+// address or the production environment record's id, and the notifier's, the three passes' and
 // dispatch's name nothing. Writing it as a CHECK is what stops a component that
 // keeps one per thing from collapsing to a single row nobody can tell apart.
 //

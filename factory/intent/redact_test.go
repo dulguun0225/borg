@@ -17,7 +17,10 @@ import (
 )
 
 // redacting writes one redaction naming an intent's statement, the way the
-// erasure at Factory does, and returns it.
+// erasure at Factory does, and returns it. The erasure-list row it appends
+// goes to a list of its own — never the one [listIn] returns — because this
+// package writes none of its own and the check against [listIn]'s empty one
+// is what says so.
 func redacting(t *testing.T, ctx context.Context, pool *pgxpool.Pool, intentID string,
 	spans ...redaction.Span) redaction.Redaction {
 	t.Helper()
@@ -25,11 +28,23 @@ func redacting(t *testing.T, ctx context.Context, pool *pgxpool.Pool, intentID s
 		Target: redaction.Target{Kind: redaction.KindStatement, ID: intentID},
 		Reason: "a person named in the words a report carried",
 		Spans:  spans,
-	}, nil)
+	}, nil, erasureAppender(t))
 	if err != nil {
 		t.Fatalf("writing the redaction of %s: %v", intentID, err)
 	}
 	return r
+}
+
+// erasureAppender is a working [redaction.ErasureAppender] over a fresh file,
+// the same call reportstore.Store.AppendErasure makes over its own: a plain
+// call to erasurelist.Append. [redaction.Insert] refuses a call supplying
+// none, and this package composes no store to hand it one of its own.
+func erasureAppender(t *testing.T) redaction.ErasureAppender {
+	t.Helper()
+	list := filepath.Join(t.TempDir(), "erasure-list")
+	return func(kind, key, removed string) error {
+		return erasurelist.Append(list, key, kind, removed)
+	}
 }
 
 // currentToken is the lease's number as the fixture's own acquisition left

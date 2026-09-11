@@ -1,23 +1,27 @@
 // Package targetseam is the named set of operations the deployer reaches a
 // deploy target through. [Target] declares them — [Target.Deploy],
 // [Target.Stop], [Target.ReadRunning], [Target.ShiftTraffic],
-// [Target.SetInstanceCount], [Target.ApplySchemaChange], [Target.Snapshot] and
-// [Target.DeleteSnapshot] — as an interface. No agent reaches a deploy target at all.
+// [Target.SetInstanceCount], [Target.ApplySchemaChange], [Target.Snapshot],
+// [Target.DeleteSnapshot] and [Target.Reconfigure] — as an interface. No agent
+// reaches a deploy target at all.
 //
 // # The code
 //
 // seam.go holds [Target], [Op] naming each operation with [Ops] listing them
 // and [Mitigation] naming the two a mitigation is, [Deployment] with the
 // [ValueSet] it carries, [DeployIDName] and the [Placement] it returns,
-// [Replacement] with [Replacements], [Shift], [InstanceCount], [SchemaChange],
-// [SnapshotRequest] and [Snapshot], what a target reports in [Running] with
-// its [SchemaChangeApplied] rows, each type's Validate, [CheckPrincipal], and
-// the errors [ErrIncomplete], [ErrNoPrincipal], [ErrShareNotAFraction],
-// [ErrCountNegative], [ErrNoSnapshotBeforeIt] and [ErrCannotDrain]. fake.go
+// [Replacement] with [Replacements], [Shift], [InstanceCount] and
+// [Reconfiguration], what a target reports in [Running] with its
+// [SchemaChangeApplied] rows, each type's Validate, [CheckPrincipal], and the
+// errors [ErrIncomplete], [ErrNoPrincipal], [ErrShareNotAFraction],
+// [ErrCountNegative], [ErrCannotDrain] and [ErrCannotReconfigure].
+// schemachange.go is the two operations that touch the service's store rather
+// than what runs it: [SchemaChange], [SnapshotRequest], [Snapshot], their
+// Validate, and [ErrNoSnapshotBeforeIt]. fake.go
 // holds [Fake], [NewFake], and [Fake.Calls], recording what was called as a
-// [Call] and reaching nothing, with [Fake.RefuseShift] and [Fake.RefuseDrain]
-// for what a platform refuses; package localtarget is what the demonstrations
-// deploy against.
+// [Call] and reaching nothing, with [Fake.RefuseShift], [Fake.RefuseDrain]
+// and [Fake.RefuseReconfigure] for what a platform refuses; package
+// localtarget is what the demonstrations deploy against.
 //
 // Adding an operation is an edit to [Target], so target access is one
 // interface's methods rather than something spread through the codebase and
@@ -47,6 +51,15 @@
 // a change without, and every row of a store's schema history names the build
 // the change was applied under and the release that shipped it wherever one
 // exists — a deploy naming neither is refused.
+//
+// [Target.Reconfigure] is what the fast rollback mints a fresh way-in token
+// through: it is a deploy in its own right and mints one the way every deploy
+// does, but the instances it shifts traffic back onto are already running and
+// never put anywhere cold, so this hands them the fresh configuration in
+// place of a call to [Target.Deploy]. A platform unable to do that without
+// dropping a request refuses with [ErrCannotReconfigure] — [Fake.RefuseReconfigure]
+// asks a [Fake] for that refusal — and the rollback falls back to the slow way,
+// which puts the build back on the target cold and verifies it first.
 //
 // Who may write what: this package writes no record. The component that
 // deploys calls the seam and writes the deploy record itself.

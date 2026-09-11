@@ -33,8 +33,9 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: BackupRetention,
 		Kind:      KindSeconds, Direction: DirectionNone, Scope: ScopeFactorySettings, Key: KeyNone,
-		Limits: "how far back a backup may reach, read by the erasure list's retirement",
-		Unit:   "seconds, authored outright with nothing supplied",
+		Limits:     "how far back a backup may reach, read by the erasure list's retirement",
+		Unit:       "seconds, authored outright with nothing supplied",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: RetentionFloor,
@@ -43,6 +44,14 @@ var NotAmongTheEleven = []Definition{
 		Unit:   "seconds, written at the gate row that decides a shortening or by a records-retention constraint",
 	},
 	{
+		// RemediationPeriod carries no [Unauthored]: it is keyed by severity, and
+		// a value authored for one severity is not a value for another — the
+		// factory's own fallback the other five of C2283 take would answer the
+		// same fixed number at every severity nothing was authored for, which is
+		// not what "no outcome teaches how long a fix should take" means. An
+		// unauthored severity reads as nothing, package score naming no supplied
+		// value for this parameter, so the ordinary resolution already lands on
+		// nothing without help.
 		Parameter: RemediationPeriod,
 		Kind:      KindSeconds, Direction: DirectionCeiling, Scope: ScopeFactorySettings, Key: KeySeverity,
 		Limits: "how long a matching advisory of one severity may stand before the intent it raised pages",
@@ -93,6 +102,7 @@ var NotAmongTheEleven = []Definition{
 		Kind:      KindCount, Direction: DirectionNone, Scope: ScopeEnvironment, Key: KeyNone,
 		Limits:                "how many candidate environments the platform may hold at once, beside the platform's own room",
 		Unit:                  "candidate environments live at once, authored outright with nothing supplied",
+		Unauthored:            Unauthored{Given: true, Unbounded: true},
 		ReaderAtThisMilestone: "the candidate deploy row's hold",
 	},
 	{
@@ -130,8 +140,9 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: MaxConcurrentKeptFleets,
 		Kind:      KindCount, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
-		Limits: "how many kept fleets one service may hold at once, a service at the cap stopping deploying rather than losing a recovery a window could still call for",
-		Unit:   "kept fleets held at once, authored outright with nothing supplied",
+		Limits:     "how many kept fleets one service may hold at once, a service at the cap stopping deploying rather than losing a recovery a window could still call for",
+		Unit:       "kept fleets held at once, authored outright with nothing supplied",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: RecentHistorySize,
@@ -148,8 +159,9 @@ var NotAmongTheEleven = []Definition{
 	{
 		Parameter: Objective,
 		Kind:      KindFraction, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
-		Limits: "the proportion of a quantity that must be good over a stated period, which the error budget is read against",
-		Unit:   "the proportion, between 0 and 1, with the period authored beside it",
+		Limits:     "the proportion of a quantity that must be good over a stated period, which the error budget is read against",
+		Unit:       "the proportion, between 0 and 1, with the period authored beside it",
+		Unauthored: Unauthored{Given: true, Unbounded: true},
 	},
 	{
 		Parameter: PagingHours,
@@ -170,6 +182,7 @@ var NotAmongTheEleven = []Definition{
 		Kind:      KindList, Direction: DirectionFloor, Scope: ScopeService, Key: KeyNone,
 		Limits:                "the periods within which this service's production deploys are held; a safeguard may add a period or lengthen one and may never shorten one",
 		Unit:                  "one period per entry, the first moment and the last, and unauthored is no freeze at all",
+		Unauthored:            Unauthored{Given: true, Unbounded: true},
 		ReaderAtThisMilestone: "the production deploy row's hold, which lifts itself when the period passes",
 	},
 	{
@@ -197,18 +210,26 @@ var NotAmongTheEleven = []Definition{
 		Kind:      KindCount, Direction: DirectionNone, Scope: ScopeService, Key: KeyNone,
 		Limits: "how many mutants the mutation score may spend per item, a fixed default leaving a safeguard nothing to constrain",
 		Unit:   "mutants tested per item",
+		// 50, the same number service.ShippedMutantCap carries: this package
+		// cannot import that one, service already importing this one for
+		// [Authored], so the fixed default is duplicated rather than shared.
+		Unauthored: Unauthored{Given: true, Number: 50},
 	},
 	{
 		Parameter: FailureRecordKeyCap,
 		Kind:      KindCount, Direction: DirectionCeiling, Scope: ScopeService, Key: KeyNone,
 		Limits: "how many distinct keys a release may hold open per interval for its failure records; a safeguard may lower it and never raise it",
 		Unit:   "distinct keys per interval",
+		// 20, the same number service.ShippedFailureRecordKeyCap carries.
+		Unauthored: Unauthored{Given: true, Number: 20},
 	},
 	{
 		Parameter: UnreliableBound,
 		Kind:      KindFraction, Direction: DirectionFloor, Scope: ScopeService, Key: KeyNone,
 		Limits: "the rate of disagreement above which a criterion of this service is unreliable; a safeguard may raise it and never lower it, lowering being what takes a criterion out of the gate",
 		Unit:   "the rate at which the criterion's outcome disagrees across builds, between 0 and 1",
+		// 0.2, the same number service.ShippedUnreliableBound carries.
+		Unauthored: Unauthored{Given: true, Number: 0.2},
 	},
 	{
 		Parameter: IncidentItemBound,

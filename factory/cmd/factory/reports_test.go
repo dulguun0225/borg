@@ -16,7 +16,6 @@ import (
 	"github.com/dulguun0225/borg/factory/constraint"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/localtarget"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/reportstore"
 	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
@@ -160,7 +159,7 @@ func TestAReportArrives(t *testing.T) {
 
 	// The factory-wide rate authored to zero closes the channel: the way in
 	// still answers, and what it renders is the bound that refused.
-	if _, err := policy.NewFactory(d.pool, d.token).AuthorReportChannelRate(ctx,
+	if _, err := newFactory(d.pool, d.token).AuthorReportChannelRate(ctx,
 		owner(t, ctx, d.pool, d.token, d.human), 0); err != nil {
 		t.Fatalf("authoring the channel's rate: %v", err)
 	}
@@ -338,12 +337,14 @@ func TestAReportAppearsUnderItsIntentAndIsAdmittedThere(t *testing.T) {
 		t.Fatalf("authoring the notice: %v", err)
 	}
 
-	// Two reports of one problem, both through the way in the deploy placed.
+	// Two reports of one problem, both through the way in the deploy placed,
+	// and grouped into one intent by the grouper's own pass on arrival — the
+	// fake model groups reports that start with the same word.
 	socket := localtarget.WayInSocket(d.dir, theService)
 	waitForTheWayIn(t, socket)
 	client := overTheSocket(socket)
 	shown := openSession(t, client)
-	for _, words := range []string{"the export button does nothing", "exporting invoices fails"} {
+	for _, words := range []string{"exporting the export button does nothing", "exporting invoices fails"} {
 		result := submit(t, client, `{"kind":"bug","harm_marked":true,"text":"`+words+`",`+
 			`"session":"`+shown.Session+`","notice_id":"`+shown.NoticeID+`"}`)
 		if !result.Accepted {
@@ -355,17 +356,17 @@ func TestAReportAppearsUnderItsIntentAndIsAdmittedThere(t *testing.T) {
 		t.Fatalf("the store holds %d reports, want the two that were submitted", len(arrived))
 	}
 
-	// The intent the grouper raises from them, decomposed into the item whose
-	// timeline they are read under. The grouping is written here because the
-	// grouper is its own step; what this test is about is the screen.
-	s := newScreens(t, ctx, d, out)
-	raised, err := s.p.intake.TakeIn(ctx, owner(t, ctx, d.pool, d.token, d.human), intent.Arrival{
-		Source: intent.SourceReports, ProjectID: svc.ProjectID,
-		Statement: theService + ": " + theSecondStatement,
-	})
-	if err != nil {
-		t.Fatalf("raising the intent the reports were grouped into: %v", err)
+	// The intent the grouper already raised from them on arrival, decomposed
+	// into the item whose timeline they are read under. The grouping ran on
+	// submit above; what this test is about is the screen.
+	raisedID := intentOfReport(t, ctx, d, arrived[0])
+	if raisedID == "" || raisedID != intentOfReport(t, ctx, d, arrived[1]) {
+		t.Fatalf("the two reports grouped into %q and %q, want the one intent",
+			raisedID, intentOfReport(t, ctx, d, arrived[1]))
 	}
+	raised := readIntent(t, ctx, d, raisedID)
+
+	s := newScreens(t, ctx, d, out)
 	_, candidates, err := s.p.authorIntent(ctx, asked{
 		statement: theSecondStatement, services: []string{theService},
 		resumeIntentID: raised.ID,
@@ -374,11 +375,6 @@ func TestAReportAppearsUnderItsIntentAndIsAdmittedThere(t *testing.T) {
 		t.Fatalf("decomposing the report-derived intent = %d items, %v\n%s", len(candidates), err, out)
 	}
 	itemID := candidates[0].itemID
-	for _, id := range arrived {
-		if err := reports.channel.store.Link(ctx, id, raised.ID); err != nil {
-			t.Fatalf("linking %s to %s: %v", id, raised.ID, err)
-		}
-	}
 
 	// The timeline carries both, oldest first, each waiting on a human.
 	var view screens.Item
@@ -392,7 +388,7 @@ func TestAReportAppearsUnderItsIntentAndIsAdmittedThere(t *testing.T) {
 	first := view.Reports[0]
 	if first.ID != arrived[0] || first.Kind != string(reportstore.KindBug) || !first.HarmMarked ||
 		first.NoticeID != authored.ID || first.CollectedAt == "" || first.Admitted ||
-		first.Text != "the export button does nothing" {
+		first.Text != "exporting the export button does nothing" {
 		t.Errorf("the first report reads %+v, want the words, the mark, the notice and no admission", first)
 	}
 

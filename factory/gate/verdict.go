@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -236,7 +237,7 @@ func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor,
 	writer.RefuseClose = func(_ context.Context, _ pgx.Tx, _ decisionlog.Entry) error {
 		return refusals.refuse(Verdict(closing.CloseEvent.Verdict))
 	}
-	return writer.AppendDecisionClose(ctx, decisionlog.Entry{
+	entry := decisionlog.Entry{
 		Actor:          actor,
 		Payload:        string(payload),
 		FormatVersion:  decisionFormatVersion,
@@ -245,7 +246,16 @@ func (g *Gate) close(ctx context.Context, opened Opened, actor record.Actor,
 		Reason:         closing.Reason,
 		OpenedInWorkAt: openedInWorkAt,
 		SelfApproval:   closing.SelfApproval,
-	})
+		ReturnsTo:      string(closing.ReturnsTo),
+	}
+	if openedInWorkAt != "" {
+		// The time is Work's own report of when the human opened the row
+		// there, so the call is made as Work and not as the human who gave
+		// the verdict: [decisionlog.ErrOpenedInWorkAtCaller] refuses it
+		// otherwise.
+		entry.Principal = principal.OfComponent("work")
+	}
+	return writer.AppendDecisionClose(ctx, entry)
 }
 
 // whyItAutoPassed is what the close event says passed the firing. It reads the

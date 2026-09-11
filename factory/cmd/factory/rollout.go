@@ -123,16 +123,23 @@ func strategyOf(pick gate.Pick) deploy.Strategy {
 	return deploy.StrategyWithoutControl
 }
 
-// adopt writes the deployer's four fields on the service record after a deploy
+// adopt writes the deployer's five fields on the service record after a deploy
 // onto a persistent environment: the target answered, what it reports running,
-// whether an earlier build is there to return to, and whether the service emits
-// what the health monitor reads.
+// whether an earlier build is there to return to, whether the service emits
+// what the health monitor reads, and whether that emission already reports a
+// request rate above zero.
 //
-// The fourth is the one the deployer cannot see, so it is read here: the
-// emission on this platform is the file the started process writes, and whether
-// it holds anything is what says the health monitor has something to read. A
-// build deployed a moment ago has written nothing yet, so a first release reads
-// as no emission and the next deploy of that service writes the field again.
+// The last two are what the deployer cannot see itself, so they are read here
+// through the health monitor's own emission reader rather than in package
+// service: the emission on this platform is the file the started process
+// writes, and whether it holds anything is what says the health monitor has
+// something to read at all. On this platform that reading and "a request rate
+// above zero" are one and the same — a file with at least one unit of work
+// answers both, there being no separate volume figure to tell a service merely
+// readable apart from one already carrying traffic — so the two fields are set
+// from the same count. A build deployed a moment ago has written nothing yet,
+// so a first release reads as neither, and the next deploy of that service
+// writes both fields again.
 func (p *path) adopt(ctx context.Context, svc service.Service, dep deploy.Deploy) error {
 	targets := serviceTargets(p.production, svc)
 	if len(targets) == 0 {
@@ -147,12 +154,12 @@ func (p *path) adopt(ctx context.Context, svc service.Service, dep deploy.Deploy
 	if err != nil {
 		return err
 	}
-	found := deploy.Found(running.Instances, rollbackPathPresent(running), units > 0)
+	found := deploy.Found(running.Instances, rollbackPathPresent(running), units > 0, units > 0)
 	if err := deploy.Adopt(ctx, p.deploys, deployActor, svc.ID, found); err != nil {
 		return err
 	}
-	fmt.Fprintf(p.d.out, "The deployer wrote what it found on service %s: %d instance(s) running, a rollback path %v, an emission %v\n",
-		svc.Name, running.Instances, found.RollbackPathPresent, found.EmissionReadable)
+	fmt.Fprintf(p.d.out, "The deployer wrote what it found on service %s: %d instance(s) running, a rollback path %v, an emission %v, traffic %v\n",
+		svc.Name, running.Instances, found.RollbackPathPresent, found.EmissionReadable, found.TakingTraffic)
 	return nil
 }
 

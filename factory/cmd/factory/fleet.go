@@ -109,7 +109,7 @@ func ensureModelCredentialLent(ctx context.Context, d deps, owner record.Actor) 
 	if err != nil || found {
 		return err
 	}
-	if _, err := people.NewWriter(d.pool, d.token, policy.NewFactory(d.pool, d.token)).
+	if _, err := people.NewWriter(d.pool, d.token, newFactory(d.pool, d.token)).
 		Lend(ctx, owner, owner.Key, d.modelCredentialName, people.AccountPerson); err != nil {
 		return fmt.Errorf("declaring that %s lent %s: %w", owner.Key, d.modelCredentialName, err)
 	}

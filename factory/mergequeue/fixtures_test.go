@@ -25,6 +25,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lease"
@@ -322,12 +323,12 @@ func queued(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.T
 func queuedOf(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token,
 	in intent.Intent, n int) item.Item {
 	t.Helper()
-	it, err := item.NewDecomposition(pool, token).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(pool, token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID:             in.ID,
 		ServiceID:            serviceID,
 		Branch:               fmt.Sprintf("item/%d", n),
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing item %d: %v", n, err)
 	}
@@ -361,6 +362,34 @@ func built(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.To
 		t.Fatalf("writing the build of %s at %s: %v", it.ID, commit, err)
 	}
 	return made
+}
+
+// approveAtMergeToMaster writes the gate's own record that one item was
+// approved at Merge to master: the open event naming the row and the item, and
+// the close event approving it, pared to the two fields [gate.ApprovalTimes]
+// reads off an opening — package gate's own test of that reading is the shape's
+// demonstration, and this writes only what this package's reading needs.
+// [Queue.readMaster] reads it back to tell a build the queue once approved from
+// one it never did, whatever stage the item stands at now.
+func approveAtMergeToMaster(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.Token, itemID string) {
+	t.Helper()
+	log := decisionlog.NewWriter(pool, token)
+	opened, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{
+		Actor:         mergequeue.Actor,
+		FormatVersion: "decision/1",
+		PolicyVersion: "pv_00000000000000000000000000000001",
+		ScoreVersion:  "sv_00000000000000000000000000000001",
+		Payload:       fmt.Sprintf(`{"item_id":%q,"gate":%q}`, itemID, gate.MergeToMaster.String()),
+	})
+	if err != nil {
+		t.Fatalf("opening the merge-to-master approval of %s: %v", itemID, err)
+	}
+	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
+		Actor: mergequeue.Actor, FormatVersion: "decision/1", Payload: "{}",
+		Closes: opened.ID, Verdict: string(gate.VerdictApprove),
+	}); err != nil {
+		t.Fatalf("closing the merge-to-master approval of %s: %v", itemID, err)
+	}
 }
 
 // readLog is every row in the log, read as [testActor] through a reader of the

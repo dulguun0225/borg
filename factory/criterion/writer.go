@@ -29,8 +29,8 @@ var (
 	// ErrItemIDEmpty is returned by [Insert] and [Withdraw] for a row naming
 	// no item.
 	ErrItemIDEmpty = errors.New("criterion: the item id is empty")
-	// ErrRequirementIDEmpty is returned by [Insert] for a criterion that fits
-	// a pattern and names no requirement. The gate rejects in both directions
+	// ErrRequirementIDEmpty is returned by [Insert] for a criterion naming no
+	// requirement, no_pattern included. The gate rejects in both directions
 	// over that field, so a criterion that answers nothing nameable is not a
 	// criterion.
 	ErrRequirementIDEmpty = errors.New("criterion: the requirement id is empty")
@@ -59,7 +59,7 @@ type Draft struct {
 	// NoPatternReason is set exactly when the sentence fits no pattern.
 	NoPatternReason string
 	// RequirementID is the requirement the criterion answers, required of
-	// every criterion that fits a pattern. Where several items answer one
+	// every criterion, no_pattern included. Where several items answer one
 	// requirement, it is the requirement decomposition derived for this
 	// item's share.
 	RequirementID string
@@ -108,8 +108,10 @@ const insertCriterion = `insert into ` + Table + `
 // It classifies the sentence itself with [Classify]. An unmatched sentence
 // with no reason is refused with [ErrReasonMissing]; a matched sentence
 // carrying a reason is refused with [ErrReasonRefused]; an unmatched
-// sentence with a reason is written as [PatternNoPattern]. A matched sentence
-// naming no requirement is refused with [ErrRequirementIDEmpty].
+// sentence with a reason is written as [PatternNoPattern]. A criterion naming
+// no requirement is refused with [ErrRequirementIDEmpty], no_pattern
+// included: a criterion names the requirement it answers whatever form its
+// sentence takes.
 func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, of Of, draft Draft) (Criterion, error) {
 	if err := actor.Validate(); err != nil {
 		return Criterion{}, err
@@ -134,7 +136,7 @@ func Insert(ctx context.Context, tx pgx.Tx, actor record.Actor, of Of, draft Dra
 	case !matched:
 		pattern = PatternNoPattern
 	}
-	if matched && draft.RequirementID == "" {
+	if draft.RequirementID == "" {
 		return Criterion{}, fmt.Errorf("%w: %q", ErrRequirementIDEmpty, draft.Sentence)
 	}
 

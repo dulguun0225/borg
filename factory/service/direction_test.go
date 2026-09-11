@@ -27,22 +27,22 @@ func TestSafeguardDirectionPerField(t *testing.T) {
 		}
 
 		tx := begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 100); err != nil {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 100, "other"); err != nil {
 			t.Fatalf("SetFailureRecordKeyCap (owner, first): %v", err)
 		}
 		commit(ctx, t, tx)
 
 		tx = begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, 200); !errors.Is(err, service.ErrSafeguardDirection) {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, 200, "other"); !errors.Is(err, service.ErrSafeguardDirection) {
 			t.Errorf("a safeguard raising the failure-record key cap = %v, want ErrSafeguardDirection", err)
 		}
-		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, 50); err != nil {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, 50, "other"); err != nil {
 			t.Errorf("a safeguard lowering the failure-record key cap = %v, want no error", err)
 		}
 		commit(ctx, t, tx)
 
 		tx = begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 500); err != nil {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 500, "other"); err != nil {
 			t.Errorf("an owner raising the failure-record key cap = %v, want no error", err)
 		}
 		commit(ctx, t, tx)
@@ -266,13 +266,13 @@ func TestSafeguardDirectionPerField(t *testing.T) {
 		}
 
 		tx := begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, service.ShippedFailureRecordKeyCap+10); !errors.Is(err, service.ErrSafeguardDirection) {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, service.ShippedFailureRecordKeyCap+10, "other"); !errors.Is(err, service.ErrSafeguardDirection) {
 			t.Errorf("a safeguard's first write raising the key cap above the shipped default = %v, want ErrSafeguardDirection", err)
 		}
 		commit(ctx, t, tx)
 
 		tx = begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, service.ShippedFailureRecordKeyCap-10); err != nil {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, componentActor, created.ID, service.ShippedFailureRecordKeyCap-10, "other"); err != nil {
 			t.Errorf("a safeguard's first write lowering the key cap below the shipped default = %v, want no error", err)
 		}
 		commit(ctx, t, tx)
@@ -282,7 +282,7 @@ func TestSafeguardDirectionPerField(t *testing.T) {
 			t.Fatalf("Create: %v", err)
 		}
 		tx = begin(ctx, t, pool)
-		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created2.ID, service.ShippedFailureRecordKeyCap+10); err != nil {
+		if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created2.ID, service.ShippedFailureRecordKeyCap+10, "other"); err != nil {
 			t.Errorf("an owner's first write on the key cap = %v, want no error", err)
 		}
 		commit(ctx, t, tx)

@@ -33,9 +33,9 @@ func TestConfirmingTheReadingLiftsTheHoldTheIntentsStateOpened(t *testing.T) {
 	if err != nil {
 		t.Fatalf("taking the intent in: %v", err)
 	}
-	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor,
+	it, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor,
 		item.New{IntentID: in.ID, ServiceID: svc.ID, AreaChain: []string{s.p.areaID}, Branch: "item/health", RequirementsAnswered: oneRequirement},
-		s.p.projectID, s.p.projectID, nil)
+		s.p.projectID, s.p.projectID)
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}

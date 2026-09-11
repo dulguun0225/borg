@@ -20,11 +20,11 @@ import (
 // check per platform is [lastcheck.Writer.RecordPlatformPass], the sole writer
 // of that record, and is not here.
 
-// Adopt writes the deployer's four fields on the service record: a target it
-// reached, instances the platform can replace, a rollback path, and an emission
-// the health monitor can read. The deployer writes them at adoption and at every
-// first release, so the four say what the last such deploy found rather than
-// what any of them ever found.
+// Adopt writes the deployer's fields on the service record: a target it
+// reached, instances the platform can replace, a rollback path, an emission
+// the health monitor can read, and traffic the emission already reports. The
+// deployer writes them at adoption and at every first release, so they say
+// what the last such deploy found rather than what any of them ever found.
 //
 // It is the deployer's write and not the owner's or decomposition's, which is
 // why it is here and not at a caller: the service record has three writers and
@@ -37,19 +37,23 @@ func Adopt(ctx context.Context, w *Writer, actor record.Actor, serviceID string,
 
 // Found is what a deploy learned about a service's reachability from the target
 // it reached: whether the target answered at all, whether it reports instances
-// the platform can replace, whether an earlier build is there to return to, and
-// whether the service emits what the health monitor reads. The deployer assembles
-// it from the deploy it just performed and hands it to [Adopt].
+// the platform can replace, whether an earlier build is there to return to,
+// whether the service emits what the health monitor reads, and whether that
+// emission already reports a request rate above zero — "already taking organic
+// traffic" in the shape adoption admits. The deployer assembles it from the
+// deploy it just performed and hands it to [Adopt].
 //
-// The emission is the one of the four this package cannot see: what the health
-// monitor reads is behind an interface of its own, so the caller says whether it
-// found one. doc.go says which caller is not built.
-func Found(running int, rollbackPath, emissionReadable bool) service.Reachability {
+// The emission readings are the two of the five this package cannot see: what
+// the health monitor reads is behind an interface of its own, so the caller
+// says whether it found one and whether it is carrying traffic. doc.go says
+// which caller is not built.
+func Found(running int, rollbackPath, emissionReadable, takingTraffic bool) service.Reachability {
 	return service.Reachability{
 		TargetReached:        true,
 		InstancesReplaceable: running > 0,
 		RollbackPathPresent:  rollbackPath,
 		EmissionReadable:     emissionReadable,
+		TakingTraffic:        takingTraffic,
 	}
 }
 

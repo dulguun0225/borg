@@ -1,5 +1,5 @@
 // Package service owns the service record: the identity decomposition writes,
-// everything an owner authors on it at Factory, and the four fields the deployer
+// everything an owner authors on it at Factory, and the five fields the deployer
 // populates.
 //
 // # The code
@@ -105,13 +105,14 @@
 // owner-authored write here places no such bound: an owner and a safeguard
 // write it the same way.
 //
-// The deployer writes [Adopt] and nothing else: the four fields that say what
-// runs can be reached, replaced, undone, and read, at adoption and at every first
-// release. It takes the token and fences because its caller begins the
-// transaction it runs in: package deploy's adoption, called by whatever composes
-// the deployer at a service's first release. Adoption admits one shape — all
-// four reachability properties holding at once — and [Adopt] refuses every
-// other with [ErrShapeNotAdmitted], writing nothing where it refuses.
+// The deployer writes [Adopt] and nothing else: the five fields that say what
+// runs can be reached, replaced, undone, read, and is already taking traffic, at
+// adoption and at every first release. It takes the token and fences because its
+// caller begins the transaction it runs in: package deploy's adoption, called by
+// whatever composes the deployer at a service's first release. Adoption admits
+// one shape — all five reachability properties holding at once — and [Adopt]
+// refuses every other with [ErrShapeNotAdmitted], writing nothing where it
+// refuses.
 //
 // # What is not built
 //
@@ -154,7 +155,7 @@
 //
 // Retirement is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
-// (C0697, C0698, C0706), and adoption's four reachability fields, decomposition
+// (C0697, C0698, C0706), and adoption's five reachability fields, decomposition
 // writing the record for an existing repository, and the parameters a service
 // starts with, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md

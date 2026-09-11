@@ -116,10 +116,10 @@ func quotedInAVersion(t *testing.T, ctx context.Context, d deps, p *path,
 	intentID, statement string) (string, string) {
 	t.Helper()
 	svc := onlyService(t, ctx, d)
-	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	it, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: intentID, ServiceID: svc, AreaChain: []string{p.areaID}, Branch: "candidate/erasure",
 		RequirementsAnswered: oneRequirement,
-	}, p.projectID, p.projectID, nil)
+	}, p.projectID, p.projectID)
 	if err != nil {
 		t.Fatalf("writing an item of the intent grouped from reports: %v", err)
 	}

@@ -259,8 +259,11 @@
 //   - author.go — implementationStage with startBranch, commitAndBuild and
 //     hazardOf, and consumerContractStage; Publishes, Declares,
 //     DeclaresSchemaChange, DeclaresBackfill and repoOfItem, the deployer's side
-//     of contractcheck; and filesSize and rolePromptCriteria, what a stage hands
-//     a role.
+//     of contractcheck; publishedGoConvention, composed from what package
+//     contract, screenstatemachine and criterion each publish beside
+//     consumercontract's own mirror convention, and handed to
+//     consumercontract.GoExtractor; and filesSize and rolePromptCriteria, what
+//     a stage hands a role.
 //   - backfill.go — declaresBackfill with backfillStore and backfillIn, the
 //     pair a backfill item's checkout declares it copies between, with the file
 //     name and directive that convention is, read by DeclaresBackfill.

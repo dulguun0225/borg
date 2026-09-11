@@ -12,7 +12,6 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/item"
-	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -33,7 +32,7 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 		t.Fatalf("reading the contract: found %v, %v", found, err)
 	}
 	actor := owner(t, ctx, d.pool, d.token, d.human)
-	placed, _, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx, actor, gatepolicy.SafeguardPredicate,
+	placed, _, err := newFactory(d.pool, d.token).AddSafeguard(ctx, actor, gatepolicy.SafeguardPredicate,
 		safeguard.Subject{Kind: safeguard.SubjectContractElement, ID: contract.ElementSubject(con.ID, "Health.Detail")},
 		safeguard.Bound{Predicate: safeguard.Predicate{Kind: gatepolicy.PredicateRead}}, safeguard.Routing{})
 	if err != nil {
@@ -94,7 +93,7 @@ func TestASafeguardsPredicateStopsTheRemovalUntilItIsWithdrawn(t *testing.T) {
 	// two writes: the withdrawal record, and the approval that row's close makes.
 	// The row is routed away from whoever wrote the withdrawal, so the approval is
 	// another human's.
-	written, _, err := policy.NewFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx, actor, placed.ID)
+	written, _, err := newFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx, actor, placed.ID)
 	if err != nil {
 		t.Fatalf("writing the withdrawal: %v", err)
 	}

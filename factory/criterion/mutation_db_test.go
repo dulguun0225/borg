@@ -48,9 +48,9 @@ func TestRecordMutationKeepsEveryRunAndTheGateReadsTheLatest(t *testing.T) {
 		t.Errorf("the stored reading is %+v, want what the deployer recorded", readings[0])
 	}
 
-	latest, found, err := criterion.LatestMutation(ctx, pool, buildID)
-	if err != nil || !found {
-		t.Fatalf("LatestMutation = %+v, %v, %v", latest, found, err)
+	applicability, latest, err := criterion.LatestMutation(ctx, pool, buildID, false)
+	if err != nil || applicability != criterion.MutationApplicable {
+		t.Fatalf("LatestMutation = %v, %+v, %v, want applicable", applicability, latest, err)
 	}
 	if latest.Run != 2 || latest.Mutation.Score() != 0.9 {
 		t.Errorf("LatestMutation = %+v, want run 2 at a score of 0.9", latest)
@@ -59,9 +59,16 @@ func TestRecordMutationKeepsEveryRunAndTheGateReadsTheLatest(t *testing.T) {
 		t.Error("a score above the floor blocked at the gate")
 	}
 
-	// A build nothing mutated is not a reading of zero.
-	if _, found, err := criterion.LatestMutation(ctx, pool, "bl_never_mutated"); err != nil || found {
-		t.Errorf("LatestMutation over a build nothing mutated = %v, %v, want no reading", found, err)
+	// A build nothing mutated is not a reading of zero: it is unavailable.
+	if applicability, _, err := criterion.LatestMutation(ctx, pool, "bl_never_mutated", false); err != nil || applicability != criterion.MutationUnavailable {
+		t.Errorf("LatestMutation over a build nothing mutated = %v, %v, want unavailable", applicability, err)
+	}
+
+	// Above the candidate run, the reading is inapplicable regardless of what
+	// the build's own run recorded — the mutation happens at the candidate
+	// run and answers only Merge to master.
+	if applicability, reading, err := criterion.LatestMutation(ctx, pool, buildID, true); err != nil || applicability != criterion.MutationInapplicable || reading != (criterion.MutationReading{}) {
+		t.Errorf("LatestMutation above the candidate run = %v, %+v, %v, want inapplicable and no reading", applicability, reading, err)
 	}
 }
 
@@ -84,9 +91,9 @@ func TestACouldNotDeriveMutationCountsNothingAndNeverPasses(t *testing.T) {
 		t.Errorf("a could-not-derive reading is %+v, want one that never passes", recorded.Mutation)
 	}
 
-	read, found, err := criterion.LatestMutation(ctx, pool, "bl_b")
-	if err != nil || !found {
-		t.Fatalf("LatestMutation = %+v, %v, %v", read, found, err)
+	applicability, read, err := criterion.LatestMutation(ctx, pool, "bl_b", false)
+	if err != nil || applicability != criterion.MutationApplicable {
+		t.Fatalf("LatestMutation = %v, %+v, %v, want applicable", applicability, read, err)
 	}
 	if read.Mutation.CouldNotDerive != recorded.Mutation.CouldNotDerive || read.Mutation.MutantsTested != 0 {
 		t.Errorf("the stored reading is %+v, want the reason and no counts", read.Mutation)

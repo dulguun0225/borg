@@ -182,7 +182,7 @@ func TestTheTwoBaselinesAreDifferent(t *testing.T) {
 	merged, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: g.producer.ID, Branch: "item/merged",
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the merged item: %v", err)
 	}

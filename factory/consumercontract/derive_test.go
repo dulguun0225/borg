@@ -164,6 +164,47 @@ func main() {
 	}
 }
 
+// TestARequestElementDoesNotDeclarePopulated: over what the consumer sends,
+// the design gives the operation called, sent-or-left-out, and the domain or
+// range — never populated, which is a store element's own predicate for what
+// the code writes. Sent-or-left-out already covers whether a request element
+// is there at all.
+func TestARequestElementDoesNotDeclarePopulated(t *testing.T) {
+	dir := checkout(t, map[string]string{
+		"consumes.txt": "health producer health\n",
+		consumercontract.FileName("health"): `package main
+
+type Ask struct {
+	Reason string ` + "`borg:\"populated,domain=slow|error\"`" + `
+}
+
+func Fetch(ask Ask) string { return "" }
+`,
+		"main.go": `package main
+
+func report() {
+	ask := Ask{Reason: "slow"}
+	_ = Fetch(ask)
+}
+
+func main() { report() }
+`,
+	})
+	d, got := derived(t, dir)
+	if d.CouldNotDerive() {
+		t.Fatalf("the derivation could not run: %s", d.Describe())
+	}
+	if _, found := got["Ask.Reason/populated"]; found {
+		t.Fatalf("Ask.Reason declared populated, and that predicate is a store element's, not a request element's: %v", got)
+	}
+	if got["Ask.Reason/sent"] != consumercontract.Sent {
+		t.Errorf("Ask.Reason is %q, and the code writes it", got["Ask.Reason/sent"])
+	}
+	if got["Ask.Reason/sent_domain"] != "slow|error" {
+		t.Errorf("the domain written is %q", got["Ask.Reason/sent_domain"])
+	}
+}
+
 func TestWhichProducerIsTheEntryPairedWithTheCallSite(t *testing.T) {
 	for name, of := range map[string]struct {
 		files      map[string]string
@@ -298,5 +339,22 @@ func TestWhichToolchainsHaveAnExtractorIsPublished(t *testing.T) {
 	}
 	if consumercontract.GoExtractor("test").Convention == "" {
 		t.Error("the Go extractor publishes no convention, and a reader of a derivation cannot see what it applied")
+	}
+}
+
+// TestGoExtractorPublishesTheConventionItIsGiven: cmd/factory composes the
+// published convention from what every package that states one of the five —
+// the mark, the backfill, the schema change, a screen's transition function
+// and the mutation tool — publishes, beside this file's own mirror
+// convention, and hands the whole of it to [consumercontract.GoExtractor].
+// This package cannot import every one of them, so a caller that supplies
+// none gets [consumercontract.GoConvention] alone.
+func TestGoExtractorPublishesTheConventionItIsGiven(t *testing.T) {
+	composed := "the mirror; the mark; the backfill; the schema change; the transition function; the mutation tool"
+	if got := consumercontract.GoExtractor("test", composed).Convention; got != composed {
+		t.Fatalf("GoExtractor(\"test\", composed).Convention = %q, want the convention handed to it", got)
+	}
+	if got := consumercontract.GoExtractor("test").Convention; got != consumercontract.GoConvention {
+		t.Fatalf("a caller supplying no convention got %q, want GoConvention alone", got)
 	}
 }

@@ -33,10 +33,10 @@ func TestADetectorIntentGroupedReportsResolvesTheSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeIn a detector-raised intent: %v", err)
 	}
-	it, err := item.NewDecomposition(pool, token).Create(ctx, marking, item.New{
+	it, err := item.NewDecomposition(pool, token, item.NoHolds{}).Create(ctx, marking, item.New{
 		IntentID: raised.ID, ServiceID: "svc_detected", Branch: "item/detected",
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("writing the item: %v", err)
 	}

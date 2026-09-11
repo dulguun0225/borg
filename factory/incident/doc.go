@@ -42,11 +42,15 @@
 //
 // Who may write what: [Writer] is the health monitor — [Writer.Raise] refuses an actor
 // that is not a component with [ErrNotAComponent], the mirror of package policy
-// refusing one that is not a human. It inserts an incident, raises its
+// refusing one that is not a human, and refuses an environment that is not
+// production's, or names none the store has, with [ErrNotProduction], read
+// inside the same transaction as the write. It inserts an incident, raises its
 // observation count, and advances its status; nothing updates any other field
 // and nothing deletes. environment_id, service_id, release_id, deploy_id, and
 // intent_id are id fields and not foreign keys, the rule record's doc.go states
-// once. [OverdueItems] writes nothing: it reads package item's records and
+// once — environment_id is read at the write to decide [ErrNotProduction] and
+// held as a field rather than a foreign key the way the other four are.
+// [OverdueItems] writes nothing: it reads package item's records and
 // package service's incident-item bound, and a caller pages against what it
 // returns.
 //

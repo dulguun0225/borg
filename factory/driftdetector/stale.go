@@ -1,6 +1,10 @@
 package driftdetector
 
-import "github.com/dulguun0225/borg/factory/lastcheck"
+import (
+	"slices"
+
+	"github.com/dulguun0225/borg/factory/lastcheck"
+)
 
 // ServiceOnTargets is one unretired service, the production environment it
 // runs in, and the targets of that environment it runs on, as [Holds] reads
@@ -25,13 +29,13 @@ type StaleHold struct {
 // check that raised it — and running, the services and their production
 // environments the caller assembles. The health monitor keeps one last check
 // per service, so its subject is the service and it holds that service's
-// production deploys. The deployer keeps one per production environment, so
-// it holds every unretired service running in the environment named by the
-// subject — the deployer's last check is kept per production environment and
-// not per target, which is why running names the environment and not only
-// the targets. Every other component reaches no deploy, so its mismatch
-// holds nothing — one [StaleHold] naming no service, and the page is the
-// whole of it.
+// production deploys. The deployer keeps one per persistent target, so its
+// subject is a target address, and what it holds is every unretired service
+// of the environment that target belongs to — not only the service running on
+// that one target — because the deployer having stopped is a fact about the
+// whole environment it deploys into and not about one target of it alone.
+// Every other component reaches no deploy, so its mismatch holds nothing —
+// one [StaleHold] naming no service, and the page is the whole of it.
 func Holds(c lastcheck.LastCheck, running []ServiceOnTargets) []StaleHold {
 	if c.Component == lastcheck.ComponentHealthMonitor {
 		return []StaleHold{{ServiceID: c.Subject}}
@@ -39,9 +43,21 @@ func Holds(c lastcheck.LastCheck, running []ServiceOnTargets) []StaleHold {
 	if c.Component != lastcheck.ComponentDeployer {
 		return []StaleHold{{}}
 	}
+	var environmentID string
+	for _, s := range running {
+		if slices.Contains(s.Targets, c.Subject) {
+			environmentID = s.EnvironmentID
+			break
+		}
+	}
+	if environmentID == "" {
+		// A target no service runs on: the deployer stopped all the same, so
+		// the mismatch stands and pages, holding nothing.
+		return []StaleHold{{}}
+	}
 	var holding []StaleHold
 	for _, s := range running {
-		if s.EnvironmentID == c.Subject {
+		if s.EnvironmentID == environmentID {
 			holding = append(holding, StaleHold{ServiceID: s.ServiceID})
 		}
 	}

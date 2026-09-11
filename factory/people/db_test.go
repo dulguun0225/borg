@@ -39,6 +39,13 @@ var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: rec
 // log takes.
 var ownerReading = principal.OfHuman("person:owner", record.BasisClaimed)
 
+// fixedAutoPassRate is the fake [policy.NewFactory] takes in these tests: a
+// factory writing a threshold is not what this package's own tests are about,
+// so what it answers with is fixed rather than read from the score.
+func fixedAutoPassRate(context.Context, policy.Scope, string, float64) ([]policy.AutoPassRate, error) {
+	return []policy.AutoPassRate{{FactorSet: "merge_to_master", Rate: 0.5}}, nil
+}
+
 func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *people.Writer) {
 	t.Helper()
 	ctx := t.Context()
@@ -72,7 +79,7 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, lease.Token, *peopl
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
-	return ctx, pool, token, people.NewWriter(pool, token, policy.NewFactory(pool, token))
+	return ctx, pool, token, people.NewWriter(pool, token, policy.NewFactory(pool, token, fixedAutoPassRate))
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every

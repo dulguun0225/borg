@@ -43,10 +43,10 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 		t.Errorf("the revert's source is %s, want owner", revert.Source)
 	}
 
-	revertItem, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	revertItem, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: revert.ID, ServiceID: svc.ID, Branch: "item/revert",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the revert item: %v", err)
 	}
@@ -60,10 +60,10 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 
 	// An ordinary item, decomposed from the intent the run itself authored,
 	// carries no evidence and is not a revert.
-	ordinary, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor, item.New{
+	ordinary, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor, item.New{
 		IntentID: res.decompositions[0].intentID, ServiceID: svc.ID, Branch: "item/ordinary",
 		RequirementsAnswered: oneRequirement,
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the ordinary item: %v", err)
 	}

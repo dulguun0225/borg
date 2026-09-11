@@ -36,8 +36,8 @@ func TestAServiceNotProvisionedHoldsAtBothDeployRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("taking an intent in: %v", err)
 	}
-	it, err := item.NewDecomposition(d.pool, d.token).Create(ctx, decompositionActor,
-		item.New{IntentID: in.ID, ServiceID: svc.ID, Branch: "item/provisioning", RequirementsAnswered: oneRequirement}, "", svc.ProjectID, nil)
+	it, err := item.NewDecomposition(d.pool, d.token, item.NoHolds{}).Create(ctx, decompositionActor,
+		item.New{IntentID: in.ID, ServiceID: svc.ID, Branch: "item/provisioning", RequirementsAnswered: oneRequirement}, "", svc.ProjectID)
 	if err != nil {
 		t.Fatalf("writing an item on it: %v", err)
 	}

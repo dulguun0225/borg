@@ -51,9 +51,12 @@ var (
 	// every target is.
 	ErrTargetsIncomplete = errors.New("deploy: a target of the deploy is not complete")
 	// ErrATargetCompleted is returned by [Writer.MarkFailed] for a deploy a
-	// target of which is already complete. Failed is where the deployer stopped
-	// before any target was complete; a deploy that reached one and stopped is a
-	// recorded partial deploy and stays started.
+	// target of which is already complete, at every step but
+	// [StepCannotBeCarried]. Failed is where the deployer stopped before any
+	// target was complete; a deploy that reached one and stopped is a recorded
+	// partial deploy and stays started — unless the restart itself is what
+	// could carry it no further, which is the one failure a record with a
+	// target already complete may still reach.
 	ErrATargetCompleted = errors.New("deploy: a deploy with a target complete is not marked failed")
 	// ErrUndoingIncomplete is returned by [Writer.StartUndoing] for a rollback
 	// missing something every rollback names, or naming one release as both
@@ -99,11 +102,15 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 func (w *Writer) Pool() *pgxpool.Pool { return w.pool }
 
 // Complete advances the deploy from started to complete, and refuses a deploy
-// any target the service runs on is not complete on: the record as a whole is
-// complete when every one of those targets is, which is also when the release it
-// names becomes current. The rows for the environment's other targets are not
-// read here — the service runs on none of them, so nothing was ever going to
-// reach them.
+// any target the service runs on is neither complete nor rolled back on: the
+// record as a whole is complete when every one of those targets is decided,
+// which is also when the release it names becomes current — [Current] and its
+// like read a target's own completion and never this record's status, so a
+// target the restart's return path rolled back, on a record every other
+// target of which completed forward or rolled back the same way, never reads
+// as current through this write. The rows for the environment's other targets
+// are not read here — the service runs on none of them, so nothing was ever
+// going to reach them.
 //
 // A backfill's record is refused until its copy has finished: the deployer marks
 // one complete only once every row the old form holds is present in the new, and
@@ -130,8 +137,8 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 		}
 		var unfinished int
 		err = tx.QueryRow(ctx, `select count(*) from `+TargetTable+`
-			where deploy_id = $1 and runs_here and completion <> $2`,
-			id, string(CompletionComplete)).Scan(&unfinished)
+			where deploy_id = $1 and runs_here and completion not in ($2, $3)`,
+			id, string(CompletionComplete), string(CompletionRolledBack)).Scan(&unfinished)
 		if err != nil {
 			return err
 		}
@@ -163,9 +170,13 @@ func (w *Writer) MarkBackfillCopied(ctx context.Context, id string) error {
 }
 
 // MarkFailed marks the record failed at the step that stopped it, and refuses
-// where a target is already complete. A failure stands for Ops here, the
-// restart leaves it alone, and both queries over overlapping windows descend
-// past it — all three read a record no target completed.
+// where a target is already complete, at every step but [StepCannotBeCarried]:
+// a failure stands for Ops here, the restart leaves it alone, and both queries
+// over overlapping windows descend past it — every step but that one reads a
+// record no target completed. [StepCannotBeCarried] is the restart's own
+// failure over a record it could carry neither forward nor back, which a
+// recorded partial deploy — one target already complete, another still owed —
+// may reach as much as one with nothing complete at all.
 func (w *Writer) MarkFailed(ctx context.Context, id, step string) error {
 	if step == "" {
 		return fmt.Errorf("%w: %s names no step", ErrNotStarted, id)
@@ -178,14 +189,16 @@ func (w *Writer) MarkFailed(ctx context.Context, id, step string) error {
 		if status != StatusStarted {
 			return fmt.Errorf("%w: %s is %s", ErrNotStarted, id, status)
 		}
-		var complete int
-		err = tx.QueryRow(ctx, `select count(*) from `+TargetTable+`
-			where deploy_id = $1 and completion = $2`, id, string(CompletionComplete)).Scan(&complete)
-		if err != nil {
-			return err
-		}
-		if complete != 0 {
-			return fmt.Errorf("%w: %d of %s", ErrATargetCompleted, complete, id)
+		if step != StepCannotBeCarried {
+			var complete int
+			err = tx.QueryRow(ctx, `select count(*) from `+TargetTable+`
+				where deploy_id = $1 and completion = $2`, id, string(CompletionComplete)).Scan(&complete)
+			if err != nil {
+				return err
+			}
+			if complete != 0 {
+				return fmt.Errorf("%w: %d of %s", ErrATargetCompleted, complete, id)
+			}
 		}
 		_, err = tx.Exec(ctx, `update `+Table+` set status = $1, failed_step = $2 where id = $3`,
 			string(StatusFailed), step, id)

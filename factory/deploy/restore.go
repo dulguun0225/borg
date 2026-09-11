@@ -72,18 +72,24 @@ type Returning struct {
 // the fast way and [Restore] the slow one; and it applies no schema change, the
 // schema moving only forward however far traffic moves back.
 //
-// It mints no way-in token and resolves no fresh configuration either: the
-// instances it shifts traffic onto hold whatever [r.KeptBy] placed them under
-// already, so the record it writes names the configuration digest and the
-// way-in token digest [r.KeptBy] named — the record the kept fleet belongs
-// to — and never a value of its own.
+// It is a deploy in its own right, and mints a fresh way-in token the way every
+// deploy does: the configuration digest is taken over the resolved set alone,
+// before the token is minted and appended, so it digests the same as the
+// deploy that placed and kept these instances where the configuration itself
+// has not changed — but the way-in token digest the record carries is this
+// rollback's own, never [r.KeptBy]'s. [Target.Reconfigure] is what hands the
+// kept instances that fresh token, in place of the [Target.Deploy] a build
+// still cold would need: a platform unable to do that without dropping a
+// request refuses with [targetseam.ErrCannotReconfigure], and the rollback
+// goes no further here — the caller falls back to [Restore], the slow way.
 //
-// Per target, in the environment's order, it shifts all of the traffic onto the
-// release returned to and marks that target complete when the shift returns,
-// advancing the deploys it undoes on that target as it goes — so a rollback that
-// stopped undoes nothing beyond the targets it reached. There is no hold between
-// targets: what a bake volume bounds is exposure to a build nothing has watched,
-// and this returns traffic to the build that was serving before.
+// Per target, in the environment's order, it hands the kept instances the
+// fresh configuration, shifts all of the traffic onto the release returned to,
+// and marks that target complete with what the reconfiguration reported,
+// advancing the deploys it undoes on that target as it goes — so a rollback
+// that stopped undoes nothing beyond the targets it reached. There is no hold
+// between targets: what a bake volume bounds is exposure to a build nothing
+// has watched, and this returns traffic to the build that was serving before.
 //
 // A target whose kept count is nothing, or whose kept fleet has been torn down,
 // is [ErrNothingKeptToReturnTo]: there is nothing there to shift onto, and that
@@ -116,38 +122,49 @@ func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
 		}
 	}
 
-	placedBy, err := Get(ctx, w.Pool(), r.KeptBy)
-	if err != nil {
-		return Deploy{}, err
-	}
 	p := r.Performance
 	if err := p.check(); err != nil {
 		return Deploy{}, err
 	}
-	d, err := w.StartUndoing(ctx, p.Actor, p.beginning(placedBy.ConfigurationDigest, placedBy.WayInTokenDigest), r.Undoing)
+
+	// The configuration digest is taken before the token is minted and
+	// appended, the same way [Perform] takes it: over the resolved set alone,
+	// so it digests the same here as it did at the deploy this rollback
+	// undoes where the configuration itself has not changed. The way-in token
+	// is minted fresh, this being a deploy in its own right and not a call
+	// that reuses [r.KeptBy]'s.
+	configDigest := DigestConfiguration(p.Configuration)
+	p, wayInDigest, err := p.mintingTheWayInToken()
 	if err != nil {
 		return Deploy{}, err
 	}
 
+	d, err := w.StartUndoing(ctx, p.Actor, p.beginning(configDigest, wayInDigest), r.Undoing)
+	if err != nil {
+		return Deploy{}, err
+	}
+
+	configuration := addingTheDeployID(p.Configuration, d.ID)
 	for n, reach := range p.Reaches {
 		if err := w.ReachTarget(ctx, d.ID, reach.Address); err != nil {
 			return d, err
 		}
-		err := reach.Target.ShiftTraffic(ctx, p.Principal, targetseam.Shift{
-			Service: p.ServiceName, Build: p.What.BuildID, Share: 1, Credential: p.Credential,
+		reconfigured, err := reach.Target.Reconfigure(ctx, p.Principal, targetseam.Reconfiguration{
+			Service: p.ServiceName, Build: p.What.BuildID, Configuration: configuration,
+			WayInAddress: p.WayInAddress, Credential: p.Credential,
 		})
 		if err != nil {
-			wrapped := fmt.Errorf("%w: %s of %s: %w", ErrTargetRefused, reach.Address, d.ID, err)
-			if n > 0 {
-				return d, wrapped
-			}
-			return d, fail(ctx, w, p, d, StepFirstTarget, wrapped)
+			return d, refused(ctx, w, p, d, n, reach, err)
 		}
-		// The instances the traffic now serves from are the ones that were
-		// already running, so what the seam reported about a replacement is what
-		// a replacement that dropped no request reports: none was made here at
-		// all.
-		if err := w.CompleteTarget(ctx, d.ID, reach.Address, targetseam.ReplacementDrained); err != nil {
+		if err := reach.Target.ShiftTraffic(ctx, p.Principal, targetseam.Shift{
+			Service: p.ServiceName, Build: p.What.BuildID, Share: 1, Credential: p.Credential,
+		}); err != nil {
+			return d, refused(ctx, w, p, d, n, reach, err)
+		}
+		// What goes on the record is what the reconfiguration reported: the
+		// instances the traffic now serves from are the ones already
+		// running, handed the fresh configuration rather than replaced.
+		if err := w.CompleteTarget(ctx, d.ID, reach.Address, reconfigured.Replacement); err != nil {
 			return d, err
 		}
 		if p.IntoProduction && n == 0 {

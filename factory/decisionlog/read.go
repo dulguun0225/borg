@@ -150,6 +150,48 @@ func (r *Reader) Pending(ctx context.Context, p principal.Principal) ([]Row, err
 	return pending, nil
 }
 
+// PendingWaits is every wait opening with no closing — "a first row with no
+// second is what Work reads as still holding" — after appending a read event
+// naming the principal. It is [Reader.Pending] for waits rather than
+// decisions.
+func (r *Reader) PendingWaits(ctx context.Context, p principal.Principal) ([]Row, error) {
+	if err := r.appendReadEvent(ctx, p, "pending waits"); err != nil {
+		return nil, err
+	}
+	rows, err := readAll(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	ended := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.Shape == ShapeWait && row.Part == PartClose {
+			ended[row.Closes] = true
+		}
+	}
+	var pending []Row
+	for _, row := range rows {
+		if row.Shape == ShapeWait && row.Part == PartOpen && !ended[row.ID] {
+			pending = append(pending, row)
+		}
+	}
+	return pending, nil
+}
+
+// ClosedWaits is every wait both of whose rows are in the log, in the order
+// the openings were appended, after appending a read event naming the
+// principal — the pair that makes how long a wait held a subtraction, the
+// way [Reader.ClosedDecisions] does for a decision.
+func (r *Reader) ClosedWaits(ctx context.Context, p principal.Principal) ([]ClosedWait, error) {
+	if err := r.appendReadEvent(ctx, p, "closed waits"); err != nil {
+		return nil, err
+	}
+	rows, err := readAll(ctx, r.pool)
+	if err != nil {
+		return nil, err
+	}
+	return pairClosedWaits(rows), nil
+}
+
 // ByShape is every row of one shape, in row order, after appending a read
 // event naming the principal and the shape asked for. It is how a caller that
 // stores a record as a row of the log — the policy version and the score

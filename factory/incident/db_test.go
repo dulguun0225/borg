@@ -19,17 +19,28 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/secretref"
 )
 
 // healthMonitor is the one writer of incidents, the way doc.go names it. A human
 // is never one; TestAHumanActorIsRefused is the mirror of that.
 var healthMonitor = record.Actor{Kind: record.KindComponent, Key: "health_monitor", Basis: record.BasisClaimed}
 
-func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
+// owner is the environment record's writer, an owner at Factory, for the two
+// fixtures below.
+var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
+
+// newTable returns a fresh schema, its writer, the id of a production
+// environment already written there — which is what every raising in this
+// package's tests names, [incident.Writer.Raise] refusing one that is not —
+// and the lease token the schema was opened under, for a test that writes a
+// second environment of its own.
+func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer, string, lease.Token) {
 	t.Helper()
 	ctx := t.Context()
 
@@ -62,7 +73,32 @@ func newTable(t *testing.T) (context.Context, *pgxpool.Pool, *incident.Writer) {
 	if err != nil {
 		t.Fatalf("acquiring the lease: %v", err)
 	}
-	return ctx, pool, incident.NewWriter(pool, token)
+	return ctx, pool, incident.NewWriter(pool, token), environmentOfKind(t, ctx, pool, token, environment.KindProduction), token
+}
+
+// environmentOfKind writes an environment of kind, in a project of its own, and
+// returns its id. It is a persistent kind's fixture — production's or a
+// customer's — for the two environments [Writer.Raise] tells apart.
+func environmentOfKind(t *testing.T, ctx context.Context, pool *pgxpool.Pool, token lease.Token, kind environment.Kind) string {
+	t.Helper()
+	name := environment.ProductionName
+	if kind != environment.KindProduction {
+		name = "a customer's"
+	}
+	e, err := environment.NewWriter(pool, token).Create(ctx, owner, environment.Spec{
+		Kind:       kind,
+		ProjectID:  record.NewID("prj"),
+		Name:       name,
+		Targets:    []environment.Target{{Address: "/srv/targets/one", ServesAShare: true}},
+		Credential: secretref.MustNew("deploy.local"),
+		Platform: environment.Platform{
+			Name: "local", Credential: secretref.MustNew("platform.local"), CanComposeOnDemand: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating a %s environment: %v", kind, err)
+	}
+	return e.ID
 }
 
 // inSchema points a connection URL at one schema and nothing else, so every
@@ -79,11 +115,11 @@ func inSchema(t *testing.T, base, schema string) string {
 	return parsed.String()
 }
 
-// raising is a complete Raising over ids of its own, so a test that needs one
+// raising is a complete Raising naming environmentID, so a test that needs one
 // or several does not repeat all the required fields.
-func raising() incident.Raising {
+func raising(environmentID string) incident.Raising {
 	return incident.Raising{
-		EnvironmentID:   record.NewID("env"),
+		EnvironmentID:   environmentID,
 		ServiceID:       record.NewID("svc"),
 		ReleaseID:       record.NewID("rel"),
 		DeployID:        record.NewID("dep"),
@@ -99,8 +135,8 @@ func raising() incident.Raising {
 }
 
 func TestRaiseWritesTheIncidentOpenWithNoObservations(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	r := raising()
+	ctx, pool, w, envID, _ := newTable(t)
+	r := raising(envID)
 
 	raised, err := w.Raise(ctx, healthMonitor, r)
 	if err != nil {
@@ -134,15 +170,15 @@ func TestRaiseWritesTheIncidentOpenWithNoObservations(t *testing.T) {
 }
 
 func TestAHumanActorIsRefused(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, envID, _ := newTable(t)
 	human := record.Actor{Kind: record.KindHuman, Key: "owner", Basis: record.BasisClaimed}
 
-	if _, err := w.Raise(ctx, human, raising()); !errors.Is(err, incident.ErrNotAComponent) {
+	if _, err := w.Raise(ctx, human, raising(envID)); !errors.Is(err, incident.ErrNotAComponent) {
 		t.Errorf("Raise by a human = %v, want ErrNotAComponent", err)
 	}
 
 	// Around the writer, the CHECK constraint refuses the same thing.
-	r := raising()
+	r := raising(envID)
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
@@ -155,13 +191,31 @@ func TestAHumanActorIsRefused(t *testing.T) {
 	}
 }
 
+// TestRaiseRefusesAnEnvironmentThatIsNotProduction is C2095: an incident is a
+// record on a production environment, and [Writer.Raise] refuses one that names
+// a customer's or an unknown one with [incident.ErrNotProduction].
+func TestRaiseRefusesAnEnvironmentThatIsNotProduction(t *testing.T) {
+	ctx, pool, w, _, token := newTable(t)
+	customer := environmentOfKind(t, ctx, pool, token, environment.KindCustomer)
+
+	r := raising(customer)
+	if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrNotProduction) {
+		t.Errorf("Raise naming a customer's environment = %v, want ErrNotProduction", err)
+	}
+
+	r = raising(record.NewID(environment.IDPrefix))
+	if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrNotProduction) {
+		t.Errorf("Raise naming an environment nothing wrote = %v, want ErrNotProduction", err)
+	}
+}
+
 // TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused is the
 // deduplication rule doc.go states: an open incident on a service and a
 // release makes a further crossing an observation and never a second intent,
 // and the partial unique index is the same rule in the store.
 func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T) {
-	ctx, pool, w := newTable(t)
-	r := raising()
+	ctx, pool, w, envID, _ := newTable(t)
+	r := raising(envID)
 
 	if _, found, err := incident.Open(ctx, pool, r.ServiceID, r.ReleaseID); err != nil || found {
 		t.Fatalf("Open before anything was raised = found %v, %v", found, err)
@@ -176,7 +230,7 @@ func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T)
 		t.Fatalf("Open = %+v, found %v, %v", found, ok, err)
 	}
 
-	again := raising()
+	again := raising(envID)
 	again.ServiceID, again.ReleaseID = r.ServiceID, r.ReleaseID
 	if _, err := w.Raise(ctx, healthMonitor, again); err == nil {
 		t.Error("a second open incident on one service and release was accepted")
@@ -194,8 +248,8 @@ func TestOpenFindsItAndASecondRaiseOnOneServiceAndReleaseIsRefused(t *testing.T)
 }
 
 func TestObserveRaisesTheCount(t *testing.T) {
-	ctx, _, w := newTable(t)
-	raised, err := w.Raise(ctx, healthMonitor, raising())
+	ctx, _, w, envID, _ := newTable(t)
+	raised, err := w.Raise(ctx, healthMonitor, raising(envID))
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -217,8 +271,8 @@ func TestObserveRaisesTheCount(t *testing.T) {
 }
 
 func TestObserveAndResolveOnAResolvedIncidentAreNotOpen(t *testing.T) {
-	ctx, _, w := newTable(t)
-	raised, err := w.Raise(ctx, healthMonitor, raising())
+	ctx, _, w, envID, _ := newTable(t)
+	raised, err := w.Raise(ctx, healthMonitor, raising(envID))
 	if err != nil {
 		t.Fatalf("Raise: %v", err)
 	}
@@ -235,7 +289,7 @@ func TestObserveAndResolveOnAResolvedIncidentAreNotOpen(t *testing.T) {
 }
 
 func TestObserveAndResolveOnAnUnknownIDAreNotFound(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, _, _ := newTable(t)
 	const missing = "inc_00000000000000000000000000000000"
 
 	if _, err := w.Observe(ctx, missing); !errors.Is(err, incident.ErrNotFound) {
@@ -252,10 +306,10 @@ func TestObserveAndResolveOnAnUnknownIDAreNotFound(t *testing.T) {
 // value in incident.Statuses inserts cleanly around the writer, and a value
 // outside it does not.
 func TestDDLListsEveryStatus(t *testing.T) {
-	ctx, pool, _ := newTable(t)
+	ctx, pool, _, envID, _ := newTable(t)
 
 	for _, status := range incident.Statuses {
-		r := raising()
+		r := raising(envID)
 		resolvedAt := ""
 		if status == incident.StatusResolved {
 			resolvedAt = record.Now()
@@ -273,7 +327,7 @@ func TestDDLListsEveryStatus(t *testing.T) {
 		}
 	}
 
-	r := raising()
+	r := raising(envID)
 	_, err := pool.Exec(ctx, `insert into `+incident.Table+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, environment_id, service_id, release_id, deploy_id,
 		 reading, quantity, size, confidence, run_length, boundary_version, policy_version, score_version, failure_records,
@@ -287,12 +341,12 @@ func TestDDLListsEveryStatus(t *testing.T) {
 }
 
 func TestForServiceIsInOrder(t *testing.T) {
-	ctx, pool, w := newTable(t)
+	ctx, pool, w, envID, _ := newTable(t)
 	serviceID := record.NewID("svc")
 
 	var raised []incident.Incident
 	for i := 0; i < 3; i++ {
-		r := raising()
+		r := raising(envID)
 		r.ServiceID = serviceID
 		got, err := w.Raise(ctx, healthMonitor, r)
 		if err != nil {
@@ -316,7 +370,7 @@ func TestForServiceIsInOrder(t *testing.T) {
 }
 
 func TestARaisingMissingAFieldIsIncomplete(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, envID, _ := newTable(t)
 
 	for _, c := range []struct {
 		what string
@@ -331,7 +385,7 @@ func TestARaisingMissingAFieldIsIncomplete(t *testing.T) {
 		{"policy version", func(r *incident.Raising) { r.PolicyVersion = "" }},
 		{"score version", func(r *incident.Raising) { r.ScoreVersion = "" }},
 	} {
-		r := raising()
+		r := raising(envID)
 		c.mut(&r)
 		if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrIncomplete) {
 			t.Errorf("Raise missing %s = %v, want ErrIncomplete", c.what, err)
@@ -343,9 +397,9 @@ func TestARaisingMissingAFieldIsIncomplete(t *testing.T) {
 // [Reading] is a closed set of three, and a crossing naming a fourth is refused
 // by the writer before it reaches the store.
 func TestAReadingOutsideReadingsIsRefused(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, envID, _ := newTable(t)
 
-	r := raising()
+	r := raising(envID)
 	r.Reading = "flaky"
 	if _, err := w.Raise(ctx, healthMonitor, r); !errors.Is(err, incident.ErrReadingUnknown) {
 		t.Errorf("Raise with an unknown reading = %v, want ErrReadingUnknown", err)
@@ -357,27 +411,27 @@ func TestAReadingOutsideReadingsIsRefused(t *testing.T) {
 // never does states a run length, and a crossing naming both or neither is not
 // interpretable against the boundary it claims to have been read against.
 func TestARaisingStatesExactlyOneOfConfidenceAndRunLength(t *testing.T) {
-	ctx, _, w := newTable(t)
+	ctx, _, w, envID, _ := newTable(t)
 
-	neither := raising()
+	neither := raising(envID)
 	neither.Confidence = 0
 	if _, err := w.Raise(ctx, healthMonitor, neither); !errors.Is(err, incident.ErrBoundaryIncomplete) {
 		t.Errorf("Raise with neither confidence nor run length = %v, want ErrBoundaryIncomplete", err)
 	}
 
-	both := raising()
+	both := raising(envID)
 	both.RunLength = 500
 	if _, err := w.Raise(ctx, healthMonitor, both); !errors.Is(err, incident.ErrBoundaryIncomplete) {
 		t.Errorf("Raise with both confidence and run length = %v, want ErrBoundaryIncomplete", err)
 	}
 
-	ownHistory := raising()
+	ownHistory := raising(envID)
 	ownHistory.Reading, ownHistory.Confidence, ownHistory.RunLength = incident.ReadingOwnHistory, 0, 500
 	if _, err := w.Raise(ctx, healthMonitor, ownHistory); err != nil {
 		t.Errorf("Raise of an own-history crossing stating a run length = %v, want it accepted", err)
 	}
 
-	comparisonWithRunLength := raising()
+	comparisonWithRunLength := raising(envID)
 	comparisonWithRunLength.Confidence, comparisonWithRunLength.RunLength = 0, 500
 	if _, err := w.Raise(ctx, healthMonitor, comparisonWithRunLength); !errors.Is(err, incident.ErrBoundaryIncomplete) {
 		t.Errorf("Raise of a comparison crossing stating a run length = %v, want ErrBoundaryIncomplete", err)

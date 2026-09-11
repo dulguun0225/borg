@@ -28,14 +28,24 @@ func TestHolds(t *testing.T) {
 			want: []driftdetector.StaleHold{{ServiceID: "sv_a"}},
 		},
 		{
-			name: "the deployer holds every unretired service running in the subject environment",
-			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "en_1"},
+			name: "the deployer holds every unretired service of the environment holding the subject target, not only the one running on it",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "t1"},
 			want: []driftdetector.StaleHold{{ServiceID: "sv_a"}, {ServiceID: "sv_b"}},
 		},
 		{
-			name: "the deployer over an environment nothing runs in holds nothing",
-			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "en_9"},
-			want: nil,
+			name: "the deployer over a target two services of the same environment share still holds both, once each",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "t2"},
+			want: []driftdetector.StaleHold{{ServiceID: "sv_a"}, {ServiceID: "sv_b"}},
+		},
+		{
+			name: "the deployer over a target of another environment holds that environment's own service and no other",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "t3"},
+			want: []driftdetector.StaleHold{{ServiceID: "sv_c"}},
+		},
+		{
+			name: "the deployer over a target no service runs on holds nothing, one row naming no service",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "t9"},
+			want: []driftdetector.StaleHold{{}},
 		},
 		{
 			name: "every other component holds nothing, one row naming no service",

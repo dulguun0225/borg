@@ -144,12 +144,15 @@ func TestTheWayInTokenIsHandedInTheConfiguration(t *testing.T) {
 	}
 
 	handed := target.deployment.Configuration
-	if len(handed.Names) != 2 || handed.Names[1] != deploy.WayInTokenName {
-		t.Fatalf("the service was handed %v, want its own value and the way-in token beside it", handed.Names)
+	if len(handed.Names) != 3 || handed.Names[1] != deploy.WayInTokenName || handed.Names[2] != targetseam.DeployIDName {
+		t.Fatalf("the service was handed %v, want its own value, the way-in token, and the deploy id beside it", handed.Names)
 	}
 	if handed.Names[0] != "DATABASE_URL" || handed.Values[0] != "postgres://one" {
 		t.Errorf("the service's own configuration reads %v = %v, want what the caller resolved",
 			handed.Names, handed.Values)
+	}
+	if handed.Values[2] != d.ID {
+		t.Errorf("the deploy id handed to the service is %q, want %q", handed.Values[2], d.ID)
 	}
 	minted := handed.Values[1]
 	if len(minted) != 64 {

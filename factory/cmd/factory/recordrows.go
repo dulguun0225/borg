@@ -15,7 +15,9 @@ import (
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/legalhold"
 	"github.com/dulguun0225/borg/factory/policy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/screens"
 )
 
@@ -58,7 +60,7 @@ func decideOutsideEveryItemAt(ctx context.Context, pool *pgxpool.Pool, token lea
 	if err != nil {
 		return err
 	}
-	factory := policy.NewFactory(pool, token)
+	factory := newFactory(pool, token)
 	given := gate.Given{
 		Actor: actor, Verdict: r.verdict, Reason: r.reason, OpenedInWorkAt: r.openedInWorkAt,
 	}
@@ -264,4 +266,40 @@ func alreadyOpen(ctx context.Context, g *gate.Gate, firing gate.Firing) (gate.Op
 	}
 	return gate.Opened{}, fmt.Errorf("%w: %s over %s%s", gate.ErrRowPending,
 		firing.Row, firing.RecordID, firing.ArtifactID)
+}
+
+// autoPassRatesReader is the principal the read [score.RealizedAutoPass] makes
+// is recorded as: a component and not the human whose write called for it, the
+// way every internal read composed rather than made at a screen is.
+var autoPassRatesReader = principal.OfComponent("policy")
+
+// newFactory is package policy's writer, composed with the score's own read of
+// the realized auto-pass rate: every construction needs it, [policy.NewFactory]
+// refusing a nil one. Since is empty, which reads every closed firing at this
+// row and this threshold there has ever been, because a threshold write freezes
+// the rate as it stands at the write and not over a window the write chooses.
+func newFactory(pool *pgxpool.Pool, token lease.Token) *policy.Factory {
+	return policy.NewFactory(pool, token, autoPassRates(pool, token))
+}
+
+// autoPassRates reads the realized auto-pass rate at a threshold, per factor
+// set, from every closed decision at this gate row and this threshold the log
+// holds: [score.RealizedAutoPass] groups every closed firing by factor set,
+// subject and threshold already, so this is a filter to the one row and number
+// a threshold write names and never a second computation of the rate.
+func autoPassRates(pool *pgxpool.Pool, token lease.Token) func(context.Context, policy.Scope, string, float64) ([]policy.AutoPassRate, error) {
+	return func(ctx context.Context, _ policy.Scope, gateRow string, threshold float64) ([]policy.AutoPassRate, error) {
+		realized, err := score.RealizedAutoPass(ctx, pool, token, autoPassRatesReader, "")
+		if err != nil {
+			return nil, err
+		}
+		var rates []policy.AutoPassRate
+		for _, r := range realized {
+			if r.Subject != gateRow || r.Threshold != threshold {
+				continue
+			}
+			rates = append(rates, policy.AutoPassRate{FactorSet: string(r.FactorSet), Rate: r.RealizedRate})
+		}
+		return rates, nil
+	}
 }

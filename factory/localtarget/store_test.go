@@ -92,9 +92,10 @@ func TestAReplacementWaitsForTheRequestsItHolds(t *testing.T) {
 	finished := filepath.Join(dir, "held.finished")
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential,
 		Configuration: targetseam.ValueSet{
-			Names: []string{"HOLDER_FINISHED"}, Values: []string{finished},
+			Names:  []string{"HOLDER_FINISHED", targetseam.DeployIDName},
+			Values: []string{finished, "dep_1"},
 		},
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
@@ -103,7 +104,7 @@ func TestAReplacementWaitsForTheRequestsItHolds(t *testing.T) {
 
 	began := time.Now()
 	placed, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_two", Credential: credential, DeployID: "dep_2",
+		Service: "checkout", Build: "rel_two", Credential: credential, Configuration: deployIDConfig("dep_2"),
 	})
 	if err != nil {
 		t.Fatalf("Deploy rel_two: %v", err)
@@ -138,9 +139,10 @@ func TestAHeldRequestTheCallerWillNotWaitForIsAnError(t *testing.T) {
 	finished := filepath.Join(dir, "held.finished")
 
 	if _, err := local.Deploy(t.Context(), deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential,
 		Configuration: targetseam.ValueSet{
-			Names: []string{"HOLDER_FINISHED"}, Values: []string{finished},
+			Names:  []string{"HOLDER_FINISHED", targetseam.DeployIDName},
+			Values: []string{finished, "dep_1"},
 		},
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
@@ -150,7 +152,7 @@ func TestAHeldRequestTheCallerWillNotWaitForIsAnError(t *testing.T) {
 	ctx, giveUp := context.WithTimeout(t.Context(), 100*time.Millisecond)
 	defer giveUp()
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_two", Credential: credential, DeployID: "dep_2",
+		Service: "checkout", Build: "rel_two", Credential: credential, Configuration: deployIDConfig("dep_2"),
 	}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("a replacement the caller would not wait for = %v, want the cancellation", err)
 	}
@@ -165,7 +167,7 @@ func TestReadRunningReportsTheDigestAndTheCapacity(t *testing.T) {
 	buildProgram(t, dir, "rel_one", sleeperSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}

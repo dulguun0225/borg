@@ -25,7 +25,7 @@ func TestAdoptWritesTheDeployersFour(t *testing.T) {
 
 	token := acquire(ctx, t, pool)
 	tx := begin(ctx, t, pool)
-	found := service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true}
+	found := service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true, TakingTraffic: true}
 	if err := service.Adopt(ctx, tx, token, owner, created.ID, found); err != nil {
 		t.Fatalf("Adopt: %v", err)
 	}
@@ -38,7 +38,8 @@ func TestAdoptWritesTheDeployersFour(t *testing.T) {
 	if !read.Reachability.Written() || read.Reachability.TargetReached != found.TargetReached ||
 		read.Reachability.InstancesReplaceable != found.InstancesReplaceable ||
 		read.Reachability.RollbackPathPresent != found.RollbackPathPresent ||
-		read.Reachability.EmissionReadable != found.EmissionReadable {
+		read.Reachability.EmissionReadable != found.EmissionReadable ||
+		read.Reachability.TakingTraffic != found.TakingTraffic {
 		t.Errorf("Reachability = %+v, want %+v written", read.Reachability, found)
 	}
 
@@ -58,7 +59,10 @@ func TestAdoptWritesTheDeployersFour(t *testing.T) {
 // TestAdoptAdmitsOnlyOneShape: adoption admits one shape — instances on a
 // deploy target, already taking organic traffic, replaceable one at a time
 // and returnable by shifting traffic — and refuses the write, leaving nothing
-// written, unless all four hold.
+// written, unless every property holds. TakingTraffic is what stands for
+// "already taking organic traffic" in that shape; EmissionReadable is the
+// health monitor's own separate need to read something at all, and adoption
+// requires both.
 func TestAdoptAdmitsOnlyOneShape(t *testing.T) {
 	ctx, pool, w := newWriter(t)
 
@@ -68,15 +72,16 @@ func TestAdoptAdmitsOnlyOneShape(t *testing.T) {
 	}
 	token := acquire(ctx, t, pool)
 
-	whole := service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true}
+	whole := service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true, TakingTraffic: true}
 	for _, missing := range []struct {
 		name  string
 		found service.Reachability
 	}{
-		{"no target reached", service.Reachability{InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true}},
-		{"instances not replaceable", service.Reachability{TargetReached: true, RollbackPathPresent: true, EmissionReadable: true}},
-		{"no rollback path", service.Reachability{TargetReached: true, InstancesReplaceable: true, EmissionReadable: true}},
-		{"emission not readable", service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true}},
+		{"no target reached", service.Reachability{InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true, TakingTraffic: true}},
+		{"instances not replaceable", service.Reachability{TargetReached: true, RollbackPathPresent: true, EmissionReadable: true, TakingTraffic: true}},
+		{"no rollback path", service.Reachability{TargetReached: true, InstancesReplaceable: true, EmissionReadable: true, TakingTraffic: true}},
+		{"emission not readable", service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, TakingTraffic: true}},
+		{"no traffic", service.Reachability{TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true}},
 	} {
 		tx := begin(ctx, t, pool)
 		if err := service.Adopt(ctx, tx, token, owner, created.ID, missing.found); !errors.Is(err, service.ErrShapeNotAdmitted) {
@@ -89,13 +94,13 @@ func TestAdoptAdmitsOnlyOneShape(t *testing.T) {
 			t.Fatalf("Get: %v", err)
 		}
 		if read.Reachability.Written() {
-			t.Errorf("a refused adoption with %s wrote the four: %+v", missing.name, read.Reachability)
+			t.Errorf("a refused adoption with %s wrote the five: %+v", missing.name, read.Reachability)
 		}
 	}
 
 	tx := begin(ctx, t, pool)
 	if err := service.Adopt(ctx, tx, token, owner, created.ID, whole); err != nil {
-		t.Fatalf("Adopt with all four true: %v", err)
+		t.Fatalf("Adopt with every property true: %v", err)
 	}
 	commit(ctx, t, tx)
 
@@ -104,6 +109,6 @@ func TestAdoptAdmitsOnlyOneShape(t *testing.T) {
 		t.Fatalf("Get: %v", err)
 	}
 	if !read.Reachability.Written() {
-		t.Error("Adopt with all four true wrote nothing")
+		t.Error("Adopt with every property true wrote nothing")
 	}
 }

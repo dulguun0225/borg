@@ -72,7 +72,7 @@ func TestAnEscalationPagesOnlyWhereSomethingLiveIsWorse(t *testing.T) {
 	it, err := p.decomposition.Create(ctx, decompositionActor, item.New{
 		IntentID: detected.ID, ServiceID: svc.ID, Branch: "item/" + detected.ID,
 		RequirementsAnswered: []string{"rq_escalation_test"},
-	}, "", svc.ProjectID, nil)
+	}, "", svc.ProjectID)
 	if err != nil {
 		t.Fatalf("decomposing the detector's item: %v", err)
 	}

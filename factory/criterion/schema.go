@@ -73,11 +73,12 @@ const FormatVersionMutation = "criterion_mutation/1"
 // The three provenance columns are links and not marks, which is what makes
 // each of the three questions queries.go answers a query rather than a scan of
 // sentences: requirement_id is the requirement the criterion answers, required
-// of every criterion that fits a pattern; constraint_derived names each
-// constraint record the drafting stage held as its evidence, and is an array
-// because one criterion can stand for several; hazard_derived names the area
-// whose hazardous operation the criterion bounds, and is empty on a criterion
-// that bounds none.
+// of every criterion, no_pattern included — a form everything can escape is
+// not a form, and it still answers something nameable; constraint_derived
+// names each constraint record the drafting stage held as its evidence, and is
+// an array because one criterion can stand for several; hazard_derived names
+// the area whose hazardous operation the criterion bounds, and is empty on a
+// criterion that bounds none.
 //
 // The mutation row is the reading on the build the Merge to master gate reads:
 // what the mutation of one run produced, beside that run's criteria results.
@@ -116,7 +117,7 @@ var DDL = []string{
 	constraint pattern_known check (pattern in ('always_true', 'event', 'state',
 		'unwanted_condition', 'optional_feature', 'state_with_an_event_inside_it', 'no_pattern')),
 	constraint no_pattern_reason_matches_pattern check ((pattern = 'no_pattern') = (no_pattern_reason <> '')),
-	constraint requirement_id_present_on_a_pattern check (pattern = 'no_pattern' or requirement_id <> '')
+	constraint requirement_id_present check (requirement_id <> '')
 )`,
 
 	`create table if not exists ` + WithdrawalTable + ` (

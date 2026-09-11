@@ -33,6 +33,12 @@ var (
 	// one write: a cap without one truncates the count and leaves nowhere for the
 	// rest to land.
 	ErrOverflowOperationEmpty = errors.New("service: an operation cap names the overflow operation the excess lands in")
+	// ErrOverflowFailureRecordBucketEmpty is returned by [SetFailureRecordKeyCap]
+	// for a cap that names no overflow bucket, the pair [ErrOverflowOperationEmpty]
+	// already is: a cap without one truncates the count and leaves nowhere for
+	// the rest to land.
+	ErrOverflowFailureRecordBucketEmpty = errors.New(
+		"service: a failure-record key cap names the overflow bucket the excess lands in")
 	// ErrQuantityEmpty is returned by [SetWindowSize] and [SetWindowPower] for a
 	// value authored against no quantity. The size and the power are one value
 	// per quantity, so an authoring that names none names nothing.
@@ -276,14 +282,38 @@ func SetMutantCap(ctx context.Context, tx pgx.Tx, serviceID string, cap float64)
 }
 
 // SetFailureRecordKeyCap writes how many distinct keys a release may hold open
-// per interval for its failure records. A component actor may lower it and
-// never raise it; a human actor may set it either way.
-func SetFailureRecordKeyCap(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, cap float64) error {
+// per interval for its failure records, and the name the excess lands in. The
+// two are one write, the pair [SetOperationCap] already is: a cap with no
+// overflow bucket truncates the count and leaves nowhere for the rest to
+// land. A component actor may lower the cap and never raise it; a human actor
+// may set it either way — the direction is enforced on the cap alone, the
+// overflow bucket naming where the excess lands and not how far the count
+// reaches.
+func SetFailureRecordKeyCap(ctx context.Context, tx pgx.Tx, actor record.Actor, serviceID string, cap float64, overflow string) error {
 	if cap <= 0 {
 		return fmt.Errorf("%w: the failure-record key cap %v", ErrNotPositive, cap)
 	}
+	if overflow == "" {
+		return ErrOverflowFailureRecordBucketEmpty
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
 	shipped := float64(ShippedFailureRecordKeyCap)
-	return setDirectional(ctx, tx, actor, serviceID, `failure_record_key_cap`, "the failure-record key cap", LowerOnly, cap, &shipped)
+	if err := enforceDirection(ctx, tx, actor, serviceID, `failure_record_key_cap`,
+		"the failure-record key cap", LowerOnly, cap, &shipped); err != nil {
+		return err
+	}
+	tag, err := tx.Exec(ctx, `update `+Table+`
+		set failure_record_key_cap = $1, overflow_failure_record_bucket = $2 where id = $3`,
+		cap, overflow, serviceID)
+	if err != nil {
+		return fmt.Errorf("service: authoring the failure-record key cap on %s: %w", serviceID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("%w: %s", ErrNotFound, serviceID)
+	}
+	return nil
 }
 
 // SetUnreliableBound writes the rate of disagreement above which a criterion of

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -92,11 +93,12 @@ func New(pool *pgxpool.Pool, log *decisionlog.Writer, token lease.Token, deliver
 //
 // A wait naming a service whose paging hours it arrives outside skips the
 // page channel — hours.go says why that alone does not deliver it later —
-// and still reaches mail and chat at once. A [KindHarmMarkedReport] wait is
-// refused with no delivery at all where the factory-wide settings' off
-// switch is set, and past that service's cap its own page channel is skipped
-// and one page per interval goes out instead, naming the service and how many
-// marked intents arrived past the cap.
+// and still reaches mail and chat at once. A [KindHarmMarkedReport] wait
+// skips the page channel alone where the factory-wide settings' off switch is
+// set — mail and chat still go out, since the switch governs only whether
+// the page fires — and past that service's cap its own page channel is
+// skipped the same way and one page per interval goes out instead, naming
+// the service and how many marked intents arrived past the cap.
 //
 // A channel that refuses the send does not stop the channels after it. The
 // page is the narrow channel that carries what mail and chat cannot, and a
@@ -113,17 +115,17 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	if err != nil {
 		return nil, err
 	}
-	overTheCap, past := false, 0
+	now := time.Now()
+	harmMarkOff, overTheCap, past := false, false, 0
+	var capInterval int64
 	if pages && w.Kind == KindHarmMarkedReport {
-		off, err := harmMarkPagesOff(ctx, n.pool)
-		if err != nil {
+		if harmMarkOff, err = harmMarkPagesOff(ctx, n.pool); err != nil {
 			return nil, err
 		}
-		if off {
-			return nil, nil
-		}
-		if overTheCap, past, err = n.overHarmMarkCap(ctx, w, time.Now()); err != nil {
-			return nil, err
+		if !harmMarkOff {
+			if overTheCap, past, capInterval, err = n.overHarmMarkCap(ctx, w, now); err != nil {
+				return nil, err
+			}
 		}
 	}
 	reach, err := n.routeTo(ctx, w)
@@ -133,7 +135,7 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	deferred := false
 	if pages {
 		var pageAt string
-		if deferred, pageAt, err = n.deferredToHours(ctx, w, time.Now()); err != nil {
+		if deferred, pageAt, err = n.deferredToHours(ctx, w, now); err != nil {
 			return nil, err
 		}
 		if deferred {
@@ -144,7 +146,7 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 	var appended []decisionlog.Row
 	var refused []error
 	for _, channel := range Channels {
-		if channel == ChannelPage && (!pages || deferred || overTheCap) {
+		if channel == ChannelPage && (!pages || harmMarkOff || deferred || overTheCap) {
 			continue
 		}
 		for _, human := range reach {
@@ -163,7 +165,7 @@ func (n *Notifier) Notify(ctx context.Context, w Wait) ([]decisionlog.Row, error
 		}
 	}
 	if overTheCap {
-		if err := n.pageOverTheCap(ctx, w, past); err != nil {
+		if err := n.pageOverTheCap(ctx, w, past, capInterval, now); err != nil {
 			refused = append(refused, err)
 		}
 	}
@@ -265,21 +267,54 @@ func (n *Notifier) Acknowledge(ctx context.Context, w Wait, by string) (decision
 // nothing: the row has already stopped waiting, so reaching the transport
 // again over the human who ended it would page somebody for a wait that is
 // already over.
+//
+// It opens its own transaction for the one row it appends, through
+// [decisionlog.Writer.AppendPageEvent]. [Notifier.AnswerTx] is the same
+// write made on a transaction the caller already holds open, for a caller
+// ending the wait with a write of its own in the same one — a stop between
+// the two would otherwise leave the log showing a row still open with
+// nothing left to answer it, or an answered event over an ending that never
+// committed.
 func (n *Notifier) Answered(ctx context.Context, w Wait, by string) (decisionlog.Row, error) {
-	if _, err := prepare(w); err != nil {
+	e, err := n.answeredEntry(ctx, w, by)
+	if err != nil {
 		return decisionlog.Row{}, err
+	}
+	return n.log.AppendPageEvent(ctx, e)
+}
+
+// AnswerTx is [Notifier.Answered] appended on tx, a transaction the caller
+// already opened for the write that ends the wait, rather than a transaction
+// this call opens of its own. It validates the wait, requires a reached
+// event the way [Notifier.Answered] does, and delivers nothing: neither
+// reaches the [Deliverer], the row having already stopped waiting either
+// way.
+func (n *Notifier) AnswerTx(ctx context.Context, tx pgx.Tx, w Wait, by string) (decisionlog.Row, error) {
+	e, err := n.answeredEntry(ctx, w, by)
+	if err != nil {
+		return decisionlog.Row{}, err
+	}
+	return n.log.AppendPageEventInTx(ctx, tx, e)
+}
+
+// answeredEntry is the validation and the [decisionlog.Entry] both
+// [Notifier.Answered] and [Notifier.AnswerTx] append, differing only in
+// which transaction carries the insert.
+func (n *Notifier) answeredEntry(ctx context.Context, w Wait, by string) (decisionlog.Entry, error) {
+	if _, err := prepare(w); err != nil {
+		return decisionlog.Entry{}, err
 	}
 	if by == "" {
 		by = n.owner
 	}
 	events, err := n.EventsFor(ctx, w.Row)
 	if err != nil {
-		return decisionlog.Row{}, err
+		return decisionlog.Entry{}, err
 	}
 	if err := reached(events, w.Row); err != nil {
-		return decisionlog.Row{}, err
+		return decisionlog.Entry{}, err
 	}
-	return n.appendPageEvent(ctx, Delivery{Channel: ChannelPage, To: by, Wait: w, Event: EventAnswered})
+	return pageEventEntry(Delivery{Channel: ChannelPage, To: by, Wait: w, Event: EventAnswered})
 }
 
 // prepare validates the wait and answers whether it fires a page. Both calls are
@@ -342,10 +377,23 @@ func (n *Notifier) deliver(ctx context.Context, d Delivery) (decisionlog.Row, er
 }
 
 // appendPageEvent is the one page event a delivery on the page channel
-// writes, or that [Notifier.Acknowledge] and [Notifier.Answered] write on
-// their own without a delivery: the row, which of the four events it is, who
-// it names, and whose wait it was.
+// writes, or that [Notifier.Acknowledge] writes on its own without a
+// delivery: the row, which of the four events it is, who it names, and whose
+// wait it was.
 func (n *Notifier) appendPageEvent(ctx context.Context, d Delivery) (decisionlog.Row, error) {
+	e, err := pageEventEntry(d)
+	if err != nil {
+		return decisionlog.Row{}, err
+	}
+	return n.log.AppendPageEvent(ctx, e)
+}
+
+// pageEventEntry is the [decisionlog.Entry] one page event carries, shared by
+// every append this package makes of one — on the notifier's own
+// transaction or on a caller's — so the payload is built once rather than
+// once per caller of [decisionlog.Writer.AppendPageEvent] and
+// [decisionlog.Writer.AppendPageEventInTx].
+func pageEventEntry(d Delivery) (decisionlog.Entry, error) {
 	holding := ""
 	if d.Wait.Holding != (people.Holding{}) {
 		holding = d.Wait.Holding.String()
@@ -361,11 +409,11 @@ func (n *Notifier) appendPageEvent(ctx context.Context, d Delivery) (decisionlog
 		ServiceID: d.Wait.ServiceID,
 	})
 	if err != nil {
-		return decisionlog.Row{}, fmt.Errorf("notifier: marshalling the page event about %s: %w", d.Wait.Row, err)
+		return decisionlog.Entry{}, fmt.Errorf("notifier: marshalling the page event about %s: %w", d.Wait.Row, err)
 	}
-	return n.log.AppendPageEvent(ctx, decisionlog.Entry{
+	return decisionlog.Entry{
 		Actor: Actor, Payload: string(payload), FormatVersion: PageEventFormatVersion,
-	})
+	}, nil
 }
 
 // EventsFor is the page events on one wait, in the order they were appended,

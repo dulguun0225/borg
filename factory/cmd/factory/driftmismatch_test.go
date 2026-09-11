@@ -13,7 +13,6 @@ import (
 	"github.com/dulguun0225/borg/factory/driftdetector"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
-	"github.com/dulguun0225/borg/factory/policy"
 )
 
 // TestADriftMismatchHoldsTheProductionDeployAndPages is the one hold the factory
@@ -37,7 +36,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// so the page a mismatch fires reaches whoever the declaration says installed
 	// it.
 	installer := owner(t, ctx, d.pool, d.token, "sre")
-	if _, err := people.NewWriter(d.pool, d.token, policy.NewFactory(d.pool, d.token)).Declare(ctx,
+	if _, err := people.NewWriter(d.pool, d.token, newFactory(d.pool, d.token)).Declare(ctx,
 		owner(t, ctx, d.pool, d.token, d.human), installer.Key,
 		people.OfObligation(people.ObligationDriftDetector)); err != nil {
 		t.Fatalf("declaring who installed the drift detector: %v", err)

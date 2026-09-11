@@ -195,6 +195,44 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 	if payload.ReturnsTo != gate.ReturnsToImplementation {
 		t.Errorf("the reject returns the item to %q, want %q", payload.ReturnsTo, gate.ReturnsToImplementation)
 	}
+	if closing.ReturnsTo != string(gate.ReturnsToImplementation) {
+		t.Errorf("the close event's own row returns to %q, want %q", closing.ReturnsTo, gate.ReturnsToImplementation)
+	}
+}
+
+// TestOpenedInWorkAtNamesWorkAsCaller is C0893: the close event's own time
+// when the actor opened the row in Work is written with Work as the caller,
+// so it is the screen's report and not the human's.
+func TestOpenedInWorkAtNamesWorkAsCaller(t *testing.T) {
+	s, p := &fakeScore{assessment: assessed(0.6)}, &fakePolicy{applied: applied(0.3)}
+	ctx, pool, token, g := newGate(t, s, p)
+
+	opened, err := g.Fire(ctx, deployFiring(t, ctx, pool, token))
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictHold, Reason: "waiting on a dependency",
+		OpenedInWorkAt: "2026-08-17T00:00:00.000000000Z",
+	})
+	if err != nil {
+		t.Fatalf("Decide with OpenedInWorkAt: %v", err)
+	}
+	if closing.CallerKind != record.KindComponent || closing.CallerKey != "work" {
+		t.Errorf("the closing's caller is %s %q, want the Work screen", closing.CallerKind, closing.CallerKey)
+	}
+
+	second, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
+	if err != nil {
+		t.Fatalf("Fire: %v", err)
+	}
+	plain, err := g.Decide(ctx, second, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
+	if err != nil {
+		t.Fatalf("Decide with no OpenedInWorkAt: %v", err)
+	}
+	if plain.CallerKind != "" || plain.CallerKey != "" {
+		t.Errorf("a verdict with no OpenedInWorkAt named a caller %s %q", plain.CallerKind, plain.CallerKey)
+	}
 }
 
 // TestARejectWithoutReasonIsRefused: a reject and a hold each carry a reason, so

@@ -113,7 +113,7 @@ func freshLease(t *testing.T, ctx context.Context, pool *pgxpool.Pool) lease.Tok
 // depends on.
 func install(t *testing.T, ctx context.Context, pool *pgxpool.Pool) environment.Environment {
 	t.Helper()
-	installed, err := policy.NewFactory(pool, testToken(t, ctx, pool)).Install(ctx,
+	installed, err := newFactory(pool, testToken(t, ctx, pool)).Install(ctx,
 		owner(t, ctx, pool, testToken(t, ctx, pool), "owner"), defaultProjectName,
 		[]string{t.TempDir()}, secretref.MustNew("deploy.local"), theCeiling)
 	if err != nil {

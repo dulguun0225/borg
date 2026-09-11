@@ -173,15 +173,30 @@ func TestInsertRefusesACriterionNamingNoRequirement(t *testing.T) {
 		t.Errorf("Insert = %v, want ErrRequirementIDEmpty", err)
 	}
 
-	// Around the writer, the CHECK constraint refuses the same row.
-	_, err = pool.Exec(ctx, `insert into criterion
+	// A sentence fitting no pattern names a requirement too: every criterion
+	// does, no_pattern included.
+	unpatterned := criterion.Draft{Sentence: "The checkout page loads fast.", NoPatternReason: "no pattern fits a latency feel"}
+	if _, err := criterion.Insert(ctx, tx, store, of, unpatterned); !errors.Is(err, criterion.ErrRequirementIDEmpty) {
+		t.Errorf("Insert of a no-pattern criterion naming no requirement = %v, want ErrRequirementIDEmpty", err)
+	}
+
+	// Around the writer, the CHECK constraint refuses the same row, for a
+	// pattern-fitting sentence and for one fitting none.
+	insert := `insert into criterion
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, service_id, spec_artifact_id, item_id,
 		sentence, pattern, no_pattern_reason, requirement_id, constraint_derived, hazard_derived)
-		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, 'svc_a', 'art_a', 'it_a',
-		'The system shall hold.', 'always_true', '', '', '{}', '')`,
-		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now())
-	if err == nil || !strings.Contains(err.Error(), "requirement_id_present_on_a_pattern") {
-		t.Errorf("inserting a criterion naming no requirement = %v, want a violation of requirement_id_present_on_a_pattern", err)
+		values ($1, $2, 'component', 'artifact.store', 'claimed', $3, 'svc_a', 'art_a', 'it_a', $4, $5, $6, '', '{}', '')`
+	_, err = pool.Exec(ctx, insert,
+		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now(),
+		"The system shall hold.", "always_true", "")
+	if err == nil || !strings.Contains(err.Error(), "requirement_id_present") {
+		t.Errorf("inserting a matched criterion naming no requirement = %v, want a violation of requirement_id_present", err)
+	}
+	_, err = pool.Exec(ctx, insert,
+		record.NewID(criterion.IDPrefix), criterion.FormatVersion, record.Now(),
+		"The checkout page loads fast.", "no_pattern", "a reason")
+	if err == nil || !strings.Contains(err.Error(), "requirement_id_present") {
+		t.Errorf("inserting a no-pattern criterion naming no requirement = %v, want a violation of requirement_id_present", err)
 	}
 }
 
@@ -205,6 +220,7 @@ func TestInsertWritesTheProvenanceAndInForceReadsItBack(t *testing.T) {
 		unpatterned, err = criterion.Insert(ctx, tx, store, of, criterion.Draft{
 			Sentence:        "The checkout page loads fast.",
 			NoPatternReason: "no pattern fits a latency feel",
+			RequirementID:   "rq_a",
 		})
 		return err
 	})
@@ -476,6 +492,41 @@ func TestTheProvenanceQueries(t *testing.T) {
 	})
 	if found, err = criterion.ForConstraint(ctx, pool, "svc_a", []string{"it_a"}, "cn_live"); err != nil || len(found) != 0 {
 		t.Errorf("ForConstraint after the withdrawal = %+v, %v", found, err)
+	}
+}
+
+// TestCountNoPattern: a sentence fitting no pattern is admitted with a tagged
+// reason and counted, so the in-force set narrowed to it is a count and not a
+// scan of sentences.
+func TestCountNoPattern(t *testing.T) {
+	ctx, pool, _ := newSet(t)
+	inTx(ctx, t, pool, func(tx pgx.Tx) error {
+		var err error
+		if _, err = criterion.Insert(ctx, tx, store, of,
+			matched("When a report arrives, the system shall open an intent.")); err != nil {
+			return err
+		}
+		if _, err = criterion.Insert(ctx, tx, store, of, criterion.Draft{
+			Sentence: "The checkout page loads fast.", NoPatternReason: "no pattern fits a latency feel", RequirementID: "rq_a",
+		}); err != nil {
+			return err
+		}
+		_, err = criterion.Insert(ctx, tx, store, of, criterion.Draft{
+			Sentence: "The confirmation email reads warmly.", NoPatternReason: "no pattern fits a tone", RequirementID: "rq_b",
+		})
+		return err
+	})
+
+	count, err := criterion.CountNoPattern(ctx, pool, "svc_a", []string{"it_a"})
+	if err != nil {
+		t.Fatalf("CountNoPattern: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("CountNoPattern = %d, want 2", count)
+	}
+
+	if count, err = criterion.CountNoPattern(ctx, pool, "svc_a", nil); err != nil || count != 0 {
+		t.Errorf("CountNoPattern with no items = %d, %v, want 0 and no error", count, err)
 	}
 }
 

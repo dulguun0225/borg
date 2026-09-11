@@ -170,7 +170,7 @@ func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.
 	cmd.Env = append(os.Environ(),
 		SignalEnv+"="+SignalFile(l.dir, d.Build),
 		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build),
-		DeployEnv+"="+d.DeployID)
+		DeployEnv+"="+deployID(d.Configuration))
 	// The way in starts only where all three are set. The token is one of the
 	// configuration values below, handed to the service the way every other
 	// value is; these two are the platform's own, and a deployment carrying no
@@ -199,6 +199,42 @@ func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.
 		return targetseam.Placement{}, fmt.Errorf("localtarget: recording what runs for service %q: %w", d.Service, err)
 	}
 	return targetseam.Placement{Replacement: replacement}, nil
+}
+
+// deployID is the deploy record's own identity, read from the resolved
+// configuration under [targetseam.DeployIDName] rather than a field of its
+// own — the instance is told its deploy at placement, in its configuration
+// beside the way-in token, so the record carries it and no reader joins an
+// instance to its deploy by time. [targetseam.Deployment.Validate] refuses a
+// deployment naming none, so a deploy reaching Deploy already carries one.
+func deployID(configuration targetseam.ValueSet) string {
+	for n, name := range configuration.Names {
+		if name == targetseam.DeployIDName && n < len(configuration.Values) {
+			return configuration.Values[n]
+		}
+	}
+	return ""
+}
+
+// Reconfigure hands the instance running for the service a fresh
+// configuration by restarting it under the new one: this platform runs one
+// process per service and has no way to hand a running one new values short
+// of that, so what [Local.Deploy] does for a new build this does for the
+// build already running — drained, then started again under the resolved
+// set, which is what the fast rollback uses to mint the kept instance a
+// fresh way-in token rather than leaving it holding the one an earlier
+// deploy minted.
+func (l *Local) Reconfigure(ctx context.Context, p principal.Principal, r targetseam.Reconfiguration) (targetseam.Placement, error) {
+	if err := targetseam.CheckPrincipal(p); err != nil {
+		return targetseam.Placement{}, err
+	}
+	if err := r.Validate(); err != nil {
+		return targetseam.Placement{}, err
+	}
+	return l.Deploy(ctx, p, targetseam.Deployment{
+		Service: r.Service, Build: r.Build, Credential: r.Credential,
+		Configuration: r.Configuration, WayInAddress: r.WayInAddress,
+	})
 }
 
 // drain asks the instance running for the service to end and waits until it

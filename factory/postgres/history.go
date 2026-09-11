@@ -305,6 +305,83 @@ var Changes = []Change{
 			"change this store's forward promise can declare yet, and nothing writes it any longer",
 		Effect: EffectWidening,
 	},
+	{
+		Version: 1,
+		ID:      "the factory-wide settings record names the current policy version",
+		Text: "factory_settings carries current_policy_version_id, written by package policy's Factory " +
+			"in the same transaction as every version it appends, so a gate firing reads the version " +
+			"in force off this field and never off the log the version below it is a row of",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "a contract version is minted for every interface a release publishes",
+		Text: "contract_version drops one_version_per_semver: an unchanged form now mints a row " +
+			"naming its own release at the number the version below it carries, rather than none, " +
+			"so a release's inbound edge names every interface it publishes and not only the ones " +
+			"whose form moved; one_version_per_release, not the number, is what still stops one " +
+			"release publishing two versions of one contract",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "contract versions are indexed by the release that published them",
+		Text: "contract_version carries the contract_version_by_release index over release_id, which " +
+			"VersionsForRelease reads a release's inbound edge through",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the service record names whether the deployer found traffic",
+		Text: "service carries taking_traffic, whether the emission reported a request rate above " +
+			"zero on the target at adoption or at the first release — \"already taking organic " +
+			"traffic\" in the shape adoption admits, and distinct from emission_readable, which " +
+			"the health monitor's own need to read something at all keeps beside it",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the failure-record key cap names its overflow bucket",
+		Text: "service carries overflow_failure_record_bucket beside failure_record_key_cap, the " +
+			"named overflow bucket the excess lands in, with failure_record_key_cap_names_its_overflow " +
+			"pairing the two the way operation_cap_names_its_overflow already pairs the operation cap " +
+			"with its own overflow name",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the close event and the rework request name what a reject returns to",
+		Text: "decision_log carries returns_to, the stage a decision closing's reject or a rework " +
+			"request names, empty where the verdict sends nothing back; a rework request also " +
+			"admits reason, the defect it found, reusing the close event's own column",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the decision log fixes the kind of actor for an abandonment and a wait's opening",
+		Text: "decision_log's abandonment_actor_component and wait_open_actor_component checks admit " +
+			"only a component actor on a decision's abandonment and on a wait's opening, the " +
+			"component that ended the decision or met the condition being the design's own actor " +
+			"for each",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the decision log carries the caller beside the actor",
+		Text: "decision_log carries caller_kind, caller_key, caller_key_basis, caller_dispatch_id and " +
+			"caller_scope, a call's own principal recorded beside the actor a row's decider is " +
+			"already carried under, empty together where a caller passed none; a decision closing " +
+			"reporting a row opened in Work requires the caller to be the Work screen's own",
+		Effect: EffectWidening,
+	},
+	{
+		Version: 1,
+		ID:      "the merge queue's rejection names its reading and the moved release",
+		Text: "decision_log carries reading, which of the queue's readings a rejection names, required " +
+			"there and refused elsewhere, and moved_release, the release a dependency's own moved " +
+			"to where one did",
+		Effect: EffectWidening,
+	},
 }
 
 // HistoryDDL is the schema history's own table, applied before the history is

@@ -98,6 +98,11 @@ type fakeModel struct {
 	// the other direction the role may change its mind in and what leaves the
 	// intents it emptied holding nothing.
 	allTogether bool
+	// decline is words a report carrying them is left out of the reply
+	// entirely — named in no group, not even one of its own — which is how a
+	// test makes the role's reply do what its own prompt forbids: leave a
+	// report ungrouped. Empty where nothing is declined.
+	decline string
 }
 
 func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agent.Call) (agent.Reply, error) {
@@ -218,7 +223,9 @@ var reportLine = regexp.MustCompile(`(?m)^(rep_[0-9a-f]{32}) (bug|complaint): (.
 // groups it should never have kept apart being merged — comes back as.
 //
 // Every report the message lists is in a group, which is what the role's prompt
-// requires: a report that goes with no other is a group of its own.
+// requires: a report that goes with no other is a group of its own — except one
+// carrying [fakeModel.decline], which this fake leaves out of every group to
+// stand in for a reply that does what the prompt forbids.
 func (m *fakeModel) groupsOf(user string) (agent.Reply, error) {
 	listed := reportLine.FindAllStringSubmatch(user, -1)
 	if len(listed) == 0 {
@@ -231,6 +238,9 @@ func (m *fakeModel) groupsOf(user string) (agent.Reply, error) {
 		words := strings.Fields(one[3])
 		if len(words) == 0 {
 			return agent.Reply{}, fmt.Errorf("fake model: report %s carries no words", one[1])
+		}
+		if m.decline != "" && strings.Contains(one[3], m.decline) {
+			continue
 		}
 		if m.apart != "" && strings.Contains(one[3], m.apart) {
 			alone = append(alone, one[1])

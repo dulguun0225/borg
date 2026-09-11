@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -85,6 +86,10 @@ var (
 	// incident that is not open. An incident resolves once and nothing reopens
 	// one.
 	ErrNotOpen = errors.New("incident: only an open incident is observed on or resolved")
+	// ErrNotProduction is returned by [Writer.Raise] for an incident naming an
+	// environment that is not production's, or naming none the store has — the
+	// health monitor existing on production and nowhere else.
+	ErrNotProduction = errors.New("incident: an incident names a production environment")
 )
 
 // Incident is one incident as it is stored.
@@ -263,6 +268,20 @@ func (w *Writer) Raise(ctx context.Context, actor record.Actor, r Raising) (Inci
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := lease.Fence(ctx, tx, w.token); err != nil {
 		return Incident{}, err
+	}
+
+	// The kind is read inside the same transaction as the write, the arrangement
+	// [environment.SetGateThreshold] already has for the same column: an incident
+	// on anything but production is refused here rather than left to a reader to
+	// notice one that should never have been raised.
+	var kind string
+	err = tx.QueryRow(ctx, `select kind from `+environment.Table+` where id = $1`, i.EnvironmentID).Scan(&kind)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Incident{}, fmt.Errorf("%w: %s names no environment", ErrNotProduction, i.EnvironmentID)
+	} else if err != nil {
+		return Incident{}, fmt.Errorf("incident: reading the kind of %s: %w", i.EnvironmentID, err)
+	} else if environment.Kind(kind) != environment.KindProduction {
+		return Incident{}, fmt.Errorf("%w: %s is %s", ErrNotProduction, i.EnvironmentID, kind)
 	}
 
 	_, err = tx.Exec(ctx, `insert into `+Table+`

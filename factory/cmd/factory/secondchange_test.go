@@ -217,7 +217,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("reading the service: found %v, %v", found, err)
 	}
-	placed, version, err := policy.NewFactory(d.pool, d.token).AddSafeguard(ctx,
+	placed, version, err := newFactory(d.pool, d.token).AddSafeguard(ctx,
 		owner(t, ctx, d.pool, d.token, d.human), gatepolicy.RiskThreshold,
 		safeguard.Subject{Kind: safeguard.SubjectService, ID: svc.ID, Key: gate.DeployToProduction.String()}, safeguard.Bound{Number: 0}, safeguard.Routing{})
 	if err != nil {
@@ -318,7 +318,7 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	// Withdrawing the safeguard leaves the row the score's again, which is what a
 	// safeguard being a bound rather than a precedence means at this row: nothing
 	// else moved.
-	written, _, err := policy.NewFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx,
+	written, _, err := newFactory(d.pool, d.token).WriteSafeguardWithdrawal(ctx,
 		owner(t, ctx, d.pool, d.token, d.human), placed.ID)
 	if err != nil {
 		t.Fatalf("writing the withdrawal: %v", err)

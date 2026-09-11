@@ -327,6 +327,23 @@ func (s *Score) protectionWithdrawn(ctx context.Context, _ Version, c Change) (r
 	if len(removed) == 0 {
 		return reading{level: 0, words: "the version under decision withdraws no criterion and removes no declared transition"}, nil
 	}
+	words := fmt.Sprintf("%d protection(s) the version under decision removes", len(removed))
+	if c.AtSpec {
+		// A human-confirmed withdrawal names the actor of the introducing
+		// decision, or another holder of the row's duty where that actor no
+		// longer holds it — that read is the composition's — and where the
+		// seam answers neither, the score does not send the row to the owner
+		// by default: it is a routing the factory could not resolve, and an
+		// unresolved routing is unavailable the way any other unreadable
+		// input is, not a value this factor weighs.
+		for _, r := range removed {
+			if r.Provenance == ProvenanceHumanConfirmed && r.RoutedTo == "" {
+				return reading{unavailable: fmt.Sprintf(
+					"%s: %s (%s) names no actor of the introducing decision still holding the row's duty, and no other holder of it either",
+					r.What, r.SubjectID, r.Provenance)}, nil
+			}
+		}
+	}
 	var evidence []string
 	routedTo := ""
 	for _, r := range removed {
@@ -339,7 +356,6 @@ func (s *Score) protectionWithdrawn(ctx context.Context, _ Version, c Change) (r
 		}
 		evidence = append(evidence, fmt.Sprintf("%s: %s (%s), routed to %s", r.What, r.SubjectID, r.Provenance, routed))
 	}
-	words := fmt.Sprintf("%d protection(s) the version under decision removes", len(removed))
 	if !c.AtSpec {
 		return reading{level: 1.0, words: words, evidence: evidence}, nil
 	}

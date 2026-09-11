@@ -57,10 +57,18 @@ func TestChainHashCoversEveryField(t *testing.T) {
 		"Part":           func(r *Row) { r.Part = PartClose },
 		"Closes":         func(r *Row) { r.Closes = "dl_ffeeddccbbaa99887766554433221100" },
 		"Verdict":        func(r *Row) { r.Verdict = "approve" },
-		"Reason":         func(r *Row) { r.Reason = "because" },
-		"OpenedInWorkAt": func(r *Row) { r.OpenedInWorkAt = "2026-08-17T00:00:00.000000000Z" },
-		"SelfApproval":   func(r *Row) { r.SelfApproval = true },
-		"PrevHash":       func(r *Row) { r.PrevHash = strings.Repeat("a", 64) },
+		"Reason":           func(r *Row) { r.Reason = "because" },
+		"OpenedInWorkAt":   func(r *Row) { r.OpenedInWorkAt = "2026-08-17T00:00:00.000000000Z" },
+		"SelfApproval":     func(r *Row) { r.SelfApproval = true },
+		"ReturnsTo":        func(r *Row) { r.ReturnsTo = "implementation" },
+		"Reading":          func(r *Row) { r.Reading = "a dependency's release moved between the two runs" },
+		"MovedRelease":     func(r *Row) { r.MovedRelease = "rel_00000000000000000000000000000001" },
+		"CallerKind":       func(r *Row) { r.CallerKind = record.KindComponent },
+		"CallerKey":        func(r *Row) { r.CallerKey = "work" },
+		"CallerKeyBasis":   func(r *Row) { r.CallerKeyBasis = record.BasisClaimed },
+		"CallerDispatchID": func(r *Row) { r.CallerDispatchID = "dsp_00112233445566778899aabbccddeeff" },
+		"CallerScope":      func(r *Row) { r.CallerScope = "the item's own repository" },
+		"PrevHash":         func(r *Row) { r.PrevHash = strings.Repeat("a", 64) },
 	}
 	for field, change := range changes {
 		t.Run(field, func(t *testing.T) {

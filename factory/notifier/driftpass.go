@@ -52,6 +52,14 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 		return err
 	}
 	for _, m := range all {
+		if m.Component == lastcheck.ComponentNotifier {
+			// Nothing here pages a mismatch on the notifier's own last check:
+			// the channel that would carry that page is the thing the
+			// mismatch is about. The drift detector's own delivery to the
+			// owner's address, already built, is the design's answer instead,
+			// and the mismatch still waits at Work like any other.
+			continue
+		}
 		// A target mismatch names the service it holds, so its page is a wait
 		// of the second kind on that service and waits for the hours the
 		// service allows. A chain mismatch names none and pages at any hour,
@@ -106,13 +114,15 @@ func (n *Notifier) SweepDriftDetector(ctx context.Context, driftPool *pgxpool.Po
 	return nil
 }
 
-// kindOfMismatch is which page a mismatch fires. The third comparison finding
-// the health monitor's own last check stale is the fourth page condition and
-// not a mismatch about a record: a window past its cap that nothing has
-// evaluated is what a stopped health monitor looks like from outside, and the
-// component that would have raised that page is the one that stopped. Every
-// other mismatch — a target that disagrees, the log's chain, any other stopped
-// component — is the mismatch page.
+// kindOfMismatch is which page a mismatch fires, for every mismatch
+// [SweepDriftDetector] does not skip outright — a mismatch on the notifier's
+// own last check never reaches this, being skipped before it. The third
+// comparison finding the health monitor's own last check stale is the fourth
+// page condition and not a mismatch about a record: a window past its cap
+// that nothing has evaluated is what a stopped health monitor looks like from
+// outside, and the component that would have raised that page is the one
+// that stopped. Every other mismatch — a target that disagrees, the log's
+// chain, any other stopped component — is the mismatch page.
 func kindOfMismatch(m driftdetector.Mismatch) Kind {
 	if m.Component == lastcheck.ComponentHealthMonitor {
 		return KindWindowCapUnevaluated

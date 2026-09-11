@@ -53,6 +53,31 @@ var (
 	// [Writer.AppendDecisionAcknowledgement] for an actor that is not a
 	// human.
 	ErrAcknowledgementNotHuman = errors.New("decisionlog: only a human acknowledges a row")
+	// ErrAbandonmentNotComponent is returned by
+	// [Writer.AppendDecisionAbandonment] for an actor that is not a
+	// component: the component that ended the decision is the actor, the
+	// acknowledgement path already policing kind the same way for a human.
+	ErrAbandonmentNotComponent = errors.New("decisionlog: only a component abandons a row")
+	// ErrReturnsToRefused is returned by every method but
+	// [Writer.AppendReworkRequest], and [Writer.AppendDecisionClose] over a
+	// reject, for an entry naming a stage returned to.
+	ErrReturnsToRefused = errors.New("decisionlog: only a rework request, or a reject, names a stage returned to")
+	// ErrReturnsToMissing is returned by [Writer.AppendReworkRequest] for an
+	// entry naming no stage: what owns the defect is always named, whether a
+	// stage, decomposition, or the intent.
+	ErrReturnsToMissing = errors.New("decisionlog: a rework request names the stage, decomposition, or the intent it returns to")
+	// ErrReadingRefused is returned by every method but
+	// [Writer.AppendQueueRejection] for an entry naming a reading.
+	ErrReadingRefused = errors.New("decisionlog: only a queue rejection names a reading")
+	// ErrMovedReleaseRefused is returned by every method but
+	// [Writer.AppendQueueRejection] for an entry naming a moved release.
+	ErrMovedReleaseRefused = errors.New("decisionlog: only a queue rejection names a moved release")
+	// ErrOpenedInWorkAtCaller is returned by [Writer.AppendDecisionClose] for
+	// a non-empty OpenedInWorkAt whose [Entry.Principal] is not the Work
+	// screen's own: the field is written with Work as the caller so that it
+	// is the screen's report and not the human's, and a caller naming none,
+	// or naming someone else, is refused rather than trusted to say so.
+	ErrOpenedInWorkAtCaller = errors.New("decisionlog: an opened-in-Work time names the Work screen as the caller")
 )
 
 // AppendDecisionOpen appends a decision's opening, written when the gate
@@ -101,6 +126,18 @@ func (w *Writer) AppendDecisionClose(ctx context.Context, e Entry) (Row, error) 
 		if _, err := record.ParseTime(e.OpenedInWorkAt); err != nil {
 			return Row{}, fmt.Errorf("%w: %q: %v", ErrOpenedInWorkAtInvalid, e.OpenedInWorkAt, err)
 		}
+		if e.Principal.IsZero() || e.Principal.Actor.Kind != record.KindComponent || e.Principal.Actor.Key != "work" {
+			return Row{}, fmt.Errorf("%w: called as %s", ErrOpenedInWorkAtCaller, e.Principal)
+		}
+	}
+	if e.ReturnsTo != "" && e.Verdict != "reject" {
+		return Row{}, fmt.Errorf("%w: verdict %q named %q", ErrReturnsToRefused, e.Verdict, e.ReturnsTo)
+	}
+	if e.Reading != "" {
+		return Row{}, fmt.Errorf("%w: a closing named %q", ErrReadingRefused, e.Reading)
+	}
+	if e.MovedRelease != "" {
+		return Row{}, fmt.Errorf("%w: a closing named %q", ErrMovedReleaseRefused, e.MovedRelease)
 	}
 
 	return commitAppend(ctx, w.pool, w.token, ShapeDecision, PartClose, e,
@@ -137,6 +174,9 @@ func (w *Writer) AppendDecisionAbandonment(ctx context.Context, e Entry) (Row, e
 	if e.Reason == "" {
 		return Row{}, fmt.Errorf("%w: an abandonment", ErrReasonMissing)
 	}
+	if e.Actor.Kind != record.KindComponent {
+		return Row{}, fmt.Errorf("%w: actor kind %q", ErrAbandonmentNotComponent, e.Actor.Kind)
+	}
 	if e.Verdict != "" {
 		return Row{}, fmt.Errorf("%w: an abandonment named %q", ErrVerdictRefused, e.Verdict)
 	}
@@ -148,6 +188,15 @@ func (w *Writer) AppendDecisionAbandonment(ctx context.Context, e Entry) (Row, e
 	}
 	if e.SelfApproval {
 		return Row{}, fmt.Errorf("%w: an abandonment", ErrSelfApprovalRefused)
+	}
+	if e.ReturnsTo != "" {
+		return Row{}, fmt.Errorf("%w: an abandonment named %q", ErrReturnsToRefused, e.ReturnsTo)
+	}
+	if e.Reading != "" {
+		return Row{}, fmt.Errorf("%w: an abandonment named %q", ErrReadingRefused, e.Reading)
+	}
+	if e.MovedRelease != "" {
+		return Row{}, fmt.Errorf("%w: an abandonment named %q", ErrMovedReleaseRefused, e.MovedRelease)
 	}
 
 	return commitAppend(ctx, w.pool, w.token, ShapeDecision, PartAbandonment, e,
@@ -220,7 +269,10 @@ func requireDecisionOpening(ctx context.Context, tx pgx.Tx, id string) error {
 
 // refuseClosingOnlyFields refuses an entry naming any of the fields only a
 // decision's closing may carry: verdict, reason, when it was opened in Work,
-// self-approval.
+// self-approval — and, beside them, the fields a rework request and a queue
+// rejection reuse the same columns for, a returns-to stage, a reading, and a
+// moved release, none of which an opening, an acknowledgement, a wait, or a
+// one-row shape besides those two may carry either.
 func refuseClosingOnlyFields(what string, e Entry) error {
 	if e.Verdict != "" {
 		return fmt.Errorf("%w: %s named %q", ErrVerdictRefused, what, e.Verdict)
@@ -233,6 +285,15 @@ func refuseClosingOnlyFields(what string, e Entry) error {
 	}
 	if e.SelfApproval {
 		return fmt.Errorf("%w: %s", ErrSelfApprovalRefused, what)
+	}
+	if e.ReturnsTo != "" {
+		return fmt.Errorf("%w: %s named %q", ErrReturnsToRefused, what, e.ReturnsTo)
+	}
+	if e.Reading != "" {
+		return fmt.Errorf("%w: %s named %q", ErrReadingRefused, what, e.Reading)
+	}
+	if e.MovedRelease != "" {
+		return fmt.Errorf("%w: %s named %q", ErrMovedReleaseRefused, what, e.MovedRelease)
 	}
 	return nil
 }

@@ -249,11 +249,11 @@ const (
 func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 	t.Helper()
 	installOwner := owner(t, ctx, d.pool, d.token, d.human)
-	installed, err := policy.NewFactory(d.pool, d.token).Install(ctx, installOwner, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
+	installed, err := newFactory(d.pool, d.token).Install(ctx, installOwner, d.project, []string{d.dir}, d.credential, d.candidateCeiling)
 	if err != nil {
 		t.Fatalf("installing the factory: %v", err)
 	}
-	factory := policy.NewFactory(d.pool, d.token)
+	factory := newFactory(d.pool, d.token)
 	for _, named := range d.services {
 		svc, found, err := service.ByName(ctx, d.pool, named.name)
 		if err != nil {

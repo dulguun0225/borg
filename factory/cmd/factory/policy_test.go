@@ -41,7 +41,7 @@ func TestPolicyReadsWhatIsInForce(t *testing.T) {
 	// A safeguard on the same service, placed through the function Factory's own
 	// PlaceSafeguard call reaches, so the print is read with one in force.
 	placing := freshLease(t, ctx, pool)
-	if _, err := placeSafeguard(ctx, pool, policy.NewFactory(pool, placing),
+	if _, err := placeSafeguard(ctx, pool, newFactory(pool, placing),
 		owner(t, ctx, pool, placing, "owner"), "window_limit", "service:checkout", "", "2",
 		safeguard.Routing{}); err != nil {
 		t.Fatalf("placing the safeguard: %v", err)

@@ -104,19 +104,46 @@ const selectMutation = `select id, actor_kind, actor_key, actor_key_basis, at, b
 	toolchain, tool, coverage, mutants_tested, mutants_detected, could_not_derive
 	from ` + MutationTable
 
-// LatestMutation is what the Merge to master gate reads: the mutation of the
-// build's highest run, and false where the build was never mutated — a build
-// nothing mutated is not a reading of zero, and the gate resolves it the way it
-// resolves an absent input.
-func LatestMutation(ctx context.Context, pool *pgxpool.Pool, buildID string) (MutationReading, bool, error) {
+// MutationApplicability is which of the three states [LatestMutation]
+// answers with. The mutation score is a reading on the build read at Merge to
+// master and not a factor of the risk score: at every gate above the
+// candidate run it is inapplicable rather than unavailable, the way exposure
+// is inapplicable at every gate above Implementation, because the reading was
+// never going to exist there. At or below the candidate run — Merge to master
+// itself — it is applicable where the build was mutated and unavailable where
+// it was not: a build nothing mutated is not a reading of zero.
+type MutationApplicability string
+
+const (
+	// MutationApplicable is a reading read off a run: [Mutation.Blocks] is
+	// read from it.
+	MutationApplicable MutationApplicability = "applicable"
+	// MutationUnavailable is a run that should exist and does not: the build
+	// reached the candidate run and nothing mutated it.
+	MutationUnavailable MutationApplicability = "unavailable"
+	// MutationInapplicable is a gate above the candidate run, where the
+	// reading answers nothing and blocks nothing.
+	MutationInapplicable MutationApplicability = "inapplicable"
+)
+
+// LatestMutation is what a gate reads: the mutation of the build's highest
+// run. aboveCandidateRun is the caller saying whether its own gate is above
+// the candidate run — every gate but Merge to master — where the answer is
+// always [MutationInapplicable] regardless of what the build's own run
+// recorded, since the mutation happens at the candidate run and this
+// reading answers only the gate read there.
+func LatestMutation(ctx context.Context, pool *pgxpool.Pool, buildID string, aboveCandidateRun bool) (MutationApplicability, MutationReading, error) {
+	if aboveCandidateRun {
+		return MutationInapplicable, MutationReading{}, nil
+	}
 	reading, err := scanMutation(pool.QueryRow(ctx,
 		selectMutation+` where build_id = $1 order by run desc limit 1`, buildID))
 	if errors.Is(err, pgx.ErrNoRows) {
-		return MutationReading{}, false, nil
+		return MutationUnavailable, MutationReading{}, nil
 	} else if err != nil {
-		return MutationReading{}, false, fmt.Errorf("criterion: reading the mutation of build %s: %w", buildID, err)
+		return "", MutationReading{}, fmt.Errorf("criterion: reading the mutation of build %s: %w", buildID, err)
 	}
-	return reading, true, nil
+	return MutationApplicable, reading, nil
 }
 
 // MutationsForBuild is every mutation of one build, run by run, in run order.

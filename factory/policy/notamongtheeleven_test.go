@@ -402,12 +402,14 @@ func TestAnUnauthoredParameterReadsTheValueTheDesignFixes(t *testing.T) {
 	unbounded := []gatepolicy.Parameter{
 		gatepolicy.DecisionLogRetention, gatepolicy.ReportRetention, gatepolicy.SnapshotRetention,
 		gatepolicy.ReportChannelRate, gatepolicy.ServiceReportChannelRate, gatepolicy.PagingHours,
-		// C2269, C2298, C2283, C2289: authored outright with nothing supplied,
-		// so an unauthored read is the factory's own with nothing for the
-		// score to teach rather than whatever the supplied table happens to
-		// hold for that name.
-		gatepolicy.RemediationPeriod, gatepolicy.BackupRetention, gatepolicy.MaxConcurrentKeptFleets,
-		gatepolicy.Objective, gatepolicy.MaxConcurrentCandidateEnvironments, gatepolicy.ChangeFreeze,
+		// C2298, C2283: authored outright with nothing supplied, so an
+		// unauthored read is the factory's own with nothing for the score to
+		// teach rather than whatever the supplied table happens to hold for
+		// that name. The remediation period, also C2283's, is not among them:
+		// it is keyed by severity, and TestTheRemediationPeriodIsReadAtTheSeverityItWasAuthoredFor
+		// is what holds its own, narrower shape of "nothing supplied".
+		gatepolicy.BackupRetention, gatepolicy.MaxConcurrentKeptFleets,
+		gatepolicy.Objective, gatepolicy.ChangeFreeze,
 	}
 	for _, parameter := range unbounded {
 		inForce, err := in.reader.InForce(ctx, parameter, subjects)
@@ -421,6 +423,28 @@ func TestAnUnauthoredParameterReadsTheValueTheDesignFixes(t *testing.T) {
 		if inForce.Source != policy.FromFactory {
 			t.Errorf("an unauthored %s reads from %s, want the factory's own", parameter, inForce.Source)
 		}
+	}
+
+	// C2289: the candidate ceiling, authored outright with nothing supplied.
+	// in.prod is acme's production, which [newFactory] authors 8 on through
+	// Install; storefront's own production, read fresh here, has nothing
+	// authored, which is what an unauthored read of it is.
+	storefront, found, err := environment.Production(ctx, in.pool, in.project.ID)
+	if err != nil || !found {
+		t.Fatalf("environment.Production: found %v, %v", found, err)
+	}
+	ceiling, err := in.reader.InForce(ctx, gatepolicy.MaxConcurrentCandidateEnvironments,
+		policy.Subjects{GateRow: "merge_to_master", EnvironmentID: storefront.ID})
+	if err != nil {
+		t.Fatalf("InForce(%s): %v", gatepolicy.MaxConcurrentCandidateEnvironments, err)
+	}
+	if !ceiling.Unbounded {
+		t.Errorf("an unauthored %s reads %v, and the design bounds it with nothing",
+			gatepolicy.MaxConcurrentCandidateEnvironments, ceiling.Number)
+	}
+	if ceiling.Source != policy.FromFactory {
+		t.Errorf("an unauthored %s reads from %s, want the factory's own",
+			gatepolicy.MaxConcurrentCandidateEnvironments, ceiling.Source)
 	}
 }
 

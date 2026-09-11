@@ -57,12 +57,17 @@
 // the fourth event, stopping only the widening, under the kind the page it
 // acknowledges was reached under and writing nothing where the row pages
 // nobody; and [Notifier.Answered] is called
-// by whatever ends the wait, at the same write it ends it with. Neither
-// [Notifier.Acknowledge] nor [Notifier.Answered] reaches the [Deliverer]:
-// both are an act the product already recorded rather than a delivery, and
-// [Notifier.appendPageEvent] is the one write either makes, shared with
-// [Notifier.deliver]'s own append once a send on the page channel is
-// accepted. [Payload] of
+// by whatever ends the wait, at the same write it ends it with, appending
+// through [decisionlog.Writer.AppendPageEvent] on a transaction of its own —
+// [Notifier.AnswerTx] is the identical write made on a transaction the
+// caller already holds open, through [decisionlog.Writer.AppendPageEventInTx],
+// for a caller whose own ending write shares the one transaction. None of
+// [Notifier.Acknowledge], [Notifier.Answered], or [Notifier.AnswerTx] reaches
+// the [Deliverer]: each is an act the product already recorded rather than a
+// delivery, and [pageEventEntry] is the one row [Notifier.appendPageEvent],
+// [Notifier.Answered] and [Notifier.AnswerTx] each build and append, shared
+// with [Notifier.deliver]'s own append, through [Notifier.appendPageEvent],
+// once a send on the page channel is accepted. [Payload] of
 // [PageEventKind] is a page event's shape and [Notifier.EventsFor] reads them
 // back, appending a read event naming [Actor] as the principal. delivery.go is
 // [DeliveryRowTable], [DeliveryDDL], [DeliveryAttempt], [DeliveryRecord], and the
@@ -81,25 +86,39 @@
 // channel and recipient in; its DDL stays declared and applied, since a
 // removal is not a change [postgres.Changes] can declare yet, and nothing
 // here writes it any longer.
-// harmmark.go is [harmMarkPagesOff], the off switch on the
-// factory-wide settings record, and [Notifier.overHarmMarkCap] with
-// [Notifier.pageOverTheCap]: past a service's cap the marked intent's own page
-// channel is skipped and one page per interval goes out on [capRow] instead,
-// naming the service and how many marked intents arrived past the cap.
+// harmmark.go is [harmMarkPagesOff], the off switch on the factory-wide
+// settings record — it governs the page channel alone, so [Notifier.Notify]
+// still delivers mail and chat where it is set — and [Notifier.overHarmMarkCap]
+// with [Notifier.pageOverTheCap]: past a service's cap the marked intent's own
+// page channel is skipped and one page per interval goes out on [capRow]
+// instead, naming the service and how many marked intents arrived past the
+// cap. Nothing ever answers a cap row — a page about a volume rather than
+// about one thing has no closing act — so [capRow] names the interval too,
+// through [intervalBucket]: the interval after the one a row already paged for
+// mints a row of its own, which is what pages again rather than staying
+// silent for good.
 // resume.go is [Notifier.Resume], this component's restart: the delivery
 // record it overwrites per row the log still holds open, so a row still
 // waiting is delivered again and one that stopped waiting is not. The wait
 // each row is delivered again as is rebuilt from the delivery record itself —
 // [deliveryRowStored.wait] — and never from the page events, which is what
 // lets a kind that pages never, and carries no page event at all, be
-// delivered again too.
+// delivered again too. A row of a kind that never opens in the log at all — a
+// drift mismatch, the drift detector's own stale check, the harm mark's cap
+// row — is read as still waiting or not by [Notifier.stillWaitingBySubject],
+// off that kind's own subject through the same seam driftpass.go and
+// harmmark.go already read it by, rather than off a log opening that row
+// never had.
 // driftpass.go is [Notifier.SweepDriftDetector] — the notifier reading the drift
 // detector's store itself, since that store calls nothing, widening a mismatch
 // nobody has acknowledged and going on to the next one where a human has, with
 // [kindOfMismatch]:
 // a mismatch the detector raised because the health monitor's own last check is
 // stale is the fourth page condition, a window past its cap that nothing has
-// evaluated, and every other mismatch is [KindDriftMismatch] — [Notifier.SweepDriftDetectorStale],
+// evaluated; a mismatch on the notifier's own last check pages nobody — the
+// channel that would carry that page is the thing the mismatch is about, and
+// the detector's own delivery, already built, reaches the owner instead — and
+// every other mismatch is [KindDriftMismatch] — [Notifier.SweepDriftDetectorStale],
 // the notifier's own half of "each of the two processes watches the other" over the
 // detector's per-target last check, [Notifier.CatchUpDriftDetectorDelivery],
 // appended at the factory's next start for the detector's own delivery, carrying

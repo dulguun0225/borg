@@ -65,6 +65,13 @@ func newTarget(t *testing.T, services ...string) (*localtarget.Local, string) {
 
 var credential = secretref.MustNew("target.local")
 
+// deployIDConfig is the configuration a deployment carries the deploy record's
+// own identity in, under [targetseam.DeployIDName] — the instance is told its
+// deploy at placement, in its configuration rather than a field of its own.
+func deployIDConfig(id string) targetseam.ValueSet {
+	return targetseam.ValueSet{Names: []string{targetseam.DeployIDName}, Values: []string{id}}
+}
+
 // deployer is the principal every call here is made as. No agent reaches a
 // deploy target, so the one caller of this seam is the deployer, calling as
 // itself.
@@ -76,7 +83,7 @@ func TestDeployRunsAndStopEndsWhatRuns(t *testing.T) {
 	buildProgram(t, dir, "rel_one", sleeperSource)
 
 	placed, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	})
 	if err != nil {
 		t.Fatalf("Deploy: %v", err)
@@ -121,12 +128,12 @@ func TestASecondDeployReplacesTheFirst(t *testing.T) {
 	buildProgram(t, dir, "rel_two", sleeperSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_two", Credential: credential, DeployID: "dep_2",
+		Service: "checkout", Build: "rel_two", Credential: credential, Configuration: deployIDConfig("dep_2"),
 	}); err != nil {
 		t.Fatalf("Deploy rel_two: %v", err)
 	}
@@ -149,7 +156,7 @@ func TestADeadProcessReadsAsNothingRunning(t *testing.T) {
 	buildProgram(t, dir, "rel_dies", exiterSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_dies", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_dies", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
@@ -184,7 +191,7 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	buildProgram(t, outside, "planted", sleeperSource)
 
 	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	}); err != nil {
 		t.Fatalf("Deploy rel_one: %v", err)
 	}
@@ -196,7 +203,7 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 		"",
 	} {
 		_, err := local.Deploy(ctx, deployer, targetseam.Deployment{
-			Service: "checkout", Build: build, Credential: credential, DeployID: "dep_2",
+			Service: "checkout", Build: build, Credential: credential, Configuration: deployIDConfig("dep_2"),
 		})
 		if build == "" {
 			// An empty build is the seam's own refusal, before this one.
@@ -219,6 +226,43 @@ func TestAReleaseOutsideTheDirectoryIsRefused(t *testing.T) {
 	}
 }
 
+// TestReconfigureRestartsUnderTheFreshConfiguration: this platform has no way
+// to hand a running instance new values short of restarting it, so
+// Reconfigure drains the instance running for the service and starts the same
+// build again under the new configuration — the fast rollback's way of
+// minting the kept instance a fresh way-in token.
+func TestReconfigureRestartsUnderTheFreshConfiguration(t *testing.T) {
+	ctx := t.Context()
+	local, dir := newTarget(t, "checkout")
+	buildProgram(t, dir, "rel_one", sleeperSource)
+
+	if _, err := local.Deploy(ctx, deployer, targetseam.Deployment{
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
+	}); err != nil {
+		t.Fatalf("Deploy: %v", err)
+	}
+
+	placed, err := local.Reconfigure(ctx, deployer, targetseam.Reconfiguration{
+		Service: "checkout", Build: "rel_one", Credential: credential,
+		Configuration: targetseam.ValueSet{
+			Names: []string{"BORG_WAY_IN", targetseam.DeployIDName}, Values: []string{"fresh-token", "dep_2"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Reconfigure: %v", err)
+	}
+	if placed.Replacement != targetseam.ReplacementDrained {
+		t.Errorf("Reconfigure reports %q, want the drain", placed.Replacement)
+	}
+	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
+	if err != nil {
+		t.Fatalf("ReadRunning: %v", err)
+	}
+	if running.Build != "rel_one" {
+		t.Fatalf("ReadRunning names %q after Reconfigure, want the same build still running", running.Build)
+	}
+}
+
 func TestTheSeamsChecksHold(t *testing.T) {
 	ctx := t.Context()
 	local, _ := newTarget(t, "checkout")
@@ -238,7 +282,7 @@ func TestTheSeamsChecksHold(t *testing.T) {
 		t.Errorf("Deploy with no deploy id = %v, want %v", err, targetseam.ErrIncomplete)
 	}
 	_, err = local.Deploy(ctx, principal.Principal{}, targetseam.Deployment{
-		Service: "checkout", Build: "rel_one", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_one", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	})
 	if !errors.Is(err, targetseam.ErrNoPrincipal) {
 		t.Errorf("Deploy with no principal = %v, want %v", err, targetseam.ErrNoPrincipal)
@@ -253,7 +297,7 @@ func TestTheSeamsChecksHold(t *testing.T) {
 	// A build whose binary was never placed in dir fails at the start, and
 	// nothing runs for the service afterwards.
 	_, err = local.Deploy(ctx, deployer, targetseam.Deployment{
-		Service: "checkout", Build: "rel_missing", Credential: credential, DeployID: "dep_1",
+		Service: "checkout", Build: "rel_missing", Credential: credential, Configuration: deployIDConfig("dep_1"),
 	})
 	if err == nil {
 		t.Error("Deploy of a build with no binary succeeded")

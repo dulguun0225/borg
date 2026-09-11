@@ -41,6 +41,12 @@ const (
 	// at the end of the service's snapshot retention on its own pass or earlier
 	// at an owner's call.
 	OpDeleteSnapshot Op = "delete_snapshot"
+	// OpReconfigure hands the instances of one build already running on the
+	// target a freshly resolved configuration, without putting anything on the
+	// target cold. It is what the fast rollback mints a fresh way-in token
+	// through, rather than leaving the kept instances holding the one an
+	// earlier deploy minted.
+	OpReconfigure Op = "reconfigure"
 )
 
 // Ops is every operation [Target] declares, in the order the interface does.
@@ -48,6 +54,7 @@ const (
 var Ops = []Op{
 	OpDeploy, OpStop, OpReadRunning, OpShiftTraffic,
 	OpSetInstanceCount, OpApplySchemaChange, OpSnapshot, OpDeleteSnapshot,
+	OpReconfigure,
 }
 
 // Mitigation is the named class of two operations a mitigation is at this
@@ -114,6 +121,16 @@ type Target interface {
 	// gone is not an error: what the operation promises is that the copy cannot
 	// be read afterwards, and that already holds.
 	DeleteSnapshot(ctx context.Context, p principal.Principal, s SnapshotRequest) error
+	// Reconfigure hands the instances of one build already running on the
+	// target a freshly resolved configuration — the fast rollback's own
+	// operation, minting a new way-in token for the instances it shifts
+	// traffic back onto rather than leaving them holding the one an earlier
+	// deploy minted, since a rollback never starts anything cold. It reports
+	// how the instances it reconfigured ended, the way [Target.Deploy] does,
+	// and a platform unable to hand them a fresh configuration without
+	// dropping a request refuses with [ErrCannotReconfigure] rather than
+	// reporting one — the caller then falls back to the slow rollback.
+	Reconfigure(ctx context.Context, p principal.Principal, r Reconfiguration) (Placement, error)
 }
 
 // Deployment is what one deploy names: the service, the build, the credential
@@ -173,6 +190,43 @@ type ValueSet struct {
 	Values []string
 }
 
+// Reconfiguration is what [Target.Reconfigure] hands a target's already-
+// running instances of one build: the resolved configuration, which is the
+// deployment's own [Deployment.Configuration] with a fresh way-in token and
+// the new deploy record's identity under [DeployIDName] appended the way a
+// deployment's is — the instance is told its deploy at placement whichever
+// operation places it, so no reader joins these instances to the deploy that
+// reconfigured them by time.
+type Reconfiguration struct {
+	Service string
+	Build   string
+	// Configuration is the resolved value set, carrying the fresh way-in
+	// token and the deploy id the same way [Deployment.Configuration] does.
+	Configuration ValueSet
+	// WayInAddress is the entrance the way in inside the reconfigured service
+	// presents its token at, the same field [Deployment.WayInAddress] is.
+	WayInAddress string
+	Credential   secretref.Ref
+}
+
+// Validate reports whether the reconfiguration may be attempted.
+func (r Reconfiguration) Validate() error {
+	if err := check(r.Service, r.Credential); err != nil {
+		return err
+	}
+	if r.Build == "" {
+		return fmt.Errorf("%w: service %q names no build", ErrIncomplete, r.Service)
+	}
+	if len(r.Configuration.Names) != len(r.Configuration.Values) {
+		return fmt.Errorf("%w: service %q names %d configuration values for %d names",
+			ErrIncomplete, r.Service, len(r.Configuration.Values), len(r.Configuration.Names))
+	}
+	if id, found := r.Configuration.value(DeployIDName); !found || id == "" {
+		return fmt.Errorf("%w: service %q names no deploy record", ErrIncomplete, r.Service)
+	}
+	return nil
+}
+
 // Replacement is how the instances a deploy replaced ended. There is one
 // value: the operation stops new requests reaching an instance and lets the
 // ones it holds finish before it ends, so neither rollout row drops a
@@ -212,82 +266,6 @@ type InstanceCount struct {
 	Credential secretref.Ref
 }
 
-// SchemaChange is one change applied to the service's store before the build
-// takes traffic: the change's identity, which is what the store's schema
-// history holds, the text that performs it, and whether it destroys stored
-// data — which is what makes a snapshot owed before it.
-type SchemaChange struct {
-	Service string
-	// Change is the change's identity, the one the build declares and the
-	// history is read against.
-	Change string
-	// Release is the release that ships the change, which the history row names
-	// beside it, and is empty on a deploy that names none — a candidate's own
-	// environment, and a build the search called for.
-	Release string
-	// Build is the build the change is applied under, which every history row
-	// names. It is what a row a deploy naming no release writes stands on, so a
-	// change naming neither is refused.
-	Build string
-	// Text is what performs the change.
-	Text string
-	// Destroys is whether the change destroys stored data, which the store rule
-	// forbids without a snapshot before it.
-	Destroys bool
-	// FoundApplied is the adoption's word: the store arrived with the change
-	// already in it, so the row goes into the history and the change is not
-	// applied. It is the deploy of the adoption item's release that asks for it,
-	// on every environment, and no other deploy does.
-	FoundApplied bool
-	// Snapshot is the copy of the service's store taken and verified before a
-	// change that destroys stored data, which is required before one is applied
-	// and empty on every change that destroys none. A change found applied
-	// applies nothing and needs none.
-	Snapshot   Snapshot
-	Credential secretref.Ref
-}
-
-// SchemaChangeApplied is one row of the store's schema history, which is what
-// says which changes a store carries: the build the change was applied under,
-// the release that shipped it wherever one exists, the change's identity, a
-// checksum of its text, whether it widened the store or removed something from
-// it, and whether the deployer applied it or took it on the adoption's word.
-type SchemaChangeApplied struct {
-	// Release is the release that shipped the change, and is empty where the
-	// deploy that wrote the row named none — a candidate's, and the search's.
-	Release string
-	// Build is the build the change was applied under, which every row names:
-	// it is what a row a deploy naming no release wrote stands on.
-	Build    string
-	Change   string
-	Checksum string
-	Widened  bool
-	// FoundApplied is a row written at an adopted service's first release
-	// without the change being applied: the store arrived carrying it. A later
-	// reader tells a change the factory applied from one it took on the
-	// adoption's word by this field.
-	FoundApplied bool
-}
-
-// SnapshotRequest is a whole copy of the service's store, asked for before a
-// change that destroys stored data, and the same copy named again when the
-// deployer deletes it.
-type SnapshotRequest struct {
-	Service string
-	// Name is what the copy is to be called, so the deploy record can name where
-	// what the change destroyed can still be read.
-	Name       string
-	Credential secretref.Ref
-}
-
-// Snapshot is a copy taken and verified: what it is called, and the digest the
-// verification read. A copy the target could not take or could not verify is an
-// error from [Target.Snapshot] and never one of these.
-type Snapshot struct {
-	Name   string
-	Digest string
-}
-
 var (
 	// ErrIncomplete is returned for an operation missing a service, a build, a
 	// credential reference, or anything else the operation names.
@@ -303,11 +281,6 @@ var (
 	// ErrCountNegative is returned by [InstanceCount.Validate] for fewer than
 	// no instances.
 	ErrCountNegative = errors.New("targetseam: an instance count is not negative")
-	// ErrNoSnapshotBeforeIt is returned by [SchemaChange.Validate] for a change
-	// that destroys stored data and names no copy taken before it. The
-	// requirement is here rather than at the deployer alone, so a caller that
-	// forgot the copy reaches no store.
-	ErrNoSnapshotBeforeIt = errors.New("targetseam: a change that destroys stored data names the snapshot taken and verified before it")
 	// ErrCannotDrain is returned by [Target.Deploy] and [Target.Stop] where the
 	// platform cannot hold a request open across the replacement: neither
 	// operation may report [ReplacementDrained] without having kept that
@@ -315,6 +288,11 @@ var (
 	// instead, and the caller marks the deploy failed at that target rather
 	// than recording a drain that did not happen.
 	ErrCannotDrain = errors.New("targetseam: the platform cannot hold a request open across the replacement")
+	// ErrCannotReconfigure is returned by [Target.Reconfigure] where the
+	// platform cannot hand a fresh configuration to instances already running
+	// without dropping a request. The caller falls back to the slow rollback
+	// rather than recording a reconfiguration that did not happen.
+	ErrCannotReconfigure = errors.New("targetseam: the platform cannot reconfigure the running instances without dropping a request")
 )
 
 // Validate reports whether the deployment may be attempted. An implementation
@@ -368,36 +346,6 @@ func (c InstanceCount) Validate() error {
 	}
 	if c.Count < 0 {
 		return fmt.Errorf("%w: service %q asks for %d", ErrCountNegative, c.Service, c.Count)
-	}
-	return nil
-}
-
-// Validate reports whether the schema change may be applied.
-func (c SchemaChange) Validate() error {
-	if err := check(c.Service, c.Credential); err != nil {
-		return err
-	}
-	if c.Change == "" {
-		return fmt.Errorf("%w: service %q names no change", ErrIncomplete, c.Service)
-	}
-	if c.Release == "" && c.Build == "" {
-		return fmt.Errorf("%w: %s of service %q names neither a release nor a build",
-			ErrIncomplete, c.Change, c.Service)
-	}
-	if c.Destroys && !c.FoundApplied && (c.Snapshot.Name == "" || c.Snapshot.Digest == "") {
-		return fmt.Errorf("%w: %s of service %q names %q with digest %q",
-			ErrNoSnapshotBeforeIt, c.Change, c.Service, c.Snapshot.Name, c.Snapshot.Digest)
-	}
-	return nil
-}
-
-// Validate reports whether the snapshot may be taken.
-func (s SnapshotRequest) Validate() error {
-	if err := check(s.Service, s.Credential); err != nil {
-		return err
-	}
-	if s.Name == "" {
-		return fmt.Errorf("%w: service %q names no snapshot", ErrIncomplete, s.Service)
 	}
 	return nil
 }

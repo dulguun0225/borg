@@ -140,7 +140,7 @@ func TestTheKeptFleetEndsWhenTheLastWindowThatCouldReturnToItCloses(t *testing.T
 			t.Errorf("the kept fleet torn down is %+v, want one naming a target and the release it runs", k)
 		}
 	}
-	dep, found, err := deploy.Current(ctx, g.pool, g.serviceID, theEnvironment, []string{theTarget})
+	dep, found, err := deploy.Current(ctx, g.pool, g.serviceID, g.environmentID, []string{theTarget})
 	if err != nil || !found {
 		t.Fatalf("reading what production runs: found %t, %v", found, err)
 	}
@@ -206,7 +206,7 @@ func (d keptRecorded) TearDownKept(ctx context.Context, k healthmonitor.Kept) er
 func openSearchWindow(t *testing.T, ctx context.Context, g graph) window.Window {
 	t.Helper()
 	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
-		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		ServiceID: g.serviceID, EnvironmentID: g.environmentID,
 		What: deploy.OfBuild("bld_search"), Targets: []deploy.Reaching{{Address: theTarget}},
 	})
 	if err != nil {

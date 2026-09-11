@@ -72,16 +72,19 @@ func expectShape(e Entry, want Shape) error {
 
 const selectColumns = `seq, id, format_version, actor_kind, actor_key, actor_key_basis, at, shape, payload,
 	policy_version, score_version, part, closes, verdict, reason, opened_in_work_at, self_approval,
+	returns_to, reading, moved_release, caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope,
 	prev_hash, hash`
 
 const selectRows = `select ` + selectColumns + ` from ` + Table + ` order by seq`
 
 func scan(rows pgx.Rows) (Row, error) {
 	var row Row
-	var kind, basis, shape, part string
+	var kind, basis, shape, part, callerKind, callerKeyBasis string
 	err := rows.Scan(&row.Seq, &row.ID, &row.FormatVersion, &kind, &row.Actor.Key, &basis, &row.At, &shape,
 		&row.Payload, &row.PolicyVersion, &row.ScoreVersion, &part, &row.Closes, &row.Verdict, &row.Reason,
-		&row.OpenedInWorkAt, &row.SelfApproval, &row.PrevHash, &row.Hash)
+		&row.OpenedInWorkAt, &row.SelfApproval, &row.ReturnsTo, &row.Reading, &row.MovedRelease,
+		&callerKind, &row.CallerKey, &callerKeyBasis, &row.CallerDispatchID, &row.CallerScope,
+		&row.PrevHash, &row.Hash)
 	if err != nil {
 		return Row{}, fmt.Errorf("decisionlog: reading a row: %w", err)
 	}
@@ -89,6 +92,8 @@ func scan(rows pgx.Rows) (Row, error) {
 	row.Actor.Basis = record.Basis(basis)
 	row.Shape = Shape(shape)
 	row.Part = Part(part)
+	row.CallerKind = record.Kind(callerKind)
+	row.CallerKeyBasis = record.Basis(callerKeyBasis)
 	return row, nil
 }
 
@@ -143,13 +148,21 @@ func alreadyEnded(ctx context.Context, tx pgx.Tx, id string) (bool, error) {
 const insertRow = `insert into ` + Table + `
 	(seq, id, format_version, actor_kind, actor_key, actor_key_basis, at, shape, payload,
 	 policy_version, score_version, part, closes, verdict, reason, opened_in_work_at, self_approval,
+	 returns_to, reading, moved_release, caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope,
 	 prev_hash, hash)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
+	 $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)`
 
 // insertRowTx reads the head, takes the next sequence value, hashes, and
 // inserts, inside tx. The caller has already taken the fence and the
 // advisory lock for this transaction.
 func insertRowTx(ctx context.Context, tx pgx.Tx, shape Shape, part Part, e Entry) (Row, error) {
+	if !e.Principal.IsZero() {
+		if err := e.Principal.Validate(); err != nil {
+			return Row{}, fmt.Errorf("decisionlog: the caller: %w", err)
+		}
+	}
+
 	var prevHash string
 	err := tx.QueryRow(ctx, `select hash from `+Table+` order by seq desc limit 1`).Scan(&prevHash)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -183,14 +196,27 @@ func insertRowTx(ctx context.Context, tx pgx.Tx, shape Shape, part Part, e Entry
 		Reason:         e.Reason,
 		OpenedInWorkAt: e.OpenedInWorkAt,
 		SelfApproval:   e.SelfApproval,
+		ReturnsTo:      e.ReturnsTo,
+		Reading:        e.Reading,
+		MovedRelease:   e.MovedRelease,
 		PrevHash:       prevHash,
+	}
+	if !e.Principal.IsZero() {
+		row.CallerKind = e.Principal.Actor.Kind
+		row.CallerKey = e.Principal.Actor.Key
+		row.CallerKeyBasis = e.Principal.Actor.Basis
+		row.CallerDispatchID = e.Principal.DispatchID
+		row.CallerScope = e.Principal.Scope
 	}
 	row.Hash = row.ChainHash()
 
 	_, err = tx.Exec(ctx, insertRow,
 		row.Seq, row.ID, row.FormatVersion, string(row.Actor.Kind), row.Actor.Key, string(row.Actor.Basis), row.At,
 		string(row.Shape), row.Payload, row.PolicyVersion, row.ScoreVersion, string(row.Part), row.Closes,
-		row.Verdict, row.Reason, row.OpenedInWorkAt, row.SelfApproval, row.PrevHash, row.Hash,
+		row.Verdict, row.Reason, row.OpenedInWorkAt, row.SelfApproval,
+		row.ReturnsTo, row.Reading, row.MovedRelease,
+		string(row.CallerKind), row.CallerKey, string(row.CallerKeyBasis), row.CallerDispatchID, row.CallerScope,
+		row.PrevHash, row.Hash,
 	)
 	if err != nil {
 		return Row{}, translateConstraint(fmt.Errorf("decisionlog: appending row %d: %w", row.Seq, err))

@@ -24,7 +24,9 @@ import (
 var redactor = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: record.BasisClaimed}
 
 // redacting writes one redaction naming a version's content, the way the
-// erasure at Factory does.
+// erasure at Factory does. The erasure-list row it appends goes to a list of
+// its own — never the one [listIn] returns — because this store writes none
+// of its own and the check against [listIn]'s empty one is what says so.
 func redacting(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID string,
 	spans ...redaction.Span) redaction.Redaction {
 	t.Helper()
@@ -32,11 +34,23 @@ func redacting(t *testing.T, ctx context.Context, pool *pgxpool.Pool, versionID 
 		Target: redaction.Target{Kind: redaction.KindArtifactVersion, ID: versionID},
 		Reason: "the words quote a report that named a person",
 		Spans:  spans,
-	}, nil)
+	}, nil, erasureAppender(t))
 	if err != nil {
 		t.Fatalf("writing the redaction of %s: %v", versionID, err)
 	}
 	return r
+}
+
+// erasureAppender is a working [redaction.ErasureAppender] over a fresh file,
+// the same call reportstore.Store.AppendErasure makes over its own: a plain
+// call to erasurelist.Append. [redaction.Insert] refuses a call supplying
+// none, and this package composes no store to hand it one of its own.
+func erasureAppender(t *testing.T) redaction.ErasureAppender {
+	t.Helper()
+	list := filepath.Join(t.TempDir(), "erasure-list")
+	return func(kind, key, removed string) error {
+		return erasurelist.Append(list, key, kind, removed)
+	}
 }
 
 // listIn is the erasure list this test's composition holds: a file beside the
@@ -131,7 +145,7 @@ func TestTheRedactionPassDestroysWhatEveryRedactionNamesOfItsOwn(t *testing.T) {
 	other, err := redaction.NewWriter(pool, tokenOf(t, ctx, pool)).Insert(ctx, redactor, redaction.Writing{
 		Target: redaction.Target{Kind: redaction.KindStatement, ID: "in_1"},
 		Reason: "intake's own to destroy", Spans: []redaction.Span{{Start: 0, End: 1}},
-	}, nil)
+	}, nil, erasureAppender(t))
 	if err != nil {
 		t.Fatalf("writing a redaction of another kind: %v", err)
 	}

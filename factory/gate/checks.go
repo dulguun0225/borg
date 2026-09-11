@@ -68,6 +68,19 @@ func complete(f Firing) error {
 		if f.ItemID != "" {
 			return fmt.Errorf("%w: %s belongs to no item and named %q", ErrFiringIncomplete, f.Row, f.ItemID)
 		}
+		// The five rows outside every item belong to no timeline, no service and
+		// no build, the way they name no item: a service, a build or an area
+		// named on such a firing is refused before anything is appended, the same
+		// way an item is.
+		if f.ServiceID != "" {
+			return fmt.Errorf("%w: %s belongs to no service and named %q", ErrFiringIncomplete, f.Row, f.ServiceID)
+		}
+		if f.BuildID != "" {
+			return fmt.Errorf("%w: %s decides no build and named %q", ErrFiringIncomplete, f.Row, f.BuildID)
+		}
+		if f.AreaID != "" {
+			return fmt.Errorf("%w: %s belongs to no area and named %q", ErrFiringIncomplete, f.Row, f.AreaID)
+		}
 		return nil
 	}
 	required := []struct{ what, value string }{{"item", f.ItemID}, {"service", f.ServiceID}}
@@ -116,14 +129,19 @@ func (g *Gate) intentPermits(ctx context.Context, f Firing) error {
 // nothingPending refuses a firing on a row and a subject that already has an
 // open event pending, so one gate on one subject has at most one pending row.
 // The one exception is the open event Edit in place appends naming the row it
-// supersedes, and the one a refer re-fires.
+// supersedes.
+//
+// A refer's re-firing is not a second exception: [Gate.Refer] closes the row it
+// is given before it re-fires, so by the time this runs the row it was referred
+// from already carries a close event and is no longer pending — the check
+// passes on its own terms rather than needing one of its own.
 //
 // The subject is the item at every row on an item's path, the version under
 // decision at A role prompt or a skill, which names a version and no item at
 // all, and the record itself at the four rows that decide one — so one pending
 // withdrawal is the subject of its own row and not of every row of that kind.
 func (g *Gate) nothingPending(ctx context.Context, f Firing) error {
-	if f.supersedes != "" || f.referredFrom != "" {
+	if f.supersedes != "" {
 		return nil
 	}
 	pending, err := g.Pending(ctx)

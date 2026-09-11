@@ -274,7 +274,39 @@ func returnTargets(ctx context.Context, w *Writer, rebuilt Rebuilt, d Deploy, ta
 	if err != nil {
 		return false, err
 	}
+
+	// d itself is complete once every target it runs on is decided — the ones
+	// just returned, rolled back by the call above, and the ones already
+	// complete before it. [returnNothingReached] returns every one, so this
+	// always fires there; [carryOn]'s return path returns only the targets
+	// already reached, so a target still owed — [carryOn]'s caller never asked
+	// for — leaves d standing started, a recorded partial deploy, until a
+	// later restart carries the rest.
+	if everyTargetDecided(targets, addresses) {
+		if err := w.Complete(ctx, d.ID); err != nil {
+			return false, err
+		}
+	}
 	return true, nil
+}
+
+// everyTargetDecided reports whether every target the service runs on is
+// either already complete or about to be rolled back by the addresses named,
+// which is what makes d itself complete once the return above has run.
+func everyTargetDecided(targets []Target, returning []string) bool {
+	decided := make(map[string]bool, len(returning))
+	for _, address := range returning {
+		decided[address] = true
+	}
+	for _, target := range targets {
+		if target.NotRunHere {
+			continue
+		}
+		if target.Completion != CompletionComplete && !decided[target.Address] {
+			return false
+		}
+	}
+	return true
 }
 
 // releaseBefore is the release and build that was current on address before

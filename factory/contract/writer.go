@@ -25,17 +25,19 @@ type Publication struct {
 	Form          Form
 }
 
-// Published is what one publication did: the contract, the version where one was
-// minted, what the form did to the version below it, and whether anything was
-// written at all. Most releases publish no new version, so Moved is false and the
-// version is the one already in force.
+// Published is what one publication did: the contract, the version it minted,
+// and what the form did to the version below it. Every publication mints a
+// version row naming its own release; most releases move nothing, so Moved is
+// false and the row it mints carries the same number the one below it does.
 type Published struct {
 	Contract Contract
 	Version  Version
 	Change   Change
-	// Moved is whether this publication minted a version. False is a release
-	// whose form is identical to the version in force below it, which is most
-	// releases and is not a failure.
+	// Moved is whether this publication's row carries a new number. False is a
+	// release whose form is identical to the version in force below it, which
+	// is most releases and is not a failure — the row is still written, naming
+	// this release, so that release's inbound edge names every interface it
+	// publishes and not only the ones whose form moved.
 	Moved bool
 	// Created is whether this publication is the contract's first, which is the
 	// merge the contract exists from.
@@ -54,10 +56,11 @@ type Published struct {
 // release. A form whose kind is not the kind the contract already has is
 // [ErrKindChanged]: the kind has to be single-valued across versions.
 //
-// A form identical to the version in force below this release mints nothing and
-// is not an error. That is the ordinary case — most releases publish no new
-// contract version at all — and it is what keeps the version tracking the form
-// rather than the release.
+// A form identical to the version in force below this release still mints a
+// row, naming this release with the same number the one below it carries: an
+// unmoved form is not an error, and it is what keeps the number tracking the
+// form rather than the release while still letting every release's inbound
+// edge name every interface it publishes.
 func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) (Published, error) {
 	if err := actor.Validate(); err != nil {
 		return Published{}, err
@@ -110,24 +113,24 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 		if err != nil {
 			return Published{}, err
 		}
-		published.Version = inForce
+		next = inForce.Semver
 	}
 
 	change := Diff(before, form)
 	published.Change = change
-	if hadOne && !change.Moved() {
-		return published, nil
-	}
-	if hadOne {
+	if hadOne && change.Moved() {
 		// Major means a consumer breaks, and [Change.Breaking] is what breaks
-		// whatever any declaration says: the store rule's addable pair — a
-		// not-null constraint and a domain check — is not in it, and one that
-		// reached this write is one enforcement found no declaration in force
-		// violates. So a release that only constrains mints a minor here, which
-		// is the version enforcement reported it would mint.
+		// whatever any declaration says.
 		next = inForce.Semver.Next(len(change.Breaking) > 0)
 	}
+	// The first version a contract ever has is always a new number, whatever the
+	// diff over an empty form reads as: there is no version below it to leave
+	// unmoved.
+	published.Moved = !hadOne || change.Moved()
 
+	// A version row is minted whether or not the form moved: an unmoved form
+	// still names this release, at the number the version below it carries, so
+	// that release's inbound edge names every interface it publishes.
 	v := Version{
 		ID:            record.NewID(VersionIDPrefix),
 		Actor:         actor,
@@ -168,7 +171,6 @@ func Publish(ctx context.Context, tx pgx.Tx, actor record.Actor, p Publication) 
 		}
 	}
 	published.Version = v
-	published.Moved = true
 	return published, nil
 }
 

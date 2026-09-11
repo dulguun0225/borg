@@ -5,17 +5,33 @@
 package criterion_test
 
 import (
+	"context"
 	"slices"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/record"
 )
+
+// fakeDecisions is a fake [criterion.IntroducingDecision]: which spec versions
+// a human decided, held in a map so a test can name them directly rather than
+// walking a decision log. A version absent from it is not found at all, the
+// way a decision the log's retention cut removed reads.
+type fakeDecisions map[string]record.Actor
+
+func (f fakeDecisions) IntroducingDecision(_ context.Context, specArtifactID string) (record.Actor, bool, error) {
+	actor, found := f[specArtifactID]
+	return actor, found, nil
+}
+
+var humanDecider = record.Actor{Kind: record.KindHuman, Key: "hum_a", Basis: record.BasisClaimed}
 
 // TestHumanConfirmedIsAQueryOverTheIntroducingDecision: human-confirmed is no
 // field of the table — it is a query over the introducing spec version's
-// decision, and the caller passes which versions a human decided.
+// decision, read through the seam this package cannot reach the decision log
+// itself to answer.
 func TestHumanConfirmedIsAQueryOverTheIntroducingDecision(t *testing.T) {
 	ctx, pool, _ := newSet(t)
 	build := []string{"it_a", "it_b"}
@@ -34,7 +50,7 @@ func TestHumanConfirmedIsAQueryOverTheIntroducingDecision(t *testing.T) {
 		return err
 	})
 
-	read, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, []string{"art_a"})
+	read, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, fakeDecisions{"art_a": humanDecider})
 	if err != nil {
 		t.Fatalf("HumanConfirmed: %v", err)
 	}
@@ -43,14 +59,20 @@ func TestHumanConfirmedIsAQueryOverTheIntroducingDecision(t *testing.T) {
 	}
 
 	// A version no human decided confirms nothing, and neither does an empty
-	// set: a criterion whose introducing decision was cut reads as unknown
+	// map: a criterion whose introducing decision was cut reads as unknown
 	// provenance rather than as confirmed.
-	if none, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, nil); err != nil || len(none) != 0 {
+	if none, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, fakeDecisions{}); err != nil || len(none) != 0 {
 		t.Errorf("HumanConfirmed with no version named = %+v, %v", none, err)
 	}
 
+	// A version a component or an agent decided is not human-confirmed.
+	factoryDecided := fakeDecisions{"art_a": record.Actor{Kind: record.KindComponent, Key: "gate.spec", Basis: record.BasisClaimed}}
+	if none, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, factoryDecided); err != nil || len(none) != 0 {
+		t.Errorf("HumanConfirmed with a factory-decided version = %+v, %v, want none", none, err)
+	}
+
 	// Both versions decided by a human is both criteria, in force order.
-	both, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, []string{"art_a", "art_b"})
+	both, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, fakeDecisions{"art_a": humanDecider, "art_b": humanDecider})
 	if err != nil {
 		t.Fatalf("HumanConfirmed: %v", err)
 	}
@@ -64,7 +86,7 @@ func TestHumanConfirmedIsAQueryOverTheIntroducingDecision(t *testing.T) {
 		return criterion.Withdraw(ctx, tx, store,
 			criterion.Of{ServiceID: "svc_a", SpecArtifactID: "art_c", ItemID: "it_b"}, confirmed.ID)
 	})
-	after, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, []string{"art_a"})
+	after, err := criterion.HumanConfirmed(ctx, pool, "svc_a", build, fakeDecisions{"art_a": humanDecider})
 	if err != nil {
 		t.Fatalf("HumanConfirmed: %v", err)
 	}

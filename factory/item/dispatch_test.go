@@ -330,7 +330,7 @@ func TestSetPriorityAndAtStage(t *testing.T) {
 		it, err := decomposition.Create(ctx, decompositionActor, item.New{
 			IntentID: fmt.Sprintf("in_%032d", n), ServiceID: serviceID, Branch: branch,
 			RequirementsAnswered: []string{fmt.Sprintf("rq_%032d", n)},
-		}, "", "", nil)
+		}, "", "")
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}

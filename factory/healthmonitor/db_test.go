@@ -161,11 +161,11 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 
 	// An intent nothing has been decomposed from has not shipped: the factory has not worked
 	// it yet, which is not the same as its having finished.
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_untouched"); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_untouched"); err != nil || shipped {
 		t.Errorf("Shipped for an intent with no items = %v, %v", shipped, err)
 	}
 	// And an intent nobody named is not shipped either, rather than trivially so.
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, ""); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, ""); err != nil || shipped {
 		t.Errorf("Shipped for no intent at all = %v, %v", shipped, err)
 	}
 
@@ -173,11 +173,11 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: g.serviceID, Branch: "item/working",
 		RequirementsAnswered: []string{"rq_" + "test"},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_working"); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_working"); err != nil || shipped {
 		t.Errorf("Shipped for an item with no release = %v, %v", shipped, err)
 	}
 
@@ -196,20 +196,20 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("minting the release: %v", err)
 	}
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_working"); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_working"); err != nil || shipped {
 		t.Errorf("Shipped for a release minted and never deployed = %v, %v", shipped, err)
 	}
 
 	// A deploy started and not completed: still not shipped, which is the same rule
 	// current release keeps.
 	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
-		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		ServiceID: g.serviceID, EnvironmentID: g.environmentID,
 		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
 	})
 	if err != nil {
 		t.Fatalf("starting the deploy: %v", err)
 	}
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_working"); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_working"); err != nil || shipped {
 		t.Errorf("Shipped for a deploy that has not completed = %v, %v", shipped, err)
 	}
 
@@ -222,7 +222,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	if err := g.deploys.Complete(ctx, dep.ID); err != nil {
 		t.Fatalf("completing the deploy: %v", err)
 	}
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_working"); err != nil || !shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_working"); err != nil || !shipped {
 		t.Errorf("Shipped for a release deployed and complete = %v, %v", shipped, err)
 	}
 
@@ -231,11 +231,11 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	second, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: "in_working", ServiceID: g.serviceID, Branch: "item/working-2",
 		RequirementsAnswered: []string{"rq_" + "test"},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the second item: %v", err)
 	}
-	if shipped, err := healthmonitor.Shipped(ctx, g.pool, theEnvironment, "in_working"); err != nil || shipped {
+	if shipped, err := healthmonitor.Shipped(ctx, g.pool, g.environmentID, "in_working"); err != nil || shipped {
 		t.Errorf("Shipped with a second item that has no release = %v, %v", shipped, err)
 	}
 	_ = second

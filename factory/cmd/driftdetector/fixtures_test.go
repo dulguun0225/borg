@@ -269,3 +269,6 @@ func (erroringTarget) Snapshot(context.Context, principal.Principal, targetseam.
 func (erroringTarget) DeleteSnapshot(context.Context, principal.Principal, targetseam.SnapshotRequest) error {
 	return nil
 }
+func (erroringTarget) Reconfigure(context.Context, principal.Principal, targetseam.Reconfiguration) (targetseam.Placement, error) {
+	return targetseam.Placement{}, nil
+}

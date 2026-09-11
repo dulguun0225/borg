@@ -87,6 +87,45 @@ func TestEachRunIsItsOwnRowsAndNothingIsOverwritten(t *testing.T) {
 	}
 }
 
+// TestLatestRunIsTheBuildsHighestRunAcrossEveryCriterion: the single number a
+// gate reads about the run itself, as against [criterion.Latest]'s per-criterion
+// form.
+func TestLatestRunIsTheBuildsHighestRunAcrossEveryCriterion(t *testing.T) {
+	ctx, pool, token := newSet(t)
+	const buildID = "bl_a"
+	one := "cr_" + strings.Repeat("a", 32)
+
+	if run, err := criterion.LatestRun(ctx, pool, buildID); err != nil || run != 0 {
+		t.Errorf("LatestRun with no results = %d, %v, want 0", run, err)
+	}
+
+	if err := criterion.RecordResults(ctx, pool, token, buildRunner,
+		criterion.Run{BuildID: buildID, Number: 0, Place: criterion.PlaceBuild},
+		map[string]criterion.Outcome{one: criterion.OutcomePassed}); err != nil {
+		t.Fatalf("RecordResults over the build's own process: %v", err)
+	}
+	if run, err := criterion.LatestRun(ctx, pool, buildID); err != nil || run != 0 {
+		t.Errorf("LatestRun after only the build's own process = %d, %v, want 0", run, err)
+	}
+
+	if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment(buildID, 1, "seed@1"),
+		map[string]criterion.Outcome{one: criterion.OutcomePassed}); err != nil {
+		t.Fatalf("RecordResults over run 1: %v", err)
+	}
+	if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment(buildID, 2, "seed@1"),
+		map[string]criterion.Outcome{one: criterion.OutcomeFailed}); err != nil {
+		t.Fatalf("RecordResults over run 2: %v", err)
+	}
+	if run, err := criterion.LatestRun(ctx, pool, buildID); err != nil || run != 2 {
+		t.Errorf("LatestRun after two candidate runs = %d, %v, want 2", run, err)
+	}
+
+	// A build with no results at all reads the same as one with none yet.
+	if run, err := criterion.LatestRun(ctx, pool, "bl_never_run"); err != nil || run != 0 {
+		t.Errorf("LatestRun over a build with no results = %d, %v, want 0", run, err)
+	}
+}
+
 // TestUndecidedIsDerivedFromTwoRunsWhoseCompositionsMatch: an encoding that
 // produced a failure and a pass over one build decided nothing, so the
 // criterion is undecided for that build. Two runs against compositions that
@@ -270,33 +309,137 @@ func TestUnreliableIsTheDisagreementRateAcrossBuilds(t *testing.T) {
 	authored := gatepolicy.Authored{Number: 0.2, Present: true}
 	unauthored := gatepolicy.Authored{}
 
-	steadiness, err := criterion.Unreliable(ctx, pool, steady, builds, authored)
+	steadiness, err := criterion.Unreliable(ctx, pool, steady, builds, authored, nil, "")
 	if err != nil {
 		t.Fatalf("Unreliable: %v", err)
 	}
-	if steadiness.Unreliable || steadiness.Rate != 0 || steadiness.Builds != 4 {
-		t.Errorf("the steady criterion reads %+v, want four builds and no disagreement", steadiness)
+	if steadiness.Unreliable || steadiness.Rate != 0 || steadiness.Builds != 4 || steadiness.EnteredAt != "" {
+		t.Errorf("the steady criterion reads %+v, want four builds, no disagreement, and no entry", steadiness)
 	}
 
 	// No owner authored a bound, so this crosses the shipped default rather
 	// than a number the test picked.
-	flakiness, err := criterion.Unreliable(ctx, pool, flapping, builds, unauthored)
+	flakiness, err := criterion.Unreliable(ctx, pool, flapping, builds, unauthored, nil, "")
 	if err != nil {
 		t.Fatalf("Unreliable: %v", err)
 	}
-	if flakiness.Disagreements != 1 || flakiness.Rate != 0.25 || !flakiness.Unreliable {
-		t.Errorf("the flapping criterion reads %+v, want one disagreement in four and above the shipped bound of %v",
+	if flakiness.Disagreements != 1 || flakiness.Rate != 0.25 || !flakiness.Unreliable || flakiness.EnteredAt != "bl_2" {
+		t.Errorf("the flapping criterion reads %+v, want one disagreement in four, above the shipped bound of %v, entered at bl_2",
 			flakiness, service.ShippedUnreliableBound)
 	}
 	// An authored bound reads what was authored rather than the shipped
 	// default, and a safeguard may only raise it, which is what takes a
 	// criterion back out of the gate's way.
 	raisedBound := gatepolicy.Authored{Number: 0.5, Present: true}
-	if raised, err := criterion.Unreliable(ctx, pool, flapping, builds, raisedBound); err != nil || raised.Unreliable {
-		t.Errorf("Unreliable against a raised bound = %+v, %v, want not unreliable", raised, err)
+	if raised, err := criterion.Unreliable(ctx, pool, flapping, builds, raisedBound, nil, ""); err != nil || raised.Unreliable || raised.EnteredAt != "" {
+		t.Errorf("Unreliable against a raised bound = %+v, %v, want not unreliable and never entered", raised, err)
 	}
 	// One build is nothing for an outcome to disagree with.
-	if one, err := criterion.Unreliable(ctx, pool, flapping, builds[:1], authored); err != nil || one.Unreliable {
+	if one, err := criterion.Unreliable(ctx, pool, flapping, builds[:1], authored, nil, ""); err != nil || one.Unreliable {
 		t.Errorf("Unreliable over one build = %+v, %v, want not unreliable", one, err)
+	}
+}
+
+// TestUnreliableExcludesBuildsWhoseDiffReachesTheRequirementAndGroupsBySeed:
+// the outcome history narrows to builds composed from one seed version, so a
+// build against a different seed is a different question and not a
+// disagreement, and a build whose diff reaches the requirement the criterion
+// names is excluded outright, the caller supplying which ones do.
+func TestUnreliableExcludesBuildsWhoseDiffReachesTheRequirementAndGroupsBySeed(t *testing.T) {
+	ctx, pool, token := newSet(t)
+	one := "cr_" + strings.Repeat("c", 32)
+	bound := gatepolicy.Authored{Number: 0.2, Present: true}
+
+	// bl_1 and bl_2 share a seed and disagree; bl_3 disagrees too but against
+	// a different seed, so it is not a partner for either; bl_4 disagrees
+	// against bl_1 and bl_2's seed but its diff reaches the requirement, so
+	// it is excluded before anything is grouped.
+	for _, run := range []struct {
+		buildID, composition string
+		outcome              criterion.Outcome
+	}{
+		{"bl_1", "seed@1", criterion.OutcomePassed},
+		{"bl_2", "seed@1", criterion.OutcomeFailed},
+		{"bl_3", "seed@2", criterion.OutcomeFailed},
+		{"bl_4", "seed@1", criterion.OutcomeFailed},
+	} {
+		if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment(run.buildID, 1, run.composition),
+			map[string]criterion.Outcome{one: run.outcome}); err != nil {
+			t.Fatalf("RecordResults over %s: %v", run.buildID, err)
+		}
+	}
+
+	builds := []string{"bl_1", "bl_2", "bl_3", "bl_4"}
+	reading, err := criterion.Unreliable(ctx, pool, one, builds, bound, []string{"bl_4"}, "")
+	if err != nil {
+		t.Fatalf("Unreliable: %v", err)
+	}
+	// bl_4 excluded leaves bl_1, bl_2 (seed@1, one disagreement) and bl_3
+	// (seed@2, alone in its group, nothing to disagree with): 3 builds read,
+	// 1 disagreement, a rate of 1/3.
+	if reading.Builds != 3 || reading.Disagreements != 1 {
+		t.Errorf("Unreliable excluding the reaching build and grouping by seed = %+v, want 3 builds and 1 disagreement", reading)
+	}
+
+	// Without the exclusion, the same four builds are read whole.
+	unexcluded, err := criterion.Unreliable(ctx, pool, one, builds, bound, nil, "")
+	if err != nil {
+		t.Fatalf("Unreliable: %v", err)
+	}
+	if unexcluded.Builds != 4 {
+		t.Errorf("Unreliable with nothing excluded reads %+v, want all 4 builds", unexcluded)
+	}
+}
+
+// TestUnreliableLeavesOnlyWhenTheReauthoredEncodingIsInForce: the rate alone
+// recrossing under the bound is not enough — leaving needs a version of the
+// criterion's encoding the recovery intent introduced to be in force, at or
+// after the build the criterion entered unreliable on.
+func TestUnreliableLeavesOnlyWhenTheReauthoredEncodingIsInForce(t *testing.T) {
+	ctx, pool, token := newSet(t)
+	one := "cr_" + strings.Repeat("d", 32)
+	bound := gatepolicy.Authored{Number: 0.2, Present: true}
+
+	// bl_1 passes, bl_2 fails — two builds, one disagreement, a rate of 0.5,
+	// which crosses the bound at bl_2. Four more passes bring the overall
+	// rate to 1/6, under the bound, without anything having been reauthored.
+	outcomes := []criterion.Outcome{
+		criterion.OutcomePassed, criterion.OutcomeFailed, criterion.OutcomePassed,
+		criterion.OutcomePassed, criterion.OutcomePassed, criterion.OutcomePassed,
+	}
+	builds := []string{"bl_1", "bl_2", "bl_3", "bl_4", "bl_5", "bl_6"}
+	for n, buildID := range builds {
+		if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment(buildID, 1, "seed@1"),
+			map[string]criterion.Outcome{one: outcomes[n]}); err != nil {
+			t.Fatalf("RecordResults over %s: %v", buildID, err)
+		}
+	}
+
+	unfixed, err := criterion.Unreliable(ctx, pool, one, builds, bound, nil, "")
+	if err != nil {
+		t.Fatalf("Unreliable: %v", err)
+	}
+	if unfixed.EnteredAt != "bl_2" || unfixed.Rate > 0.2 || !unfixed.Unreliable {
+		t.Errorf("Unreliable with nothing reauthored = %+v, want it entered at bl_2 and still unreliable despite the rate", unfixed)
+	}
+
+	// Reauthored before it ever entered: the fix predates the problem, so it
+	// does not count as the fix for this crossing.
+	stale, err := criterion.Unreliable(ctx, pool, one, builds, bound, nil, "bl_1")
+	if err != nil {
+		t.Fatalf("Unreliable: %v", err)
+	}
+	if !stale.Unreliable {
+		t.Errorf("Unreliable reauthored before the entry = %+v, want still unreliable", stale)
+	}
+
+	// Reauthored at or after the entry, and the rate is under the bound: it
+	// leaves.
+	fixed, err := criterion.Unreliable(ctx, pool, one, builds, bound, nil, "bl_5")
+	if err != nil {
+		t.Fatalf("Unreliable: %v", err)
+	}
+	if fixed.Unreliable {
+		t.Errorf("Unreliable reauthored after the entry with the rate under the bound = %+v, want it to have left", fixed)
 	}
 }

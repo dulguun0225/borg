@@ -31,18 +31,24 @@ import (
 // [contract.DeriveFile] and there is one convention rather than two.
 //
 // What is derived is what the consumer's own source does with the mirror, each
-// element paired with the mirror it is read or written on through the receiver's
-// type or the type of the variable the value is bound to — a field name two
-// mirrors share is two elements and not one:
+// element paired with the mirror it is read, written, or called on through the
+// receiver's type or the type of the variable the value is bound to — a field
+// or operation name two mirrors share is two elements and not one, and a call
+// to a bare local function of that name attaches to neither:
 //
-//   - a field of a message the interface returns, or of a store, that the source
-//     reads declares that it is read, and what the mirror's tags say about it:
-//     that it arrives populated, that its name carries a unit, that its values
-//     stay inside a domain or a range;
-//   - a field of a message the interface accepts that the source writes, or of a
-//     store, declares that it is sent, whether it is written populated, and the
-//     domain or range of what it sends; one the source does not write declares
-//     that it is left out, which is what a producer breaks by making it required;
+//   - a field of a message the interface returns that the source reads declares
+//     that it is read, and what the mirror's tags say about it: that it arrives
+//     populated, that its name carries a unit, that its values stay inside a
+//     domain or a range;
+//   - a field of a message the interface accepts that the source writes
+//     declares that it is sent, and the domain or range of what it sends; one
+//     the source does not write declares that it is left out, which is what a
+//     producer breaks by making it required. Populated belongs to a store
+//     element the code writes and not to a request element sent —
+//     sent-or-left-out already covers whether it is there at all;
+//   - a field of a store that the source reads or writes declares that, and
+//     whether it is written populated and inside its domain or range, since a
+//     store is a contract the consumer's own build is the writer of too;
 //   - an operation the source calls declares that it is called at all.
 //
 // A field the mirror holds and the source never touches declares nothing. That is
@@ -60,13 +66,19 @@ import (
 // resolve to a receiver — is what withdrawing a safeguard, or the producer's
 // blocked removal item asking the consumer to confirm, is for.
 //
-// A checkout that reaches an address outside this convention entirely — a
-// literal address or one read from a store, passed straight to a recognized
-// network call rather than through a mirror — is could not derive, naming the
-// call site: [consumerSource.checkDirectCall]. So is a checkout that makes any
-// call at all and holds no mirror and no configuration file, which is the state
-// an adopted service arrives in until its entries are authored; only a checkout
-// that makes no call at all derives complete and empty.
+// A checkout that reaches, through an import, an address the extractor traces
+// — a string literal shaped as a URL or host:port, or a value it traced back
+// to a store read or a configuration read — is could not derive, naming the
+// call site: [consumerSource.checkDirectCall]. It does not matter which
+// package the call reaches into, since a mirror's own operation is never
+// called through an import at all. Absent such an argument to trace, a call
+// into a network client package this checkout imports is could not derive the
+// same way, which is what keeps a call address this cannot trace at all —
+// net.Dial given a plain variable, say — from passing silently. So is a
+// checkout that makes any call at all and holds no mirror and no
+// configuration file, which is the state an adopted service arrives in until
+// its entries are authored; only a checkout that makes no call at all derives
+// complete and empty.
 
 // consumePrefix is the file-name prefix of a mirror.
 const consumePrefix = "consume."
@@ -96,10 +108,24 @@ const GoConvention = "one mirror file per address, consume.<address>.go at the c
 // GoExtractor is this extractor as a record names one. The factory version is the
 // caller's: an extractor ships with the factory, so a derivation is a function of
 // the code and of the factory version.
-func GoExtractor(factoryVersion string) Extractor {
+//
+// convention is the published convention this record carries; a caller that
+// supplies none gets [GoConvention] alone, which is every caller of this
+// package's own tests and every reader that only needs to know this file's
+// own convention. [_What the derivation records_] treats where a declaration
+// sits for a mark, a backfill, a schema change, a screen's transition
+// function, and a mutation tool as one fact of the extractor's, alongside the
+// mirror — five conventions this package cannot compose itself, since it
+// cannot import every package that states one. cmd/factory composes them and
+// is this function's one caller that supplies one.
+func GoExtractor(factoryVersion string, convention ...string) Extractor {
+	published := GoConvention
+	if len(convention) > 0 {
+		published = convention[0]
+	}
 	return Extractor{
 		Name: ExtractorName, Version: ExtractorVersion,
-		Toolchain: Toolchain, FactoryVersion: factoryVersion, Convention: GoConvention,
+		Toolchain: Toolchain, FactoryVersion: factoryVersion, Convention: published,
 	}
 }
 
@@ -152,13 +178,15 @@ func Derive(root string, allowed []string, extractor Extractor) (Derived, error)
 	// mirror through that operation's return type, which this extractor has to
 	// know before it can read what the source does with it.
 	type mirror struct {
-		address string
-		entry   Entry
-		form    contract.Form
-		units   map[string]string
+		address   string
+		entry     Entry
+		form      contract.Form
+		units     map[string]string
+		receivers map[string]string
 	}
 	var loaded []mirror
 	returns := map[string]string{}
+	storeTypes := map[string]bool{}
 	if len(mirrors) > 0 {
 		addresses, found, err := Entries(root)
 		if err != nil {
@@ -187,18 +215,25 @@ func Derive(root string, allowed []string, extractor Extractor) (Derived, error)
 			if err != nil {
 				return failed(extractor, err.Error()), nil
 			}
-			units, operationReturns, err := mirrorMeta(path)
+			units, operationReturns, operationReceivers, err := mirrorMeta(path)
 			if err != nil {
 				return failed(extractor, err.Error()), nil
 			}
 			for name, typeName := range operationReturns {
 				returns[name] = typeName
 			}
-			loaded = append(loaded, mirror{address, entry, form, units})
+			if entry.Store {
+				for _, e := range form.Elements {
+					if e.Kind == contract.ElementMessage {
+						storeTypes[e.Name] = true
+					}
+				}
+			}
+			loaded = append(loaded, mirror{address, entry, form, units, operationReceivers})
 		}
 	}
 
-	source, err := readSource(root, returns)
+	source, err := readSource(root, returns, storeTypes)
 	if err != nil {
 		return failed(extractor, err.Error()), nil
 	}
@@ -217,7 +252,7 @@ func Derive(root string, allowed []string, extractor Extractor) (Derived, error)
 	}
 
 	for _, m := range loaded {
-		drafts, err := declared(m.entry, m.form, m.units, source, allowed)
+		drafts, err := declared(m.entry, m.form, m.units, m.receivers, source, allowed)
 		if err != nil {
 			return Derived{}, err
 		}
@@ -238,12 +273,15 @@ func failed(extractor Extractor, reported string) Derived {
 // does with it. Reads and writes are looked up by the element's own name, which
 // [readSource] already qualifies by the type the source read or wrote it on — a
 // field name two mirrors share is two names here and pairs with only its own.
+// An operation is looked up the same way where receivers holds its receiver
+// type — this mirror's own, from [mirrorMeta] — and by its bare name otherwise,
+// which is a package-level operation with no receiver to qualify it by.
 //
 // seen dedupes the same predicate offered twice: a store element both read and
 // written can otherwise be asserted populated once for each side, and this
 // package writes a predicate exactly once.
-func declared(entry Entry, form contract.Form, units map[string]string, source consumerSource,
-	allowed []string) ([]Draft, error) {
+func declared(entry Entry, form contract.Form, units map[string]string, receivers map[string]string,
+	source consumerSource, allowed []string) ([]Draft, error) {
 	var drafts []Draft
 	seen := map[string]bool{}
 	add := func(element string, kind gatepolicy.PredicateKind, argument string) error {
@@ -271,7 +309,11 @@ func declared(entry Entry, form contract.Form, units map[string]string, source c
 	for _, e := range form.Elements {
 		switch e.Kind {
 		case contract.ElementOperation:
-			if !source.calls[e.Name] {
+			key := e.Name
+			if receiver, ok := receivers[e.Name]; ok && receiver != "" {
+				key = receiver + "." + e.Name
+			}
+			if !source.calls[key] {
 				continue
 			}
 			if err := add(e.Name, gatepolicy.PredicateCalled, ""); err != nil {
@@ -284,7 +326,10 @@ func declared(entry Entry, form contract.Form, units map[string]string, source c
 			case e.Position == contract.PositionInput:
 				// What the consumer sends. An element it does not write is one
 				// it leaves out, which is what a producer breaks by making the
-				// element required.
+				// element required. Populated is not among these: it is a
+				// store element's own predicate for what the code writes, and
+				// sent-or-left-out already covers whether a request element
+				// is there at all.
 				argument := LeftOut
 				if written {
 					argument = Sent
@@ -302,6 +347,9 @@ func declared(entry Entry, form contract.Form, units map[string]string, source c
 				// A store's consumer writes as well as reads, a rollback making
 				// the restored build the store's writer again.
 				if err := add(e.Name, gatepolicy.PredicateSent, Sent); err != nil {
+					return nil, err
+				}
+				if err := sendsPopulated(add, e); err != nil {
 					return nil, err
 				}
 				if err := sendsInside(add, e); err != nil {
@@ -328,15 +376,22 @@ func declared(entry Entry, form contract.Form, units map[string]string, source c
 	return drafts, nil
 }
 
-// sendsInside is what the consumer asserts about a value it writes: whether it is
-// written populated, and the domain and the range the mirror states — the write
-// side of the same tags [receives] reads on the side the source shows populated.
-func sendsInside(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
+// sendsPopulated is whether a value the consumer writes to a store is written
+// populated. It is a store element's own predicate: over what the consumer
+// sends to an interface, the design gives sent-or-left-out and the domain or
+// range and never populated, so this is called for a store write and never
+// for a request element sent.
+func sendsPopulated(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
 	if e.Populated {
-		if err := add(e.Name, gatepolicy.PredicatePopulated, ""); err != nil {
-			return err
-		}
+		return add(e.Name, gatepolicy.PredicatePopulated, "")
 	}
+	return nil
+}
+
+// sendsInside is what the consumer asserts about the domain and the range of a
+// value it writes, the write side of the same tags [receives] reads on the side
+// the source shows populated.
+func sendsInside(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
 	if len(e.Domain) > 0 {
 		if err := add(e.Name, gatepolicy.PredicateSentDomain, contract.DomainText(e.Domain)); err != nil {
 			return err
@@ -389,20 +444,24 @@ func named(file string) (string, bool) {
 }
 
 // mirrorMeta is the unit each of a mirror's fields asserts, by the element name
-// the form gives it, and the return type of each exported operation with exactly
-// one plain result, by the operation's own name. The unit is the one thing a form
-// does not carry — it belongs to an element's name — so it is read off the
-// mirror's own tags; the return type is what pairs a value the source binds to a
-// call's result with the mirror the call reaches, since a form does not carry
-// that either.
-func mirrorMeta(path string) (units map[string]string, returns map[string]string, err error) {
+// the form gives it; the return type of each exported operation with exactly
+// one plain result, by the operation's own name; and the receiver type of each
+// exported operation declared as a method, by the operation's own name. The
+// unit is the one thing a form does not carry — it belongs to an element's
+// name — so it is read off the mirror's own tags; the return type is what
+// pairs a value the source binds to a call's result with the mirror the call
+// reaches, and the receiver type is what pairs a call made through it with
+// this mirror rather than another declaring the same operation name, since a
+// form does not carry either.
+func mirrorMeta(path string) (units map[string]string, returns map[string]string, receivers map[string]string, err error) {
 	fset := token.NewFileSet()
 	parsed, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
 	if err != nil {
-		return nil, nil, fmt.Errorf("%s does not parse: %v", path, err)
+		return nil, nil, nil, fmt.Errorf("%s does not parse: %v", path, err)
 	}
 	units = map[string]string{}
 	returns = map[string]string{}
+	receivers = map[string]string{}
 	for _, decl := range parsed.Decls {
 		switch d := decl.(type) {
 		case *ast.GenDecl:
@@ -436,7 +495,19 @@ func mirrorMeta(path string) (units map[string]string, returns map[string]string
 				}
 			}
 		case *ast.FuncDecl:
-			if !d.Name.IsExported() || d.Type.Results == nil || len(d.Type.Results.List) != 1 {
+			if !d.Name.IsExported() {
+				continue
+			}
+			if d.Recv != nil && len(d.Recv.List) == 1 {
+				recvType := d.Recv.List[0].Type
+				if star, ok := recvType.(*ast.StarExpr); ok {
+					recvType = star.X
+				}
+				if ident, ok := recvType.(*ast.Ident); ok {
+					receivers[d.Name.Name] = ident.Name
+				}
+			}
+			if d.Type.Results == nil || len(d.Type.Results.List) != 1 {
 				continue
 			}
 			result := d.Type.Results.List[0]
@@ -452,5 +523,5 @@ func mirrorMeta(path string) (units map[string]string, returns map[string]string
 			}
 		}
 	}
-	return units, returns, nil
+	return units, returns, receivers, nil
 }

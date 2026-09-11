@@ -205,14 +205,15 @@
 //
 // # What the deployer writes elsewhere
 //
-// [Adopt] writes the service record's four reachability fields at adoption
+// [Adopt] writes the service record's five reachability fields at adoption
 // and at every first release, through that package's own writer inside this
 // package's transaction — the service record has three writers and the field
 // is the seam between them. [RecordTargetCheck] writes the deployer's last
 // check over one target of a persistent environment, and the caller assembles
-// [Found] from what the deploy just did; the one input this package cannot
-// see is the emission the health monitor reads, which is behind an interface
-// of its own and doc.go says which caller supplies it.
+// [Found] from what the deploy just did; the two inputs this package cannot
+// see are the emission the health monitor reads and whether it already
+// carries traffic, both behind an interface of its own and doc.go says which
+// caller supplies them.
 //
 // The deployer's last check per platform is lastcheck.Writer.RecordPlatformPass
 // and not here: it is the sole writer of that record, keyed by the production

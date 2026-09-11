@@ -46,6 +46,16 @@ const (
 // transitionFunc is the name of the function a screen's file holds.
 const transitionFunc = "Transition"
 
+// Convention is where a Go checkout states a screen's transition function,
+// published beside the extractor rather than left for a reader to find in
+// this file — the way [_What the derivation records_] asks every extractor
+// to publish what it states, beside a mark, a backfill, a schema change and a
+// mutation tool. cmd/factory composes it into the consumer contract's own Go
+// extractor's published convention, this package having no consumer contract
+// of its own to publish it on.
+const Convention = "one file per screen at the checkout's root, screen.<the screen's id>.go, " +
+	"holding func Transition(from, event string) string"
+
 // GoExtractor is this extractor as a record names one. The factory version is
 // the caller's: an extractor ships with the factory, so a derivation is a
 // function of the code and of the factory version.

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/principal"
@@ -77,11 +78,24 @@ type Factory struct {
 }
 
 // NewFactory returns the writer over pool, fencing every write with token.
-func NewFactory(pool *pgxpool.Pool, token lease.Token) *Factory {
+// autoPassRates is [Factory.AutoPassRates] — the realized auto-pass rate at a
+// threshold, one per factor set, computed from the score's own decisions and
+// supplied by the composition. NewFactory panics on a nil one, the way
+// [item.NewDecomposition] panics on a nil [item.RollbackHolds]: a composition
+// missing it is a defect to refuse at construction, and not a threshold write
+// that freezes no rate because nothing was there to compute one. Declaration
+// and Removal stay unset until the composition assigns them, a factory with
+// neither answering as one with no People screen and no deployer composed.
+func NewFactory(pool *pgxpool.Pool, token lease.Token,
+	autoPassRates func(ctx context.Context, scope Scope, gateRow string, threshold float64) ([]AutoPassRate, error)) *Factory {
+	if autoPassRates == nil {
+		panic("policy: NewFactory requires a non-nil AutoPassRates reader")
+	}
 	return &Factory{
 		pool: pool, token: token,
-		log:        decisionlog.NewWriter(pool, token),
-		safeguards: safeguard.NewWriter(pool, token),
+		log:           decisionlog.NewWriter(pool, token),
+		safeguards:    safeguard.NewWriter(pool, token),
+		AutoPassRates: autoPassRates,
 	}
 }
 
@@ -280,6 +294,14 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		if err := w.apply(ctx, tx); err != nil {
 			return Version{}, err
 		}
+	}
+	// The factory-wide settings record keeps the id of the newest version,
+	// written in the same transaction as every append: a gate firing reads
+	// this field for the version in force rather than scanning the log for
+	// it. It runs after apply, which is what creates the record on the one
+	// write that has no earlier one to update — Install's own.
+	if err := factorysettings.SetCurrentPolicyVersionID(ctx, tx, version.ID); err != nil {
+		return Version{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Version{}, fmt.Errorf("policy: committing the write of %s: %w", version.Scope, err)

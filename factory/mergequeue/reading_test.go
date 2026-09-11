@@ -284,12 +284,14 @@ func TestAnUnchangedResolvedSetMerges(t *testing.T) {
 	}
 }
 
-// TestAReverificationThatNamesTheApprovedBuildAgainIsRefused: a re-verification
-// that decides a candidate's own merit is never a repeat of the run that
-// passed — the build is new and the environment is recomposed. One that names
-// the build already in force is refused with [mergequeue.ErrReverificationRepeats]
-// rather than read as nothing having moved.
-func TestAReverificationThatNamesTheApprovedBuildAgainIsRefused(t *testing.T) {
+// TestAReverificationThatNamesTheApprovedBuildAgainMergesNormally: master
+// already an ancestor of the candidate branch is a no-op merge in git, so a
+// re-verification with nothing new to merge correctly names the build already
+// in force rather than rebuilding — [cmd/factory]'s own reverify does exactly
+// this whenever master has not moved since the candidate was approved, which
+// is the ordinary case for a solo candidate. That is read as nothing having
+// moved and not refused: only the environment cycle repeating is.
+func TestAReverificationThatNamesTheApprovedBuildAgainMergesNormally(t *testing.T) {
 	repo := newRepository()
 	ctx, pool, token, q := newQueue(t, mergequeue.Composition{Repository: repo})
 	it := queued(ctx, t, pool, token, 1)
@@ -298,8 +300,12 @@ func TestAReverificationThatNamesTheApprovedBuildAgainIsRefused(t *testing.T) {
 		return mergequeue.Verified{Commit: "commit-approved", BuildID: made.ID, Passed: true}
 	}
 
-	if _, err := q.Run(ctx, serviceID); !errors.Is(err, mergequeue.ErrReverificationRepeats) {
-		t.Fatalf("Run = %v, want ErrReverificationRepeats", err)
+	pass, err := q.Run(ctx, serviceID)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(pass.Outcomes) != 1 || !pass.Outcomes[0].Merged {
+		t.Fatalf("the outcomes are %+v, want the candidate merged", pass.Outcomes)
 	}
 }
 

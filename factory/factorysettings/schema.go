@@ -77,6 +77,12 @@ const (
 // which is on by default so that an owner who will not be woken by a stranger
 // turns it off, and seam_5_enforced, which is off at install and turned on once.
 //
+// current_policy_version_id is the id of the newest policy version, written in
+// the same transaction as every append to the decision log through
+// [SetCurrentPolicyVersionID]: the version below is the copy the audit trail
+// keeps, and this field is what a gate firing reads instead, so naming the
+// version in force never scans the log.
+//
 // A keyed row exists only where an owner authored one, and each table's unique
 // constraint is what re-authoring conflicts on.
 var DDL = []string{
@@ -94,6 +100,7 @@ var DDL = []string{
 	report_channel_rate bigint,
 	harm_mark_pages boolean not null default true,
 	seam_5_enforced boolean not null default false,
+	current_policy_version_id text not null default '',
 	` + record.Constraints + `,
 	constraint only_row_is_true check (only_row),
 	constraint one_factory_settings unique (only_row),
@@ -116,6 +123,12 @@ var DDL = []string{
 		decision_log_retention_seconds is null or retention_floor_seconds is null
 		or decision_log_retention_seconds >= retention_floor_seconds)
 )`,
+
+	// A store this package already applied before current_policy_version_id
+	// existed has the table without the column; this is the same statement a
+	// fresh create already carries, added rather than assumed, so both paths
+	// agree.
+	`alter table ` + Table + ` add column if not exists current_policy_version_id text not null default ''`,
 
 	`create table if not exists ` + LimitTable + ` (
 	` + record.Columns + `,

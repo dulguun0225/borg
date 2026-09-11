@@ -50,28 +50,25 @@ type Decomposition struct {
 	// itself.
 	dispatch *Dispatch
 	// Holds is where Create, CreateTx, Repoint, and RepointTx read every
-	// rollback hold standing, at each write, since no record holds them. It is
-	// nil until a caller wires it — cmd/factory's own composition does, over
-	// path.rollbackHolds, the same reading the production deploy gate makes —
-	// and nil is a decomposition checked against no hold standing, which is
-	// every composition of this writer but cmd/factory's own.
+	// rollback hold standing, at each write, since no record holds them.
+	// [NewDecomposition] requires it — cmd/factory's own composition wires it
+	// onto path.rollbackHolds, the same reading the production deploy gate
+	// makes, and a composition with no hold to check writes against wires
+	// [NoHolds] explicitly rather than leaving the field to a default.
 	Holds RollbackHolds
 }
 
-// NewDecomposition returns the writer over pool, fencing every write with token.
-// Holds is nil until the caller sets it.
-func NewDecomposition(pool *pgxpool.Pool, token lease.Token) *Decomposition {
-	return &Decomposition{pool: pool, token: token, dispatch: NewDispatch(pool, token)}
-}
-
-// standingHolds is every rollback hold standing, read through Holds where a
-// caller has wired one and nothing where it is nil: a decomposition composed
-// with no seam onto the gate's own reading is checked against no hold.
-func (c *Decomposition) standingHolds(ctx context.Context) ([]Hold, error) {
-	if c.Holds == nil {
-		return nil, nil
+// NewDecomposition returns the writer over pool, fencing every write with
+// token and checking every write against holds. holds is required: a
+// composition with no rollback hold to check writes against passes [NoHolds]
+// rather than leaving the seam out, and NewDecomposition panics on nil —
+// a composition missing it is a defect to refuse at construction and not a
+// decomposition quietly checked against nothing standing.
+func NewDecomposition(pool *pgxpool.Pool, token lease.Token, holds RollbackHolds) *Decomposition {
+	if holds == nil {
+		panic("item: NewDecomposition requires a RollbackHolds; pass NoHolds{} where none stands")
 	}
-	return c.Holds.Standing(ctx)
+	return &Decomposition{pool: pool, token: token, dispatch: NewDispatch(pool, token), Holds: holds}
 }
 
 // NewID mints an item id, which is what [New.ID] takes. It is exported so that
@@ -235,7 +232,7 @@ func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Ac
 	// moment this write lands, and a revert decomposed while its own hold
 	// stands is what that hold's edges lead into, so the edges are computed
 	// with it among them rather than against the rows already there.
-	holds, err := c.standingHolds(ctx)
+	holds, err := c.Holds.Standing(ctx)
 	if err != nil {
 		return Item{}, err
 	}
@@ -251,18 +248,23 @@ func (c *Decomposition) CreateTx(ctx context.Context, tx pgx.Tx, actor record.Ac
 		return Item{}, err
 	}
 
+	// The insert names every column but stage: the column defaults to spec,
+	// the stage every item starts at, and [Dispatch.enter] is what writes it
+	// and the first attempt row, on this same transaction, the way
+	// [Dispatch.superseded] is what SupersedeTx reports a transition through
+	// rather than writing the column itself.
 	_, err = tx.Exec(ctx, `insert into `+Table+`
-		(id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch, stage,
+		(id, format_version, actor_kind, actor_key, actor_key_basis, at, intent_id, service_id, area_id, branch,
 		waits_on, requirements_answered, superseded_by, priority)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, '', 0)`,
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', 0)`,
 		it.ID, FormatVersion, string(it.Actor.Kind), it.Actor.Key, string(it.Actor.Basis), it.At,
-		it.IntentID, it.ServiceID, it.AreaID, it.Branch, string(it.Stage),
+		it.IntentID, it.ServiceID, it.AreaID, it.Branch,
 		joinIDs(it.WaitsOn), joinIDs(it.RequirementsAnswered),
 	)
 	if err != nil {
 		return Item{}, fmt.Errorf("item: decomposing %s: %w", it.ID, err)
 	}
-	if err := countEntry(ctx, tx, actor, it.ID, StageSpec); err != nil {
+	if err := c.dispatch.enter(ctx, tx, actor, it.ID, StageSpec); err != nil {
 		return Item{}, err
 	}
 	return it, nil
@@ -407,7 +409,7 @@ func (c *Decomposition) RepointTx(ctx context.Context, tx pgx.Tx, actor record.A
 	if err != nil {
 		return Item{}, err
 	}
-	holds, err := c.standingHolds(ctx)
+	holds, err := c.Holds.Standing(ctx)
 	if err != nil {
 		return Item{}, err
 	}

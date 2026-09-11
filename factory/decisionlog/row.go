@@ -7,6 +7,7 @@ import (
 	"hash"
 	"strconv"
 
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -155,11 +156,40 @@ type Entry struct {
 	Reason string
 	// OpenedInWorkAt is when the actor opened the gate's row in Work, in
 	// [record.TimeLayout], or the empty string. Set on a decision closing
-	// alone, by the caller reporting it as Work; refused elsewhere.
+	// alone, by the caller reporting it as Work; refused elsewhere, and
+	// refused there too unless [Entry.Principal] is the Work screen's own,
+	// since it is written with Work as the caller so that it is the screen's
+	// report and not the human's.
 	OpenedInWorkAt string
 	// SelfApproval is a decision closing's self-approval field. Set on a
 	// decision closing alone; refused elsewhere.
 	SelfApproval bool
+	// ReturnsTo is the stage a reject's or a rework request's close event
+	// names, empty where the verdict sends nothing back. Required on a
+	// rework request; on a decision closing it is admitted only where the
+	// verdict is reject, and may be empty there too — decomposition's reject
+	// re-decomposes the set rather than sending an item anywhere, and the
+	// field stays unwritten. Refused everywhere else.
+	ReturnsTo string
+	// Reading is which of the merge queue's readings a queue rejection names,
+	// required there and refused everywhere else. This package does not
+	// validate it against mergequeue's own vocabulary, the way it does not
+	// validate Reason: it is a free string this package neither parses nor
+	// constrains.
+	Reading string
+	// MovedRelease is the release a queue rejection names where a dependency's
+	// release moved, empty where none did. Refused everywhere but a queue
+	// rejection.
+	MovedRelease string
+	// Principal is who made the call, carried from the entrance to this
+	// append — seam 5, the treatment [Reader]'s methods already give a read.
+	// It is who called and not who decided: [Entry.Actor] is the decider and
+	// this may name someone else, the way the close event that reports an
+	// opened-in-Work time is written with Work as the caller and the human as
+	// the actor. The zero value means no principal is carried, which every
+	// caller not yet composed for seam 5 leaves it at; where it is set it is
+	// validated by [principal.Principal.Validate] and stored beside the actor.
+	Principal principal.Principal
 }
 
 // Row is one row of the log as it is stored.
@@ -179,8 +209,20 @@ type Row struct {
 	Reason         string
 	OpenedInWorkAt string
 	SelfApproval   bool
-	PrevHash       string
-	Hash           string
+	ReturnsTo      string
+	Reading        string
+	MovedRelease   string
+	// CallerKind, CallerKey and CallerKeyBasis are the caller's own actor,
+	// beside CallerDispatchID and CallerScope the rest of [principal.Principal]
+	// an actor's columns have no place for. Empty together where the call
+	// carried no principal.
+	CallerKind       record.Kind
+	CallerKey        string
+	CallerKeyBasis   record.Basis
+	CallerDispatchID string
+	CallerScope      string
+	PrevHash         string
+	Hash             string
 }
 
 // ChainHash is the hash the row's chain requires, computed from its stored
@@ -217,6 +259,14 @@ func (r Row) ChainHash() string {
 		r.Reason,
 		r.OpenedInWorkAt,
 		selfApprovalField(r.SelfApproval),
+		r.ReturnsTo,
+		r.Reading,
+		r.MovedRelease,
+		string(r.CallerKind),
+		r.CallerKey,
+		string(r.CallerKeyBasis),
+		r.CallerDispatchID,
+		r.CallerScope,
 	} {
 		writeField(h, field)
 	}

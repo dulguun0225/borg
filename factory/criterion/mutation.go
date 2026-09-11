@@ -16,6 +16,16 @@ import (
 // arrangement [Derive] already has for the encodings.
 const MutationToolchain = "go"
 
+// MutationConvention is where a Go checkout names a mutation tool, published
+// beside this extractor rather than left for a reader to find in this file —
+// the way [_What the derivation records_] asks every extractor to publish
+// what it states, beside a mark, a backfill, a schema change and a screen's
+// transition function. cmd/factory composes it into the consumer contract's
+// own Go extractor's published convention, this package having no consumer
+// contract of its own to publish it on.
+const MutationConvention = "a tool directive of go.mod (`tool <module path>`), the name `go tool` runs it under " +
+	"being the last element of that path, and only a name in MutationTools recognized as a mutation tool"
+
 // Mutation is what mutating a build produced: which toolchain's extractor ran,
 // which tool it ran, what the coverage of the run under mutation was, how many
 // mutants were tested and how many the encodings detected, and the reason

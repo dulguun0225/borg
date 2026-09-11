@@ -64,8 +64,19 @@ const FormatVersionElement = "contract_element/1"
 //
 // A unique constraint's name has to be unique in the schema and not only in its
 // table, because it creates an index and an index is a relation — which is not the
-// rule record.go states for a CHECK. So one_version_per_semver is named for what it
+// rule record.go states for a CHECK. So one_version_per_release is named for what it
 // is rather than one_row_per_version, which package artifact already has.
+//
+// A version row is written for every interface a release publishes, whether or
+// not its form moved: an unchanged form mints a row naming the release with the
+// same number the release below it carries, which is what lets VersionsForRelease
+// read what a release publishes as every interface rather than only the ones
+// whose form moved. That is what stops a semver number being unique to one
+// contract — two releases in a row that both leave a form unchanged mint the same
+// number twice — and one_version_per_release, not a constraint on the number
+// itself, is what still stops one release publishing two versions of one
+// contract. contract_version_by_release is the index VersionsForRelease's read
+// over release_id costs.
 //
 // A version's release_number is copied from the release the same write mints, and
 // the unique constraint on (contract_id, release_id) is what stops one merge
@@ -126,8 +137,7 @@ var DDL = []string{
 	constraint major_starts_at_one check (major >= 1),
 	constraint minor_not_negative check (minor >= 0),
 	constraint patch_not_negative check (patch >= 0),
-	constraint one_version_per_release unique (contract_id, release_id),
-	constraint one_version_per_semver unique (contract_id, major, minor, patch)
+	constraint one_version_per_release unique (contract_id, release_id)
 )`,
 
 	`create table if not exists ` + ElementTable + ` (
@@ -158,6 +168,15 @@ var DDL = []string{
 	constraint one_element_per_version_and_name unique (contract_version_id, name)
 )`,
 
+	// A store this package already applied before every release wrote a version
+	// row has one_version_per_semver, which an unchanged form now violates: the
+	// row a release that moves nothing mints names the same number the release
+	// below it does. one_version_per_release, not a constraint on the number
+	// itself, is what still stops one release publishing two versions of one
+	// contract.
+	`alter table ` + VersionTable + ` drop constraint if exists one_version_per_semver`,
+
 	`create index if not exists contract_version_by_contract on ` + VersionTable + ` (contract_id, release_number)`,
 	`create index if not exists contract_element_by_version on ` + ElementTable + ` (contract_version_id)`,
+	`create index if not exists contract_version_by_release on ` + VersionTable + ` (release_id)`,
 }

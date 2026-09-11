@@ -29,7 +29,11 @@
 # notifier's and healthmonitor's name postgres: the notifier owns one table, its
 # deliveries, and everything else it writes are page events, which are rows of
 # the log; the health monitor owns none at all, its answers being queries over
-# the graph. Both need a database and records to read. Most of driftdetector's tests open its own
+# the graph. Both need a database and records to read. healthmonitor's also
+# names environment and secretref: incident.Raise refuses an incident whose
+# environment id names no persistent production environment, so its fixture
+# writes one through environment.Writer, which takes a secretref.Ref for the
+# credential. Most of driftdetector's tests open its own
 # store through its own opener and never postgres, which is the independence
 # checked rather than asserted; head_test.go is the one file that also opens
 # the factory's own store, through postgres and decisionlog, because the
@@ -384,7 +388,10 @@
 # package that reads the log through decisionlog.Reader therefore imports
 # principal to say who is reading: score, policy, gate, mergequeue,
 # notifier, healthmonitor and people, beside dispatch and cmd/factory, which
-# already had the edge.
+# already had the edge. A write carries one too, on Entry.Principal, optional
+# and recorded beside the actor rather than in place of it; most callers leave
+# it empty, and gate's close is the one caller decisionlog itself gives a rule
+# to, over the principal it names when it reports a row opened in Work.
 #
 # screens -> principal record is the one edge this package has, and it is
 # deliberately narrow: what crosses the seam into screens is the screen's own
@@ -504,6 +511,13 @@
 # incident-item bound in force off the service each incident names, over
 # service.IncidentItemBoundSecondsInForce, rather than taking either as an
 # argument the caller must have read first. Neither edge reaches a writer.
+#
+# incident -> environment is read inside [Writer.Raise]'s own transaction: an
+# incident is a record on a production environment and the health monitor
+# exists there and nowhere else, so the kind is read beside the write it guards
+# rather than left to a reader to notice an incident that names a customer's
+# environment or one the store has none of. It is the arrangement
+# [environment.SetGateThreshold] already has for the same table's kind column.
 
 record
 gatepolicy
@@ -540,7 +554,7 @@ halt -> record lease
 legalhold -> record lease service
 redaction -> record lease legalhold
 window -> boundary gatepolicy record lease
-incident -> item lease record service
+incident -> environment item lease record service
 people -> record lease legalhold policy principal
 fleetentry -> record lease
 driftdetector -> record decisionlog lastcheck
@@ -592,11 +606,11 @@ test halt -> postgres lease
 test legalhold -> postgres lease service
 test redaction -> postgres lease legalhold erasurelist
 test window -> postgres lease
-test incident -> postgres lease
+test incident -> postgres lease environment secretref
 test people -> postgres lease erasurelist legalhold policy score
 test fleetentry -> postgres lease
 test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
-test healthmonitor -> postgres boundary build deploy item lease notifier people record release targetseam window
+test healthmonitor -> postgres boundary build deploy environment item lease notifier people record release secretref targetseam window
 test contractcheck -> postgres boundary score artifact build consumercontract contract deploy gate gatepolicy intent item lastcheck lease policy record release safeguard secretref service targetseam window
 test score -> postgres area artifact boundary decisionlog intent item lease record release window
 test policy -> postgres area decisionlog environment erasurelist factorysettings gatepolicy halt item lease legalhold project record safeguard score secretref service

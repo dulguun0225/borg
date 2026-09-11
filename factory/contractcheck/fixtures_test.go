@@ -55,6 +55,14 @@ var (
 	theBy       = artifact.By{Authorship: artifact.AuthorshipAgent, Author: "fake-model-1"}
 )
 
+// fixedAutoPassRate is the fake [policy.NewFactory] takes in these tests: what
+// this package's own tests are about is what a candidate breaks, and none of
+// them authors a threshold, so what it answers with is fixed rather than read
+// from the score.
+func fixedAutoPassRate(context.Context, policy.Scope, string, float64) ([]policy.AutoPassRate, error) {
+	return []policy.AutoPassRate{{FactorSet: "merge_to_master", Rate: 0.5}}, nil
+}
+
 // theManifest is the input manifest the dispatch wrote before the run that
 // derived the contract, which a version an agent authored names.
 const theManifest = "im_1"
@@ -149,9 +157,9 @@ func newGraph(t *testing.T) (context.Context, graph) {
 		releases: release.NewWriter(pool, token),
 		deploys:  deploy.NewWriter(pool, token),
 		windows:  window.NewWriter(pool, token),
-		items:    item.NewDecomposition(pool, token),
+		items:    item.NewDecomposition(pool, token, item.NoHolds{}),
 		store:    artifact.NewStore(pool, token),
-		factory:  policy.NewFactory(pool, token),
+		factory:  policy.NewFactory(pool, token, fixedAutoPassRate),
 		checks:   lastcheck.NewWriter(pool, token),
 		checkout: &fakeCheckout{
 			publishes:      map[string][]contract.Form{},
@@ -307,7 +315,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -418,7 +426,7 @@ func candidateOf(t *testing.T, ctx context.Context, g graph, svc service.Service
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: record.NewID("in"), ServiceID: svc.ID, Branch: "item/" + record.NewID("in"),
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the candidate's item: %v", err)
 	}

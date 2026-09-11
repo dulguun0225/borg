@@ -45,10 +45,11 @@ type Referred struct {
 // was referred from and the referrers, which a caller cannot set. Decomposition
 // is the one row decided over a set rather than over a firing, so what it
 // re-fires with is [setUnderDecision] — the set its own open event names, which
-// a refer changes nothing about — and the referrers are not carried there: that
-// row's open event names the intent and the members and holds no field for them,
-// so a second refer at it is refused against the holders read at the close
-// alone.
+// a refer changes nothing about — and the referrers are carried the same way:
+// read back off the closed row and appended with whoever just referred it,
+// the way [Firing.referrers] is one level down, so a second refer at the
+// re-fired row is refused against a holder who has already referred it and not
+// only against the holders a fresh read of the People declaration finds.
 func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, reason string, again Firing) (Referred, error) {
 	if err := permits(opened.Gate, VerdictRefer); err != nil {
 		return Referred{}, err
@@ -84,6 +85,7 @@ func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, rea
 
 	var reopened Opened
 	if opened.Gate.Kind == KindDecomposition {
+		set.referrers = append(append([]string{}, refusals.referrers...), refusals.actor)
 		reopened, err = g.FireSet(ctx, set)
 	} else {
 		again.Row = opened.Gate

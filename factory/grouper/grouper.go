@@ -178,10 +178,12 @@ type Grouped struct {
 	// Paged is how many intents a harm-marked report fired a page for: one per
 	// intent, however many of its reports carry the mark.
 	Paged int
-	// LeftUngrouped is how many of the reports read the reply put in no group.
-	// They stay ungrouped and are counted as such at Factory, which is what a
-	// report nobody sees is answered with, and the next pass reads them again.
-	LeftUngrouped int
+	// Declined is how many reports the reply left in no group, each of which
+	// this pass raised an intent of its own for — a group of one — rather than
+	// leaving linked to nothing. It is among Raised and not a count of anything
+	// left ungrouped: what a pass reads always ends grouped, whatever the reply
+	// does or does not name.
+	Declined int
 }
 
 // Wrote reports whether the pass wrote anything, which is what the process's
@@ -216,6 +218,11 @@ func (g Grouped) Wrote() bool {
 // is where the boundary is and after which a matching report attaches instead
 // and one that does not becomes a new intent linked to the first as a
 // recurrence.
+//
+// Every report this pass read ends linked to an intent. One a report left in
+// no group is applied the same way any other group is — a group of one — so
+// what is left ungrouped once the pass returns is only what it did not read at
+// all, and never a report the reply declined to place.
 func (g *Grouper) Pass(ctx context.Context, projectID string) (Grouped, error) {
 	var did Grouped
 	if projectID == "" {
@@ -271,9 +278,17 @@ func (g *Grouper) Pass(ctx context.Context, projectID string) (Grouped, error) {
 			return did, err
 		}
 	}
+	// A report the reply left in no group still ends this pass grouped: it
+	// raises an intent of its own, a group of one, applied the same way any
+	// other group is. One report from one end user is an intent, so the count
+	// of reports left ungrouped at Factory is what a pass has not yet
+	// reached and never what the reply declined to name.
 	for _, report := range reports {
 		if report.IntentID == "" && !placed[report.ID] {
-			did.LeftUngrouped++
+			if err := g.apply(ctx, projectID, reports, raisedBy, []string{report.ID}, placed, &did); err != nil {
+				return did, err
+			}
+			did.Declined++
 		}
 	}
 	return did, nil

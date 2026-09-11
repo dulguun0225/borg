@@ -6,12 +6,14 @@
 package gate_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/policy"
 )
 
 func TestReferRequiresAReasonAndRefusesWithNobodyLeft(t *testing.T) {
@@ -107,5 +109,67 @@ func TestAReferAtDecompositionReFiresTheSet(t *testing.T) {
 	}
 	if err := decisionlog.NewReader(pool, token).Verify(ctx, ownerReading); err != nil {
 		t.Fatalf("the chain does not verify after a refer at the Decomposition row: %v", err)
+	}
+}
+
+// TestAReferAtDecompositionCarriesReferrersAndRefusesARepeat: the referrers
+// carry forward from one Decomposition firing to the next the way they do at
+// every other row, so a second refer re-fires to the holder who has not
+// referred it and, once both have, the row widens to the owner and a further
+// refer there is refused.
+//
+// A safeguard's own routing to a duty is what gives this row real holders at
+// all — the design names no duty for it — the way
+// [TestASafeguardedRowRoutesToTheHumanTheSafeguardNames] gives one a named
+// human.
+func TestAReferAtDecompositionCarriesReferrersAndRefusesARepeat(t *testing.T) {
+	s := &varyingScore{by: map[string]float64{"it_a": 0.2, "it_b": 0.2}}
+	p := &fakePolicy{applied: policy.Applied{
+		PolicyVersion: testPolicyVersion, Threshold: 0.9, ThresholdFrom: policy.FromSupplied,
+		HumanBySafeguard: true, Safeguards: []string{"sg_0000000000000000000000000000000c"},
+	}}
+	ctx, pool, token, g := newGateWith(t, s, p, func(c *gate.Composition) {
+		c.SafeguardRouting = func(context.Context, []string) (gate.RoutedTo, error) {
+			return gate.RoutedTo{Duty: gate.DutyUAT}, nil
+		}
+	})
+	declares(t, ctx, pool, token, owner, author.Key, gate.DutyUAT)
+	declares(t, ctx, pool, token, owner, second.Key, gate.DutyUAT)
+
+	set := gate.SetFiring{
+		IntentID:      "in_0000000000000000000000000000000c",
+		EnvironmentID: "env_000000000000000000000000000000a",
+		Members: []gate.SetMember{
+			{ItemID: "it_a", ServiceID: "svc_a", AreaID: "ar_a", Requirements: 2},
+			{ItemID: "it_b", ServiceID: "svc_b", AreaID: "ar_a", Requirements: 5, WaitsOn: []string{"it_a"}},
+		},
+	}
+	opened, err := g.FireSet(ctx, set)
+	if err != nil {
+		t.Fatalf("FireSet: %v", err)
+	}
+	if len(opened.WaitsOn.Holders) != 2 {
+		t.Fatalf("the safeguarded row waits on %v, want both holders of duty 7", opened.WaitsOn.Holders)
+	}
+
+	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", gate.Firing{Row: gate.Decomposition})
+	if err != nil {
+		t.Fatalf("the first holder referring: %v", err)
+	}
+	if len(first.Reopened.WaitsOn.Holders) != 1 || first.Reopened.WaitsOn.Holders[0] != second.Key {
+		t.Fatalf("the re-fired set waits on %v, want only the holder who has not referred it",
+			first.Reopened.WaitsOn.Holders)
+	}
+
+	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", gate.Firing{Row: gate.Decomposition})
+	if err != nil {
+		t.Fatalf("the second holder referring: %v", err)
+	}
+	if !last.Reopened.WaitsOn.TheOwner() {
+		t.Fatalf("the row after both holders referred waits on %+v, want the owner", last.Reopened.WaitsOn)
+	}
+
+	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", gate.Firing{Row: gate.Decomposition}); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
+		t.Errorf("a refer at the widened row = %v, want ErrNobodyLeftToReferTo", err)
 	}
 }

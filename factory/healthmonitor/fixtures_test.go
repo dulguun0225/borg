@@ -19,6 +19,7 @@ import (
 	"github.com/dulguun0225/borg/factory/boundary"
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
@@ -27,6 +28,7 @@ import (
 	"github.com/dulguun0225/borg/factory/postgres"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
 	"github.com/dulguun0225/borg/factory/window"
@@ -38,12 +40,14 @@ import (
 // close carry.
 const errorRate = gatepolicy.QuantityErrorRate
 
-// The two ids this test names records against. Neither points at a record: an id field
-// is checked for being present and not for pointing at anything, which record's doc.go
-// states once, and what these tests are about is the releases and the windows.
+// The target this test names records against. It does not point at a record: an
+// id field is checked for being present and not for pointing at anything, which
+// record's doc.go states once, and what these tests are about is the releases
+// and the windows. The environment id is not a constant: incident.Raise reads
+// the kind of the environment id an incident names, so [newGraph] writes a real
+// production environment and every test reads its id off the graph.
 const (
-	theEnvironment = "env_production"
-	theTarget      = "/srv/one"
+	theTarget = "/srv/one"
 	// theServiceName is what the service record this fixture creates is called.
 	// Its id is minted by the writer, so every test reads it off the graph.
 	theServiceName = "under-watch"
@@ -53,16 +57,17 @@ var theActor = record.Actor{Kind: record.KindComponent, Key: "test", Basis: reco
 
 // graph is the records one test writes and the writers it writes them through.
 type graph struct {
-	pool      *pgxpool.Pool
-	token     lease.Token
-	serviceID string
-	builds    *build.Writer
-	releases  *release.Writer
-	deploys   *deploy.Writer
-	windows   *window.Writer
-	incidents *incident.Writer
-	items     *item.Decomposition
-	monitor   *healthmonitor.HealthMonitor
+	pool          *pgxpool.Pool
+	token         lease.Token
+	serviceID     string
+	environmentID string
+	builds        *build.Writer
+	releases      *release.Writer
+	deploys       *deploy.Writer
+	windows       *window.Writer
+	incidents     *incident.Writer
+	items         *item.Decomposition
+	monitor       *healthmonitor.HealthMonitor
 }
 
 // fakeEmission satisfies [healthmonitor.Emission] with nothing behind it: the
@@ -122,6 +127,17 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	if err != nil {
 		t.Fatalf("creating the service the graph is about: %v", err)
 	}
+	env, err := environment.NewWriter(pool, token).Create(ctx, theActor, environment.Spec{
+		Kind: environment.KindProduction, ProjectID: "prj_test", Name: environment.ProductionName,
+		Targets:    []environment.Target{{Address: theTarget, ServesAShare: true}},
+		Credential: secretref.MustNew("deploy.local"),
+		Platform: environment.Platform{
+			Name: "local", Credential: secretref.MustNew("platform.local"), CanComposeOnDemand: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("creating the production environment the graph is about: %v", err)
+	}
 	windows := window.NewWriter(pool, token)
 	incidents := incident.NewWriter(pool, token)
 	monitor, err := healthmonitor.New(pool, windows, incidents, nil, nil, nil, nil,
@@ -131,16 +147,17 @@ func newGraph(t *testing.T) (context.Context, graph) {
 	}
 
 	return ctx, graph{
-		pool:      pool,
-		token:     token,
-		serviceID: svc.ID,
-		builds:    build.NewWriter(pool, token),
-		releases:  release.NewWriter(pool, token),
-		deploys:   deploy.NewWriter(pool, token),
-		windows:   windows,
-		incidents: incidents,
-		items:     item.NewDecomposition(pool, token),
-		monitor:   monitor,
+		pool:          pool,
+		token:         token,
+		serviceID:     svc.ID,
+		environmentID: env.ID,
+		builds:        build.NewWriter(pool, token),
+		releases:      release.NewWriter(pool, token),
+		deploys:       deploy.NewWriter(pool, token),
+		windows:       windows,
+		incidents:     incidents,
+		items:         item.NewDecomposition(pool, token, item.NoHolds{}),
+		monitor:       monitor,
 	}
 }
 
@@ -231,7 +248,7 @@ func inSchema(t *testing.T, base, schema string) string {
 
 // watching is the service these tests read the graph as.
 func (g graph) watching() healthmonitor.Watching {
-	return healthmonitor.Watching{ID: g.serviceID, Name: theServiceName, EnvironmentID: theEnvironment}
+	return healthmonitor.Watching{ID: g.serviceID, Name: theServiceName, EnvironmentID: g.environmentID}
 }
 
 // shipOne writes the records one release leaves behind: an item, a build, the
@@ -257,7 +274,7 @@ func shipOneWith(t *testing.T, ctx context.Context, g graph, intentID string, ex
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: g.serviceID, Branch: "item/" + intentID,
 		RequirementsAnswered: []string{"rq_" + "test"},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -275,7 +292,7 @@ func shipOneWith(t *testing.T, ctx context.Context, g graph, intentID string, ex
 		t.Fatalf("minting the release: %v", err)
 	}
 	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
-		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		ServiceID: g.serviceID, EnvironmentID: g.environmentID,
 		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
 	})
 	if err != nil {
@@ -327,7 +344,7 @@ func shipOneUnmeasured(t *testing.T, ctx context.Context, g graph, intentID stri
 	it, err := g.items.Create(ctx, theActor, item.New{
 		IntentID: intentID, ServiceID: g.serviceID, Branch: "item/" + intentID,
 		RequirementsAnswered: []string{"rq_" + "test"},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("decomposing the item: %v", err)
 	}
@@ -345,7 +362,7 @@ func shipOneUnmeasured(t *testing.T, ctx context.Context, g graph, intentID stri
 		t.Fatalf("minting the release: %v", err)
 	}
 	dep, err := g.deploys.Start(ctx, theActor, deploy.Beginning{
-		ServiceID: g.serviceID, EnvironmentID: theEnvironment,
+		ServiceID: g.serviceID, EnvironmentID: g.environmentID,
 		What: deploy.OfRelease(rel.ID, bl.ID), Targets: []deploy.Reaching{{Address: theTarget, KeptInstances: 1}},
 	})
 	if err != nil {

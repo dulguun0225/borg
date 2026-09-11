@@ -172,7 +172,7 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 	if err := service.SetMutantCap(ctx, tx, created.ID, 40); err != nil {
 		t.Fatalf("SetMutantCap: %v", err)
 	}
-	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 100); err != nil {
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 100, "other"); err != nil {
 		t.Fatalf("SetFailureRecordKeyCap: %v", err)
 	}
 	if err := service.SetUnreliableBound(ctx, tx, owner, created.ID, 0.1); err != nil {
@@ -192,13 +192,16 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 		t.Errorf("the four fields read back as %+v %+v %+v %+v, want 40 100 0.1 7200",
 			read.MutantCap, read.FailureRecordKeyCap, read.UnreliableBound, read.IncidentItemBoundSeconds)
 	}
+	if read.OverflowFailureRecordBucket != "other" {
+		t.Errorf("OverflowFailureRecordBucket = %q, want %q", read.OverflowFailureRecordBucket, "other")
+	}
 
 	tx = begin(ctx, t, pool)
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := service.SetMutantCap(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetMutantCap(0) = %v, want ErrNotPositive", err)
 	}
-	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 0, "other"); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetFailureRecordKeyCap(0) = %v, want ErrNotPositive", err)
 	}
 	// The unreliable bound is a rate that may be zero: no disagreement takes a
@@ -211,6 +214,37 @@ func TestFieldsAuthoredLikeGatePolicyButNotItsRows(t *testing.T) {
 	}
 	if err := service.SetIncidentItemBound(ctx, tx, created.ID, 0); !errors.Is(err, service.ErrNotPositive) {
 		t.Errorf("SetIncidentItemBound(0) = %v, want ErrNotPositive", err)
+	}
+}
+
+// TestTheFailureRecordKeyCapNamesItsOverflowBucket is the cap the store's own
+// key set takes, the way the operation cap already does: a cap with nowhere
+// for the excess to land would truncate the count and hide where it was
+// truncated.
+func TestTheFailureRecordKeyCapNamesItsOverflowBucket(t *testing.T) {
+	ctx, pool, w := newWriter(t)
+	created, err := w.Create(ctx, decomposition, "checkout", "/srv/repos/checkout", aProject)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	tx := begin(ctx, t, pool)
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 50, ""); !errors.Is(err, service.ErrOverflowFailureRecordBucketEmpty) {
+		t.Errorf("a cap naming no overflow bucket = %v, want ErrOverflowFailureRecordBucketEmpty", err)
+	}
+	if err := service.SetFailureRecordKeyCap(ctx, tx, owner, created.ID, 50, "other"); err != nil {
+		t.Fatalf("SetFailureRecordKeyCap: %v", err)
+	}
+	commit(ctx, t, tx)
+
+	read, err := service.Get(ctx, pool, created.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !read.FailureRecordKeyCap.Present || read.FailureRecordKeyCap.Number != 50 ||
+		read.OverflowFailureRecordBucket != "other" {
+		t.Errorf("the failure-record key cap = %+v into %q, want 50 into other",
+			read.FailureRecordKeyCap, read.OverflowFailureRecordBucket)
 	}
 }
 

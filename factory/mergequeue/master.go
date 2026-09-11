@@ -4,9 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/release"
@@ -74,9 +73,11 @@ func (q *Queue) Restart(ctx context.Context, serviceID string) (Master, []Outcom
 // builds of an item still at [item.StageQueued]: an item the queue itself sent
 // back, or one a caller has already advanced past queued, still explains the
 // commit if its build names it and it was once approved at Merge to master.
-// That approval is read off the item's own stage history — reaching
-// [item.StageQueued] is what the gate's approval writes, and the row stands
-// whatever stage the item is at now.
+// That approval is read through [gate.ApprovalTimes] over [gate.MergeToMaster]
+// — the log's own record of the approval, which stands whatever stage the item
+// is at now; the item's own stage row does not, because [item.Dispatch.Advance]
+// counts an attempt only at an authoring stage and queued is not one, so no
+// per-stage row survives an item sent back past it.
 //
 // An item the intent's state stops is not completed even where its build
 // names the commit: its unfinished merge stands as a wait instead, the way the
@@ -134,17 +135,23 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string) (Master, []Out
 	if err != nil {
 		return read, nil, nil, err
 	}
+	// approved is read at most once per reading, and only where a build names an
+	// item at all: [gate.ApprovalTimes] reads the whole log, and a service with no
+	// item-bound build at this commit has no need of it.
+	var approved map[string]string
 	for _, b := range made {
 		if b.ItemID == "" {
 			// A search build names a service and no item, and decides nothing at
 			// Merge to master.
 			continue
 		}
-		approved, err := approvedAtMergeToMaster(ctx, q.pool, b.ItemID)
-		if err != nil {
-			return read, nil, nil, err
+		if approved == nil {
+			approved, err = gate.ApprovalTimes(ctx, q.pool, q.token, componentPrincipal, gate.MergeToMaster)
+			if err != nil {
+				return read, nil, nil, err
+			}
 		}
-		if !approved {
+		if _, ok := approved[b.ItemID]; !ok {
 			continue
 		}
 		it, err := item.Get(ctx, q.pool, b.ItemID)
@@ -190,25 +197,6 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string) (Master, []Out
 	return read, nil, []subject{payload.subject()}, nil
 }
 
-// approvedAtMergeToMaster reports whether the item's stage history shows it
-// once reached [item.StageQueued]. That stage follows implementation only
-// because the Merge to master gate approved it, and the row [item.Stages]
-// reads back stands whatever stage the item is at now — sent back, escalated,
-// or already merged past it — so this is the read that tells a build the queue
-// once approved from one it never did.
-func approvedAtMergeToMaster(ctx context.Context, pool *pgxpool.Pool, itemID string) (bool, error) {
-	stages, err := item.Stages(ctx, pool, itemID)
-	if err != nil {
-		return false, fmt.Errorf("mergequeue: reading the stage history of %s: %w", itemID, err)
-	}
-	for _, s := range stages {
-		if s.Stage == item.StageQueued {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 // complete is the write the fast-forward already implied: the commit is on
 // master and no release names it, so the queue mints one in master's order.
 //
@@ -216,10 +204,8 @@ func approvedAtMergeToMaster(ctx context.Context, pool *pgxpool.Pool, itemID str
 // publishes — master is already an ancestor of the candidate, so it names the
 // build already in force and rebuilds nothing — and it is asked for the forms
 // and not for a verdict: the commit is on master, so the item is merged and past
-// the point anything may be sent back from. This is the one re-verification the
-// design's rule that a re-verification is never a repeat of the run that passed
-// does not hold: nothing here decides pass or fail, so [ErrReverificationRepeats]
-// is never asked of it.
+// the point anything may be sent back from. Nothing here decides pass or fail,
+// so [ErrReverificationRepeats] is never asked of it.
 func (q *Queue) complete(ctx context.Context, it item.Item, made build.Build, head string) (Outcome, error) {
 	verified, err := q.repo.Reverify(ctx, it, nil)
 	if err != nil {

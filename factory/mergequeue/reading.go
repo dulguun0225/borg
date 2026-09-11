@@ -12,14 +12,18 @@ import (
 	"github.com/dulguun0225/borg/factory/item"
 )
 
-// refuseIfRepeats is [ErrReverificationRepeats]'s check. It is asked wherever a re-verification's
-// build is already in force for the candidate — [designSystemMoved]'s and
-// [resolvedSetDiffers]'s own guard, which used to read the same match as
-// nothing to compare and now refuses instead.
+// refuseIfRepeats is [ErrReverificationRepeats]'s check. It reads the
+// environment cycle alone, not the build: a re-verification naming the build
+// already in force is not on its own a repeat of the run that passed — merging
+// an already-ancestor master into the candidate branch is a no-op in git, so
+// the candidate's own commit does not move and [Repository] correctly answers
+// with the build already on record, the way [Queue.complete] always does and
+// [designSystemMoved]'s and [resolvedSetDiffers]'s own guard already read as
+// nothing to compare. The environment is a different record: the design
+// states it is recomposed at every re-verification whatever the build does,
+// so one naming the environment cycle already in force names the one thing
+// that did not happen, and that alone is refused.
 func refuseIfRepeats(c *candidate) error {
-	if c.approved.ID == c.verified.BuildID {
-		return fmt.Errorf("%w: %s names build %s again", ErrReverificationRepeats, c.it.ID, c.verified.BuildID)
-	}
 	if c.verified.ApprovedEnvironmentCycleID != "" &&
 		c.verified.ApprovedEnvironmentCycleID == c.verified.EnvironmentCycleID {
 		return fmt.Errorf("%w: %s names environment cycle %s again",
@@ -157,9 +161,10 @@ type RejectionPayload struct {
 	BuildID   string `json:"build_id,omitempty"`
 	Commit    string `json:"commit,omitempty"`
 	Why       string `json:"why"`
-	// Reading is empty on the rejection of a commit a human accepted, which is a
-	// commit that failed its re-verification with no item to send back and no
-	// criterion history to read it against.
+	// Reading is [ReadingAgainstTheMasterItMerges] on the rejection of a commit a
+	// human accepted — a commit that failed its re-verification with no item to
+	// send back and no criterion history to read it against, so no reading but
+	// this one applies, and the log requires one of every rejection.
 	Reading                    Reading  `json:"reading,omitempty"`
 	Criteria                   []string `json:"criteria,omitempty"`
 	Moved                      []Moved  `json:"moved,omitempty"`
@@ -317,6 +322,7 @@ func (q *Queue) writeRejection(ctx context.Context, c *candidate, r Rejection) (
 	}
 	row, err := q.log.AppendQueueRejection(ctx, decisionlog.Entry{
 		Actor: Actor, Payload: string(payload), FormatVersion: rejectionFormatVersion,
+		Reading: string(r.Reading), MovedRelease: firstMovedRelease(r.Moved),
 	})
 	if err != nil {
 		return Outcome{}, err
@@ -334,6 +340,19 @@ func (q *Queue) writeRejection(ctx context.Context, c *candidate, r Rejection) (
 		Why:       r.Why,
 		Rejection: r,
 	}, nil
+}
+
+// firstMovedRelease is the release id [decisionlog.Entry.MovedRelease] names:
+// the first dependency's release a rejection names moved, off [Rejection.Moved],
+// and empty where none moved — a seed or a value set replaced is a composition
+// that differs too, but neither names a release.
+func firstMovedRelease(moved []Moved) string {
+	for _, m := range moved {
+		if m.What == MovedRelease {
+			return m.To
+		}
+	}
+	return ""
 }
 
 // movedBetween is what two compositions disagree about: a dependency at another
@@ -380,15 +399,21 @@ func movedBetween(approved, reverified environment.Composition) []Moved {
 // a component or a token the candidate's build uses is the reading [DesignSystem]
 // supplies.
 //
-// [refuseIfRepeats] runs first: a re-verification naming the build or the
-// environment cycle already in force is not read as nothing moved, it is
-// refused with [ErrReverificationRepeats].
+// [refuseIfRepeats] runs first: a re-verification naming the environment
+// cycle already in force is not read as nothing moved, it is refused with
+// [ErrReverificationRepeats]. The build repeating on its own is read as
+// nothing to compare, the way it always was: master already an ancestor of
+// the candidate branch is a no-op merge in git, and the build already on
+// record is the right answer to it and not a repeat to refuse.
 func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, error) {
 	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil
 	}
 	if err := refuseIfRepeats(c); err != nil {
 		return "", err
+	}
+	if c.approved.ID == c.verified.BuildID {
+		return "", nil
 	}
 	made, err := build.Get(ctx, q.pool, c.verified.BuildID)
 	if err != nil {
@@ -414,13 +439,17 @@ func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, er
 // source and the package rather than by the package alone, because one name in
 // two registries is two packages.
 //
-// [refuseIfRepeats] runs first, the same guard [designSystemMoved] asks.
+// [refuseIfRepeats] runs first, the same guard [designSystemMoved] asks, and
+// the build repeating on its own is read as nothing to compare the same way.
 func (q *Queue) resolvedSetDiffers(ctx context.Context, c *candidate) (string, error) {
 	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil
 	}
 	if err := refuseIfRepeats(c); err != nil {
 		return "", err
+	}
+	if c.approved.ID == c.verified.BuildID {
+		return "", nil
 	}
 	before, err := build.Resolved(ctx, q.pool, c.approved.ID)
 	if err != nil {

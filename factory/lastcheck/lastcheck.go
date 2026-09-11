@@ -15,7 +15,7 @@ import (
 )
 
 // The components that write a last check into the factory's own store. The
-// seventh the design names is the drift detector's, which is written into the
+// eighth the design names is the drift detector's, which is written into the
 // detector's own store and never here.
 const (
 	// ComponentHealthMonitor keeps one per service.
@@ -87,8 +87,9 @@ type LastCheck struct {
 	At    string
 	// Component is which component's pass this is, one of [Components].
 	Component string
-	// Subject is what the pass was over — a service id, a target address, or a
-	// platform name — and is empty on the record a component keeps for itself.
+	// Subject is what the pass was over — a service id, a target address, or
+	// the production environment record's id for the platform check — and is
+	// empty on the record a component keeps for itself.
 	Subject string
 	// CheckedAt is when the pass ran. It is the field every reader holds against
 	// [LastCheck.Interval], and it is written by the writer and never by its

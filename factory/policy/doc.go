@@ -15,6 +15,10 @@
 // [Factory.AutoPassRates] and [Factory.Removal] are the three functions the
 // composition supplies, for what this package may not read and may not reach —
 // a retirement through a factory composed with no deployer is [ErrNoDeployer].
+// AutoPassRates is required at construction: [NewFactory] takes it as an
+// argument and panics on a nil one, a threshold write with none composed
+// otherwise freezing no rate in silence. Declaration and Removal stay unset
+// until the composition assigns them.
 //
 // version.go is [Version] — a row of the decision log and no table of this
 // package's — with [Caller], [Action], [Scope], [AuthoredValue],
@@ -109,9 +113,14 @@
 // a candidate's own environment being created at the gate that decides its
 // deploy and so unable to hold the threshold that decides it. The policy
 // version is named for the trail and never what the threshold is read from,
-// but a version is what that name can point at: [Factory.Install] guarantees
-// one stands before any firing, every path able to fire a gate installing
-// first, so [Reader.AtGate] refuses [ErrNoVersion] rather than naming none. The
+// and [Reader.currentVersionID] is what names it: a read of the factory-wide
+// settings record's own field, [factorysettings.SetCurrentPolicyVersionID]
+// being what [Factory.append] writes it with in the same transaction as every
+// version — the version below is the copy the audit trail keeps, and never
+// what this reads, so no gate reads the log to fire. A version is still what
+// that name can point at: [Factory.Install] guarantees one stands before any
+// firing, every path able to fire a gate installing first, so
+// [Reader.AtGate] refuses [ErrNoVersion] rather than naming none. The
 // score version in force at the row is the newest where nobody authored a
 // threshold there, and the last one confirmed at the scope where somebody did.
 // A firing computes its vector under [Applied.ScoreVersion], package gate

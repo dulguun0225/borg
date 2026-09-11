@@ -32,8 +32,8 @@
 // [Gate.ApprovalStands] — the read "nothing below the target stands as
 // approved" comes to — and the two refusals [ErrRowAboveNotApproved] and
 // [ErrCandidateRunNotEnded]. cycle.go is the Decomposition row's third
-// mechanical rejection: [SetCycleRejection] over the set's own waits-on graph,
-// which names [AutoRejectedByACycle].
+// mechanical rejection: [SetCycleRejection] over the set's own waits-on graph
+// and the rollback holds standing, which names [AutoRejectedByACycle].
 // strategy.go is [Strategy], [Schedule], [Whys]
 // and [Pick] with [Pick.Validate], the shape the pick is stored in; the score
 // picks it. waits.go is [Waits],

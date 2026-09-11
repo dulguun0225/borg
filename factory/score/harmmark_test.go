@@ -53,10 +53,10 @@ func TestAHarmMarkedReportResolvesAtSpecBesideTheSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TakeIn a report-derived intent: %v", err)
 	}
-	it, err := item.NewDecomposition(pool, token).Create(ctx, marking, item.New{
+	it, err := item.NewDecomposition(pool, token, item.NoHolds{}).Create(ctx, marking, item.New{
 		IntentID: grouped.ID, ServiceID: "svc_marked", Branch: "item/marked",
 		RequirementsAnswered: []string{record.NewID("rq")},
-	}, "", "", nil)
+	}, "", "")
 	if err != nil {
 		t.Fatalf("writing the item: %v", err)
 	}
