@@ -132,8 +132,8 @@
 // [Firing.Exposure] is what the component that built hands the gate, derived by
 // package exposure and read off the build record at the three firing sites
 // below a build. [Firing.CouldNotDerive] is the same arrangement at the merge
-// row, and cmd/factory hands one over for a security predicate the factory's
-// own list could not decide. The five rows outside
+// row, and cmd/factory hands one over for a mutation or security predicate the
+// factory's own list could not decide. The five rows outside
 // every item — a role prompt or a skill, the three withdrawals, and the
 // shortening of decision-log retention, the last four of them the rows that
 // decide a record —
@@ -201,7 +201,7 @@
 // (C1143, C1144, C1145, C1146, C1148, C1149, C1150, C1151, C1152, C1153), the
 // merge row's mechanical rejections and its derivations are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
-// (C1155, C1156, C1157, C1158, C1160, C1161, C1162), the production deploy
+// (C1129, C1130, C1155, C1156, C1157, C1158, C1160, C1161, C1162), the production deploy
 // row's holds, the budget hold, the change freeze, current meaning complete
 // everywhere, and the four fields a service must have to auto-pass are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md

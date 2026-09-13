@@ -6,11 +6,15 @@ import (
 	"strings"
 )
 
-// Checkout is what a derivation runs over: the build's own checkout on disk. It
-// is the same thing the exposure extractor and the consumer contract extractor
-// are given, because a security predicate is decided against the build too.
+// Checkout is the filesystem a derivation reads for one candidate run.
 type Checkout struct {
 	Dir string
+}
+
+// Run is the identity and checkout of the run the list is decided against.
+type Run struct {
+	ID       string
+	Checkout Checkout
 }
 
 // Result is one kind of the list decided against one build.
@@ -23,13 +27,13 @@ type Result struct {
 	Why string
 }
 
-// Decided is what one toolchain's derivations made of one build: the list they
+// Decided is what one toolchain's derivations made of one run: the list they
 // were run from, what each kind decided, and why none could be decided at all.
 //
-// Nothing writes this. It is computed at the row that reads it, the way the two
-// contract baselines are, and the gate stores what it came to on the open and
-// close events.
+// The gate carries this value beside the criteria result it belongs to.
 type Decided struct {
+	// RunID is the candidate run the decision belongs to.
+	RunID   string
 	List    List
 	Results []Result
 	// CouldNotDerive is why no result could be produced: the factory ships no
@@ -75,8 +79,12 @@ func (d Decided) Why() string {
 // toolchain's derivations do not cover are one outcome and not three: could not
 // derive, which puts a human at the row. A kind decided against nothing that
 // passed would say the build satisfies something nobody read.
-func Decide(list List, checkout Checkout) Decided {
-	decided := Decided{List: list}
+func Decide(list List, run Run) Decided {
+	decided := Decided{RunID: run.ID, List: list}
+	if run.ID == "" {
+		decided.CouldNotDerive = "the candidate run has no identity"
+		return decided
+	}
 	if list.Toolchain == "" {
 		decided.CouldNotDerive = "the factory ships no security-predicate list for this build's toolchain"
 		return decided
@@ -84,12 +92,12 @@ func Decide(list List, checkout Checkout) Decided {
 	if len(list.Kinds) == 0 {
 		return decided
 	}
-	if err := readable(checkout.Dir); err != nil {
+	if err := readable(run.Checkout.Dir); err != nil {
 		decided.CouldNotDerive = fmt.Sprintf("the %s derivations could not read the checkout: %v", list.Toolchain, err)
 		return decided
 	}
 	for _, kind := range list.Kinds {
-		result, covered := decide(list.Toolchain, kind, checkout)
+		result, covered := decide(list.Toolchain, kind, run.Checkout)
 		if !covered {
 			decided.Results, decided.CouldNotDerive = nil, fmt.Sprintf(
 				"the %s derivations cover no predicate %s, which the list this factory version ships names",

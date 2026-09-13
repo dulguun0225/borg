@@ -89,6 +89,18 @@ func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
 	if err := p.markUnreliable(ctx, c, buildID, results); err != nil {
 		return nil, err
 	}
+	c.securityPredicates = p.decideSecurityPredicates(c)
+	mutation, err := p.runCandidateMutations(ctx, c, buildID)
+	if err != nil {
+		return nil, err
+	}
+	c.mutation = mutation
+	if mutation.Derived() {
+		fmt.Fprintf(p.d.out, "The candidate mutation run tested %d mutant(s), detected %d, score %.2f\n",
+			mutation.MutantsTested, mutation.MutantsDetected, mutation.Score())
+	} else {
+		fmt.Fprintf(p.d.out, "The candidate mutation run could not derive a score: %s\n", mutation.CouldNotDerive)
+	}
 	return results, nil
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -181,6 +182,8 @@ type candidate struct {
 	// a second one on the same environment.
 	candidateDeployBuild     string
 	criteria                 []gate.CriterionResult
+	mutation                 criterion.Mutation
+	securityPredicates       securitypredicate.Decided
 	configuration            targetseam.ValueSet
 	runWaitRow               string
 	configurationUnavailable string
@@ -279,6 +282,8 @@ type candidate struct {
 func (c *candidate) resetForRebuild() {
 	c.buildID = ""
 	c.criteria = nil
+	c.mutation = criterion.Mutation{}
+	c.securityPredicates = securitypredicate.Decided{}
 	c.measurement = score.Measurement{}
 	c.encodingDefect = ""
 	c.encodingCouldNotDerive = false

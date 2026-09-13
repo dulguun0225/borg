@@ -201,6 +201,49 @@ func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.
 	return targetseam.Placement{Replacement: replacement}, nil
 }
 
+// PlaceMutant drains the service and starts the supplied artifact directly.
+// The running-file entry is target state only; no deploy record or build name
+// is created for this transient placement.
+func (l *Local) PlaceMutant(ctx context.Context, p principal.Principal, m targetseam.Mutant) (targetseam.Placement, error) {
+	if err := targetseam.CheckPrincipal(p); err != nil {
+		return targetseam.Placement{}, err
+	}
+	if err := m.Validate(); err != nil {
+		return targetseam.Placement{}, err
+	}
+	if !filepath.IsAbs(m.Artifact) {
+		return targetseam.Placement{}, fmt.Errorf("%w: mutant artifact %q is not absolute", ErrBuildNotLocal, m.Artifact)
+	}
+	if !filepath.IsLocal(m.Service) {
+		return targetseam.Placement{}, fmt.Errorf("%w: %q", ErrServiceNotLocal, m.Service)
+	}
+	replacement, err := l.drain(ctx, m.Service)
+	if err != nil {
+		return targetseam.Placement{}, err
+	}
+	name := filepath.Base(m.Artifact)
+	cmd := exec.Command(m.Artifact)
+	cmd.Env = append(os.Environ(),
+		SignalEnv+"="+SignalFile(l.dir, name),
+		ExchangeEnv+"="+ExchangeFile(l.dir, name))
+	if m.WayInAddress != "" {
+		cmd.Env = append(cmd.Env,
+			wayin.StoreEnv+"="+m.WayInAddress,
+			wayin.ListenEnv+"="+WayInSocket(l.dir, m.Service))
+	}
+	for n, key := range m.Configuration.Names {
+		cmd.Env = append(cmd.Env, key+"="+m.Configuration.Values[n])
+	}
+	if err := cmd.Start(); err != nil {
+		return targetseam.Placement{}, fmt.Errorf("localtarget: starting mutant %s for service %q: %w", m.Artifact, m.Service, err)
+	}
+	go func() { _ = cmd.Wait() }()
+	if err := os.WriteFile(RunningFile(l.dir, m.Service), []byte(name+" "+strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
+		return targetseam.Placement{}, fmt.Errorf("localtarget: recording mutant for service %q: %w", m.Service, err)
+	}
+	return targetseam.Placement{Replacement: replacement}, nil
+}
+
 // deployID is the deploy record's own identity, read from the resolved
 // configuration under [targetseam.DeployIDName] rather than a field of its
 // own — the instance is told its deploy at placement, in its configuration

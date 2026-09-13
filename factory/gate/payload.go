@@ -54,12 +54,13 @@ type OpeningPayload struct {
 	// IntentID is the intent the Decomposition row decided over, written by
 	// [Gate.FireSet] into its own payload and read back here so that a pending
 	// set reads as the intent's.
-	IntentID      string            `json:"intent_id,omitempty"`
-	BuildID       string            `json:"build_id"`
-	ServiceID     string            `json:"service_id"`
-	AreaID        string            `json:"area_id"`
-	EnvironmentID string            `json:"environment_id"`
-	Criteria      []CriterionResult `json:"criteria"`
+	IntentID               string            `json:"intent_id,omitempty"`
+	BuildID                string            `json:"build_id"`
+	ServiceID              string            `json:"service_id"`
+	AreaID                 string            `json:"area_id"`
+	EnvironmentID          string            `json:"environment_id"`
+	Criteria               []CriterionResult `json:"criteria"`
+	SecurityPredicateRunID string            `json:"security_predicate_run_id,omitempty"`
 	// CandidateRunEnded is whether the run on the item's candidate environment
 	// had ended when the merge row fired, which is what fired it beside the row
 	// above being approved. It is written at that row and nowhere else.
@@ -194,6 +195,8 @@ type Opened struct {
 	ArtifactID string
 	// Referrers is every holder who has referred this row.
 	Referrers []string
+	// SecurityPredicateRunID is the run the shipped security list was decided against.
+	SecurityPredicateRunID string
 }
 
 // Holding reports whether a hold stands, which is what says the row stays open
@@ -280,5 +283,6 @@ func OpenedFrom(row decisionlog.Row) (Opened, error) {
 		IrreversibleWithoutAControl: opening.IrreversibleWithoutAControl,
 		ArtifactID:                  opening.ArtifactID,
 		Referrers:                   opening.Referrers,
+		SecurityPredicateRunID:      opening.SecurityPredicateRunID,
 	}, nil
 }

@@ -551,7 +551,7 @@ artifact -> consumercontract criterion erasurelist screenstatemachine lease reco
 build -> criterion exposure lease record
 buildrunner -> build criterion exposure wayin
 release -> lease record artifact
-deploy -> record secretref targetseam lease principal release lastcheck service environment
+deploy -> record secretref targetseam lease principal release lastcheck service environment buildrunner criterion
 area -> record gatepolicy lease
 environment -> record gatepolicy secretref lease
 factorysettings -> record gatepolicy item lease
@@ -602,7 +602,7 @@ test build -> postgres exposure lease
 test buildrunner -> build lease postgres record
 test screenstatemachine -> postgres lease record
 test release -> postgres lease
-test deploy -> postgres lease wayin
+test deploy -> postgres lease wayin buildrunner criterion
 test area -> postgres lease
 test environment -> postgres lease
 test lastcheck -> postgres lease

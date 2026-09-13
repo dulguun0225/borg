@@ -2,7 +2,8 @@
 // deploy target through. [Target] declares them — [Target.Deploy],
 // [Target.Stop], [Target.ReadRunning], [Target.ShiftTraffic],
 // [Target.SetInstanceCount], [Target.ApplySchemaChange], [Target.Snapshot],
-// [Target.DeleteSnapshot] and [Target.Reconfigure] — as an interface. No agent
+// [Target.DeleteSnapshot], [Target.Reconfigure] and [Target.PlaceMutant] — as an
+// interface. No agent
 // reaches a deploy target at all.
 //
 // # The code
@@ -15,6 +16,9 @@
 // [SchemaChangeApplied] rows, each type's Validate, [CheckPrincipal], and the
 // errors [ErrIncomplete], [ErrNoPrincipal], [ErrShareNotAFraction],
 // [ErrCountNegative], [ErrCannotDrain] and [ErrCannotReconfigure].
+// [Target.PlaceMutant] places a transient artifact without a deploy record.
+// [Seeder.RestoreSeed] restores the selected seed, including an empty seed,
+// before the next transient mutant run.
 // schemachange.go is the two operations that touch the service's store rather
 // than what runs it: [SchemaChange], [SnapshotRequest], [Snapshot], their
 // Validate, and [ErrNoSnapshotBeforeIt]. fake.go
@@ -89,6 +93,11 @@
 // The named operations the deployer reaches a target through are
 // ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md
 // (C2182).
+
+// A mutant artifact placed without a deploy record is
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
+// (C1527) and ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md
+// (C1648).
 //
 // The instance told the deploy record's identity at placement, beside the
 // way-in token, which [DeployIDName] names in [Deployment.Configuration] and

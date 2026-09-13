@@ -50,6 +50,9 @@ type Firing struct {
 	// Criteria is what deciding each of them produced, and is empty at the
 	// candidate deploy row.
 	Criteria []CriterionResult
+	// SecurityPredicateRunID ties the shipped-list decision to the same run as
+	// the criteria.
+	SecurityPredicateRunID string
 	// CandidateRunEnded is whether the run on the item's candidate environment
 	// has ended. It is what fires the merge row beside the row above being
 	// approved, is required there, and is refused at every other row: what that
@@ -276,6 +279,7 @@ func (g *Gate) Fire(ctx context.Context, f Firing) (Opened, error) {
 		AreaID:                   f.AreaID,
 		EnvironmentID:            f.EnvironmentID,
 		Criteria:                 f.Criteria,
+		SecurityPredicateRunID:   f.SecurityPredicateRunID,
 		CandidateRunEnded:        f.CandidateRunEnded,
 		CriteriaInForce:          f.CriteriaInForce,
 		CriteriaFailed:           blocked(f.Criteria),

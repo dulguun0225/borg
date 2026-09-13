@@ -68,6 +68,9 @@ const (
 	// produced no result, which puts a human here the way it already does at a
 	// contract-touching gate.
 	CouldNotDeriveSecurityPredicate = "a security predicate's derivation could not derive a result"
+	// CouldNotDeriveMutation is a candidate mutation reading that produced no
+	// score, which puts a human here rather than treating no mutants as zero.
+	CouldNotDeriveMutation = "the mutation score's derivation could not derive a result"
 	// CouldNotDeriveNoticeFile is a release whose notice file reads could not
 	// derive because its build's resolved set does.
 	CouldNotDeriveNoticeFile = "the release's notice file could not be derived from the build's resolved set"
@@ -76,7 +79,7 @@ const (
 // Derivations is every derivation that puts a human at the merge row by failing
 // to derive.
 var Derivations = []string{
-	CouldNotDeriveEncoding, CouldNotDeriveSecurityPredicate, CouldNotDeriveNoticeFile,
+	CouldNotDeriveEncoding, CouldNotDeriveSecurityPredicate, CouldNotDeriveMutation, CouldNotDeriveNoticeFile,
 }
 
 var (

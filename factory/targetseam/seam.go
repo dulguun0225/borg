@@ -17,6 +17,9 @@ const (
 	// OpDeploy puts a build on a target, replacing the instances of the build
 	// it succeeds.
 	OpDeploy Op = "deploy"
+	// OpPlaceMutant replaces the service with a transient mutant artifact. It
+	// writes no deploy record and exists only for the mutation score.
+	OpPlaceMutant Op = "place_mutant"
 	// OpStop ends every instance of a service on a target. What it does not do
 	// is delete anything the service wrote.
 	OpStop Op = "stop"
@@ -25,6 +28,8 @@ const (
 	OpReadRunning Op = "read_running"
 	// OpSeed prepares a candidate store on a target that supports [Seeder].
 	OpSeed Op = "seed"
+	// OpRestoreSeed restores a candidate store before a transient mutant run.
+	OpRestoreSeed Op = "restore_seed"
 	// OpShiftTraffic decides what share of arriving traffic reaches one build.
 	// It is what a rollout with a control performs and what a mitigation
 	// shifting traffic off a target performs.
@@ -54,7 +59,7 @@ const (
 // Ops is every operation [Target] declares, in the order the interface does.
 // TestOpsListsEveryOperation fails if the two stop agreeing.
 var Ops = []Op{
-	OpDeploy, OpStop, OpReadRunning, OpShiftTraffic,
+	OpDeploy, OpPlaceMutant, OpStop, OpReadRunning, OpShiftTraffic,
 	OpSetInstanceCount, OpApplySchemaChange, OpSnapshot, OpDeleteSnapshot,
 	OpReconfigure,
 }
@@ -90,6 +95,9 @@ type Target interface {
 	// with [ErrCannotDrain] rather than reporting a replacement that did not
 	// happen.
 	Deploy(ctx context.Context, p principal.Principal, d Deployment) (Placement, error)
+	// PlaceMutant puts the transient artifact on the target for one mutation
+	// run. It is deliberately not a deployment record operation.
+	PlaceMutant(ctx context.Context, p principal.Principal, m Mutant) (Placement, error)
 	// Stop ends every instance of the named service on the target, reaching it
 	// with the credential the reference names, and reports how those instances
 	// ended: it stops new requests reaching them and lets the ones they hold
@@ -139,6 +147,7 @@ type Target interface {
 // does not host candidate stores need not implement it.
 type Seeder interface {
 	Seed(ctx context.Context, p principal.Principal, s Seed) error
+	RestoreSeed(ctx context.Context, p principal.Principal, s Seed) error
 }
 
 // Deployment is what one deploy names: the service, the build, the credential
@@ -181,6 +190,31 @@ type Deployment struct {
 	// service nothing to reach then: the way in in its build listens nowhere
 	// and the service is unaffected.
 	WayInAddress string
+}
+
+// Mutant is the transient artifact and configuration a deployer places for a
+// mutation run. It has no build identity and carries no deploy identity.
+type Mutant struct {
+	Service       string
+	Artifact      string
+	Credential    secretref.Ref
+	Configuration ValueSet
+	WayInAddress  string
+}
+
+// Validate reports whether a transient artifact may be placed.
+func (m Mutant) Validate() error {
+	if err := check(m.Service, m.Credential); err != nil {
+		return err
+	}
+	if m.Artifact == "" {
+		return fmt.Errorf("%w: service %q names no mutant artifact", ErrIncomplete, m.Service)
+	}
+	if len(m.Configuration.Names) != len(m.Configuration.Values) {
+		return fmt.Errorf("%w: service %q names %d configuration values for %d names",
+			ErrIncomplete, m.Service, len(m.Configuration.Values), len(m.Configuration.Names))
+	}
+	return nil
 }
 
 // DeployIDName is the name the deploy record's own identity is handed to the

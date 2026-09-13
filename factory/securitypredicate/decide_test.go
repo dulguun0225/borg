@@ -41,7 +41,7 @@ func TestTheListIsPublishedAsAFactOfTheFactoryVersion(t *testing.T) {
 // the merge row instead of a build passing a list nobody ran.
 func TestAToolchainWithNoListReadsAsCouldNotDerive(t *testing.T) {
 	list, _ := securitypredicate.ForToolchain("rust", "v-test")
-	decided := securitypredicate.Decide(list, securitypredicate.Checkout{Dir: t.TempDir()})
+	decided := securitypredicate.Decide(list, securitypredicate.Run{ID: "run-1", Checkout: securitypredicate.Checkout{Dir: t.TempDir()}})
 	if !decided.CouldNotBeDerived() {
 		t.Fatalf("a build whose toolchain has no list decided %+v, want could not derive", decided)
 	}
@@ -54,7 +54,7 @@ func TestAToolchainWithNoListReadsAsCouldNotDerive(t *testing.T) {
 // list is not a derivation that failed, so it puts no human at the row and
 // rejects nobody.
 func TestAShippedListWithNoKindDecidesNothingAndLeavesNothingUnderived(t *testing.T) {
-	decided := securitypredicate.Decide(securitypredicate.Go("v-test"), securitypredicate.Checkout{Dir: t.TempDir()})
+	decided := securitypredicate.Decide(securitypredicate.Go("v-test"), securitypredicate.Run{ID: "run-1", Checkout: securitypredicate.Checkout{Dir: t.TempDir()}})
 	if decided.CouldNotBeDerived() {
 		t.Errorf("the shipped list could not be derived: %s", decided.CouldNotDerive)
 	}
@@ -70,7 +70,7 @@ func TestAKindNoDerivationCoversReadsAsCouldNotDerive(t *testing.T) {
 	extended := securitypredicate.Go("v-test")
 	extended.Kinds = append(extended.Kinds, "a kind no derivation covers")
 
-	decided := securitypredicate.Decide(extended, securitypredicate.Checkout{Dir: t.TempDir()})
+	decided := securitypredicate.Decide(extended, securitypredicate.Run{ID: "run-1", Checkout: securitypredicate.Checkout{Dir: t.TempDir()}})
 	if !decided.CouldNotBeDerived() {
 		t.Fatalf("a kind no derivation covers decided %+v, want could not derive", decided)
 	}
@@ -88,7 +88,7 @@ func TestACheckoutNoDerivationCanReadIsCouldNotDeriveAndNotAPass(t *testing.T) {
 	extended.Kinds = append(extended.Kinds, "a kind no derivation covers")
 
 	missing := filepath.Join(t.TempDir(), "no-such-checkout")
-	decided := securitypredicate.Decide(extended, securitypredicate.Checkout{Dir: missing})
+	decided := securitypredicate.Decide(extended, securitypredicate.Run{ID: "run-1", Checkout: securitypredicate.Checkout{Dir: missing}})
 	if !decided.CouldNotBeDerived() || !strings.Contains(decided.CouldNotDerive, "could not read the checkout") {
 		t.Fatalf("a checkout that is not there decided %+v, want could not derive", decided)
 	}
@@ -97,7 +97,7 @@ func TestACheckoutNoDerivationCanReadIsCouldNotDeriveAndNotAPass(t *testing.T) {
 	if err := os.WriteFile(file, []byte("not a checkout"), 0o600); err != nil {
 		t.Fatalf("writing the file: %v", err)
 	}
-	decided = securitypredicate.Decide(extended, securitypredicate.Checkout{Dir: file})
+	decided = securitypredicate.Decide(extended, securitypredicate.Run{ID: "run-1", Checkout: securitypredicate.Checkout{Dir: file}})
 	if !decided.CouldNotBeDerived() {
 		t.Fatalf("a checkout that is a file decided %+v, want could not derive", decided)
 	}

@@ -9,8 +9,8 @@
 // interfaces in runner.go. Credentials are used before the process starts;
 // the process receives a cleared environment, its checkout, resolved set and
 // output directory. The package
-// has no table, so it follows the component shape with doc.go, runner.go, and
-// runner_test.go only.
+// has no table, so it follows the component shape with doc.go, runner.go,
+// mutation.go, and their tests.
 //
 // Who may write what: the runner calls the build writer supplied by its
 // composition; clone, resolver, process, and schema seams write no factory
@@ -18,7 +18,7 @@
 //
 // What defines it: the build runner and its build record are
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1434, C1446, C1454, C1456, C1458, C1459, C1464, C1465, C1469, C1480,
+// (C1434, C1454, C1456, C1458, C1459, C1464, C1465, C1469, C1480,
 // C1482); repository credentials and the build boundary are
 // ../../end-goal/deferred.md
 // (C0092); adoption through the ordinary pipeline is
@@ -27,5 +27,7 @@
 // ../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md
 // (C1831); and the split from the deployer is
 // ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md
-// (C2184).
+// (C2184); the no-build-record half of a transient mutant is
+// ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md
+// (C1648).
 package buildrunner

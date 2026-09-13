@@ -133,6 +133,28 @@ func (l *Local) Seed(_ context.Context, p principal.Principal, s targetseam.Seed
 	return nil
 }
 
+// RestoreSeed removes all writes made since the candidate seed was prepared
+// and writes that seed again. An empty version restores the service's empty
+// candidate store.
+func (l *Local) RestoreSeed(ctx context.Context, p principal.Principal, s targetseam.Seed) error {
+	if err := targetseam.CheckPrincipal(p); err != nil {
+		return err
+	}
+	if err := s.ValidateRestore(); err != nil {
+		return err
+	}
+	if !filepath.IsLocal(s.Service) {
+		return fmt.Errorf("%w: %q", ErrServiceNotLocal, s.Service)
+	}
+	if err := os.RemoveAll(DataDir(l.dir, s.Service)); err != nil {
+		return fmt.Errorf("localtarget: clearing the store of service %q: %w", s.Service, err)
+	}
+	if s.Version == "" {
+		return nil
+	}
+	return l.Seed(ctx, p, s)
+}
+
 // ApplySchemaChange runs the script the service ships for the change, with the
 // store's directory as its one argument, and appends the change to the schema
 // history where the script succeeds. A change already in the history is applied

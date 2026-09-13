@@ -83,14 +83,11 @@ func (m Mutation) Blocks(floor float64) bool {
 	return m.Score() < floor
 }
 
-// mutationCounts is how a mutation tool states what it did. The factory writes
-// the services it builds, so the tool a checkout names states its two counts in
-// lines of this form, and a tool whose output states neither reads as could not
-// derive rather than as a score of zero.
-var mutationCounts = map[string]*regexp.Regexp{
-	"tested":   regexp.MustCompile(`(?i)mutants tested:[ \t]*([0-9]+)`),
-	"detected": regexp.MustCompile(`(?i)mutants detected:[ \t]*([0-9]+)`),
-}
+// testedCountPattern and detectedCountPattern are how a mutation tool states
+// what it did. A tool whose output states neither reads as could not derive
+// rather than as a score of zero.
+var testedCountPattern = regexp.MustCompile(`(?i)mutants tested:[ \t]*([0-9]+)`)
+var detectedCountPattern = regexp.MustCompile(`(?i)mutants detected:[ \t]*([0-9]+)`)
 
 // toolDirective is a tool directive of go.mod, which is how a Go checkout names
 // a tool it runs: `tool <module path>`, alone or inside a `tool ( … )` block.
@@ -113,10 +110,9 @@ var coverageOf = regexp.MustCompile(`coverage:[ \t]*([0-9.]+)% of statements`)
 // derive and never passes, rather than a score of zero the floor would reject
 // as if the encodings had missed every defect.
 //
-// Its caller is the deployer at the candidate run, which mutates the lines the
-// diff touches and re-runs the encodings; that caller is not built, so the
-// mutant cap authored on the service record is not read here — this derivation
-// runs what the tool runs, and the cap bounds what the deployer deploys.
+// Its candidate-run caller mutates the lines the diff touches and re-runs the
+// encodings. This checkout extractor remains independent of the candidate
+// service cap: the candidate runner reads that cap before it selects mutants.
 func DeriveMutation(ctx context.Context, dir string) (Mutation, error) {
 	if dir == "" {
 		return Mutation{}, fmt.Errorf("criterion: the mutation derivation needs a directory")
@@ -149,8 +145,8 @@ func DeriveMutation(ctx context.Context, dir string) (Mutation, error) {
 		return m, nil
 	}
 
-	tested, statedTested := count(string(out), mutationCounts["tested"])
-	detected, statedDetected := count(string(out), mutationCounts["detected"])
+	tested, statedTested := count(string(out), testedCountPattern)
+	detected, statedDetected := count(string(out), detectedCountPattern)
 	switch {
 	case !statedTested || !statedDetected:
 		m.CouldNotDerive = fmt.Sprintf("the mutation tool %s stated no mutants tested and detected: %s",

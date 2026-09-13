@@ -92,21 +92,19 @@
 // # The mutation score
 //
 // Whether an encoding could have failed is a reading on the build and no
-// factor of the score: [DeriveMutation] mutates a checkout and produces the
-// share of the seeded defects the encodings caught, with a coverage field and a
+// factor of the score: the candidate-run mutation pass produces the share of
+// seeded defects the encodings caught, with a coverage field and a
 // could-not-derive outcome, and [RecordMutation] writes it beside that run's
-// criteria results. The score itself is derived from the two counts at the
-// read, the way undecided is. [Mutation.Blocks] is what the Merge to master
-// gate asks: a score below the mutation floor rejects there on the terms an
-// undecided criterion does, and a build the factory could not mutate never
-// passes.
+// criteria results. [DeriveMutation] remains the checkout extractor for a
+// toolchain's published mutation convention. The score itself is derived from
+// the two counts at the read, the way undecided is. [Mutation.Blocks] is what
+// the Merge to master gate asks: a score below the mutation floor rejects there
+// on the terms an undecided criterion does, and a build the factory could not
+// mutate never passes.
 //
-// The derivation is per toolchain and Go is the one with an extractor. It runs
-// where the checkout is, reads the coverage of the checkout's own test run, and
-// mutates only where the checkout names one of [MutationTools] in a tool
-// directive of go.mod. The mutant cap authored on the service record is not
-// read here: it bounds what the deployer deploys, and the deployer's mutation
-// pass is the caller this is written for.
+// The derivation is per toolchain and Go is the one with an extractor. The
+// candidate-run reading is bounded by the service's cap, records distinct zero
+// from could-not-derive, and does not make a build record for a mutant.
 //
 // # What is not built here
 //
@@ -114,9 +112,8 @@
 // substitute stands in for them: Factory's two constraint listings, which are
 // [ForConstraint] and [UnderWithdrawnConstraints]; and whatever reports what a
 // service promises that a human confirmed, which is [HumanConfirmed]. The
-// deployer's mutation pass at the candidate run is not one of them:
-// [DeriveMutation] and [RecordMutation] are what it calls, and the
-// command-line interface composes it.
+// The candidate-run mutation pass is composed by the command-line interface;
+// this package owns its reading and [RecordMutation].
 //
 // [Unreliable] itself now resolves the bound through
 // [service.UnreliableBoundInForce], the field being service.SetUnreliableBound's

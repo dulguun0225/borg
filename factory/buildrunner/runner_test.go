@@ -268,8 +268,8 @@ func TestGoResolverUsesOnlyItsFetchEnvironmentAndRecordsCoverage(t *testing.T) {
 	if !strings.Contains(string(env), "BORG_REPOSITORY_CREDENTIAL=repository-secret") {
 		t.Fatalf("resolved repository credential missing from fetch environment: %s", env)
 	}
-	if len(resolution.Coverage) != 1 || !resolution.Coverage[0].VendoredSource || !resolution.Coverage[0].StaticallyLinkedCode || resolution.Coverage[0].BaseImagePackages {
-		t.Fatalf("coverage = %+v, want typed Go coverage", resolution.Coverage)
+	if len(resolution.Coverage) != 1 || resolution.Coverage[0].VendoredSource || !resolution.Coverage[0].StaticallyLinkedCode || resolution.Coverage[0].BaseImagePackages {
+		t.Fatalf("coverage = %+v, want typed Go coverage reporting that vendor was not enumerated", resolution.Coverage)
 	}
 }
 

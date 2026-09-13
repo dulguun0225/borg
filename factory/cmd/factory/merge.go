@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/contractcheck"
+	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
@@ -65,19 +66,29 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 		return err
 	}
 	predicates := p.decideSecurityPredicates(c)
+	mutationApplicability, mutationReading, err := criterion.LatestMutation(ctx, p.d.pool, c.buildID, false)
+	if err != nil {
+		return err
+	}
+	derivations := couldNotDerive(c, predicates)
+	if mutationApplicability == criterion.MutationUnavailable ||
+		(mutationApplicability == criterion.MutationApplicable && !mutationReading.Mutation.Derived()) {
+		derivations = append(derivations, gate.CouldNotDeriveMutation)
+	}
 	firing := gate.Firing{
-		Row:             gate.MergeToMaster,
-		ItemID:          c.itemID,
-		BuildID:         c.buildID,
-		ServiceID:       c.svc.ID,
-		AreaID:          p.areaID,
-		EnvironmentID:   p.production.ID,
-		CriteriaInForce: len(c.criteria),
-		Criteria:        c.criteria,
+		Row:                    gate.MergeToMaster,
+		ItemID:                 c.itemID,
+		BuildID:                c.buildID,
+		ServiceID:              c.svc.ID,
+		AreaID:                 p.areaID,
+		EnvironmentID:          p.production.ID,
+		CriteriaInForce:        len(c.criteria),
+		Criteria:               c.criteria,
+		SecurityPredicateRunID: predicates.RunID,
 		// The run this row decides over has ended: the encodings ran on the
 		// candidate environment and their results are the criteria above.
 		CandidateRunEnded: true,
-		CouldNotDerive:    couldNotDerive(c, predicates),
+		CouldNotDerive:    derivations,
 		Measurement:       c.measurement,
 		Exposure:          reached,
 	}
@@ -102,6 +113,14 @@ func (p *path) mergeGate(ctx context.Context, c *candidate) error {
 	}
 	if check == "" {
 		check, why = checked.Check(), checked.Why()
+	}
+	mutationFloor := c.svc.MutationFloor.Or(0)
+	if check == "" && mutationApplicability == criterion.MutationApplicable &&
+		mutationReading.Mutation.Derived() && mutationReading.Mutation.Blocks(mutationFloor) {
+		check = gate.AutoRejectedByMutationFloor
+		why = fmt.Sprintf("mutation score %.2f (%d detected of %d tested) is below floor %.2f",
+			mutationReading.Mutation.Score(), mutationReading.Mutation.MutantsDetected,
+			mutationReading.Mutation.MutantsTested, mutationFloor)
 	}
 	if check == "" && len(predicates.Rejected()) > 0 {
 		check, why = gate.AutoRejectedBySecurityPredicate, predicates.Why()
@@ -218,8 +237,11 @@ func (p *path) mergeUntilQueued(ctx context.Context, c *candidate) error {
 // one. A toolchain the factory ships no list for is the zero list, which reads
 // as could not derive.
 func (p *path) decideSecurityPredicates(c *candidate) securitypredicate.Decided {
+	if c.securityPredicates.RunID != "" {
+		return c.securityPredicates
+	}
 	list, _ := securitypredicate.ForToolchain(securitypredicate.ToolchainGo, factoryVersion)
-	return securitypredicate.Decide(list, securitypredicate.Checkout{Dir: c.svc.Repository})
+	return securitypredicate.Decide(list, securitypredicate.Run{ID: c.buildID, Checkout: securitypredicate.Checkout{Dir: c.environmentDir}})
 }
 
 // blockingCriteria is every result in criteria whose outcome stops the item at

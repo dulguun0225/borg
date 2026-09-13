@@ -133,3 +133,7 @@ func (s Seed) Validate() error {
 	}
 	return nil
 }
+
+// ValidateRestore reports whether a target can restore the named service's
+// seeded store. An empty version means the candidate authored no seed.
+func (s Seed) ValidateRestore() error { return check(s.Service, s.Credential) }

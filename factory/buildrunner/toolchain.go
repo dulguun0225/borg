@@ -160,7 +160,7 @@ func (GoResolver) Resolve(ctx context.Context, checkout Checkout, repositoryCred
 	}
 	content, err := os.ReadFile(filepath.Join(checkout.Directory, "go.sum"))
 	if os.IsNotExist(err) {
-		return Resolution{Coverage: []build.Coverage{goCoverage(checkout)}, ModuleCache: cache}, nil
+		return Resolution{Coverage: []build.Coverage{goCoverage(false)}, ModuleCache: cache}, nil
 	}
 	if err != nil {
 		return Resolution{CouldNotDerive: err.Error()}, nil
@@ -211,7 +211,7 @@ func (GoResolver) Resolve(ctx context.Context, checkout Checkout, repositoryCred
 			Package: fields[0], Version: fields[1], Digest: fields[2], Licence: moduleLicence(cache, fields[0], fields[1]), RequiredBy: modulePath,
 			RunTime: runTime, BuildTime: buildTime})
 	}
-	return Resolution{Entries: entries, Coverage: []build.Coverage{goCoverage(checkout)}, ModuleCache: cache}, nil
+	return Resolution{Entries: entries, Coverage: []build.Coverage{goCoverage(enumeratedVendor(runtimePackages, testPackages))}, ModuleCache: cache}, nil
 }
 
 type GoSchema struct{}
@@ -379,8 +379,16 @@ func hasGoTests(directory string) bool {
 	return found
 }
 
-func goCoverage(checkout Checkout) build.Coverage {
-	_, vendorErr := os.Stat(filepath.Join(checkout.Directory, "vendor"))
+func goCoverage(enumeratedVendor bool) build.Coverage {
 	return build.Coverage{Ecosystem: "go", Source: goProxy(), BaseImagePackages: false,
-		VendoredSource: vendorErr == nil, StaticallyLinkedCode: true, Digests: true, FetchWithoutRunning: true}
+		VendoredSource: enumeratedVendor, StaticallyLinkedCode: true, Digests: true, FetchWithoutRunning: true}
+}
+
+func enumeratedVendor(runtime, tests []string) bool {
+	for _, packagePath := range append(append([]string{}, runtime...), tests...) {
+		if strings.Contains(packagePath, "/vendor/") || strings.HasPrefix(packagePath, "vendor/") {
+			return true
+		}
+	}
+	return false
 }

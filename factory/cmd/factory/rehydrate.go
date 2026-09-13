@@ -265,6 +265,11 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 		if c.criteria, err = p.criteriaOf(ctx, c); err != nil {
 			return nil, err
 		}
+		if applicability, mutation, mutationErr := criterion.LatestMutation(ctx, p.d.pool, c.buildID, false); mutationErr != nil {
+			return nil, mutationErr
+		} else if applicability == criterion.MutationApplicable {
+			c.mutation = mutation.Mutation
+		}
 		// What the environment was composed from at the run, which the merge
 		// queue compares its own re-verification against. The record's
 		// composed-from field is rewritten at every recomposition, so what a run

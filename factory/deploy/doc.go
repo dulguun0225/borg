@@ -318,6 +318,16 @@
 // [DeleteSnapshot] deleting the copy and writing the deletion on the record is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
 // (C2306).
+
+// [PerformMutations] is the deployer's serialized candidate mutation pass:
+// it restores a selected seeded store through [targetseam.Seeder], leaves an
+// unseeded store untouched, and places altered candidate artifacts without
+// build or deploy rows, reruns the reached encodings, counts environment-hours,
+// and records the share beside the criteria results. These claims are
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md
+// (C1135), ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
+// (C1527), and ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md
+// (C1648).
 // candidate.go is the deployer's candidate composition, seed, value-set and
 // schema preparation; candidatewait.go is its unavailable-run wait and
 // candidate teardown.
@@ -330,7 +340,5 @@
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
 // (C1485, C1496, C1497, C1498),
 // ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md
-// (C1572, C1574, C1575, C1576),
-// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
-// (C1490).
+// (C1572, C1574, C1575, C1576).
 package deploy

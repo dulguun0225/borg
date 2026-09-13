@@ -176,6 +176,10 @@
 // (C0381, C0394). The units a provider returns per kind are
 // ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
 // (C2358, C2364, C2365, C2367, C2386).
+// The implementer's rule that an encoding's expected behaviour is derived from
+// the criterion's sentence and never from the code it checks is
+// ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md
+// (C1131).
 //
 // What the spec author authors — several criteria, the withdrawals, and the
 // requirement each answers — is

@@ -1,11 +1,12 @@
 // Package securitypredicate is the factory's own list of security predicates
-// and the derivations that decide them against a build.
+// and the derivations that decide them against a candidate run.
 //
 // It is the second of the two lists a predicate is drawn from. The first is the
 // list of allowed predicate kinds, which is gate policy's and which a consumer
 // contract picks from; this one is the factory's, shipped as content of the
 // product, decided per toolchain against the build, and an owner may only extend
-// it.
+// it. The run identity stays beside the decision so a bare checkout cannot be
+// mistaken for the run it came from.
 //
 // # The code
 //
@@ -36,10 +37,13 @@
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md
 // (C1804, C1820, C1821);
 //
-// the list being decided against the candidate's run with one set of
+// the list being decided against the candidate run with one set of
 // derivations per toolchain is
 // ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
 // (C1598);
+
+// The shipped list holds no predicate kinds. The owner's open question that
+// names what it may eventually hold is ../../end-goal/open.md.
 //
 // and what a security predicate does at the merge row, rejecting on the terms
 // an undecided criterion does and putting a human there where it could not

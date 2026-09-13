@@ -94,9 +94,12 @@ func TestASeederRecordsTheSelectedVersion(t *testing.T) {
 	if err := fake.Seed(context.Background(), deployer, seed); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
+	if err := fake.RestoreSeed(context.Background(), deployer, seed); err != nil {
+		t.Fatalf("RestoreSeed: %v", err)
+	}
 	calls := fake.Calls()
-	if len(calls) != 1 || calls[0].Op != OpSeed || calls[0].Change != seed.Version {
-		t.Fatalf("the fake recorded %+v, want the selected seed version", calls)
+	if len(calls) != 2 || calls[0].Op != OpSeed || calls[1].Op != OpRestoreSeed || calls[1].Change != seed.Version {
+		t.Fatalf("the fake recorded %+v, want preparation and restore of the selected seed", calls)
 	}
 }
 

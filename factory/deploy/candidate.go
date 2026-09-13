@@ -193,8 +193,9 @@ func namedVersion(ctx context.Context, read func(context.Context, string) ([]Ver
 
 // CandidateSeed resolves the seed version named by a candidate's composition.
 func CandidateSeed(ctx context.Context, source CandidateSource, c Candidate, composition environment.Composition) (targetseam.Seed, error) {
+	seed := targetseam.Seed{Service: c.ServiceName, Credential: c.Credential}
 	if composition.SeedVersion == "" {
-		return targetseam.Seed{}, nil
+		return seed, nil
 	}
 	version, err := namedVersion(ctx, source.SeedVersions, c.ServiceID, composition.SeedVersion)
 	if err != nil {
@@ -204,7 +205,8 @@ func CandidateSeed(ctx context.Context, source CandidateSource, c Candidate, com
 	if content == "" {
 		content = version.Content
 	}
-	return targetseam.Seed{Service: c.ServiceName, Version: version.ID, Content: content, Credential: c.Credential}, nil
+	seed.Version, seed.Content = version.ID, content
+	return seed, nil
 }
 
 // CandidateConfiguration resolves only the non-production value set named by

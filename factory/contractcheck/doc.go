@@ -127,6 +127,10 @@
 // no rows is recorded undecided in [Migration].
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
 // (C1490).
+// The store state a candidate run leaves behind is the contract check's input
+// for that store decision, rather than a security-predicate derivation:
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md
+// (C1599).
 //
 // The other half of the constraint rule is in check.go: a not-null constraint or a domain check on
 // a store's form is held by a declaration in force the new form rejects and not

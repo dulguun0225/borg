@@ -98,6 +98,38 @@ func TestSeedCreatesTheCandidateStoreOnce(t *testing.T) {
 	}
 }
 
+func TestRestoreSeedDropsWritesBetweenMutantRuns(t *testing.T) {
+	local, dir := newTarget(t, "checkout")
+	seed := targetseam.Seed{Service: "checkout", Version: "seed_1", Content: "first", Credential: credential}
+	if err := local.Seed(t.Context(), deployer, seed); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	firstWrite := filepath.Join(localtarget.DataDir(dir, "checkout"), "mutant-one-write")
+	if err := os.WriteFile(firstWrite, []byte("one"), 0o644); err != nil {
+		t.Fatalf("writing mutant one: %v", err)
+	}
+	if err := local.RestoreSeed(t.Context(), deployer, seed); err != nil {
+		t.Fatalf("RestoreSeed before mutant two: %v", err)
+	}
+	if _, err := os.Stat(firstWrite); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mutant one's write after restore = %v, want absent", err)
+	}
+	secondWrite := filepath.Join(localtarget.DataDir(dir, "checkout"), "mutant-two-write")
+	if err := os.WriteFile(secondWrite, []byte("two"), 0o644); err != nil {
+		t.Fatalf("writing mutant two: %v", err)
+	}
+	if err := local.RestoreSeed(t.Context(), deployer, seed); err != nil {
+		t.Fatalf("RestoreSeed after mutant two: %v", err)
+	}
+	if _, err := os.Stat(secondWrite); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mutant two's write after restore = %v, want absent", err)
+	}
+	content, err := os.ReadFile(localtarget.SeedFile(dir, "checkout"))
+	if err != nil || string(content) != seed.Content {
+		t.Fatalf("restored seed = %q, %v, want %q", content, err, seed.Content)
+	}
+}
+
 // TestAReplacementWaitsForTheRequestsItHolds: neither rollout row drops a
 // request, so the replacement asks the instance to end and waits for it to
 // finish what it holds however long that takes, and reports the drain. The

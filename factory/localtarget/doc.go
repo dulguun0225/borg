@@ -4,7 +4,7 @@
 // # The files
 //
 // local.go is the process: [Local] and [New], [Local.Dir], the seam operations
-// [Local.Deploy], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the files
+// [Local.Deploy], [Local.PlaceMutant], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the files
 // [RunningFile], [SignalFile], [ExchangeFile]
 // and [WayInSocket] with the [SignalEnv], [ExchangeEnv] and [DeployEnv]
 // variables that name what a started process is told, and [ErrBuildNotLocal] and
@@ -172,8 +172,15 @@
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md,
 // and the way-in token handed to a deployed service, beside the entrance it is
 // presented at, is seam 5 of ../../end-goal/deferred.md#security-comes-last.
-// [Local.Seed] prepares the candidate store once from the selected seed; its
+// [Local.Seed] prepares the candidate store once from the selected seed, and
+// [Local.RestoreSeed] removes writes made by a transient mutant and restores
+// that seed before the next one; its
 // schema and snapshot behavior implements
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
 // (C1674).
+
+// The transient placement used by mutation is the candidate artifact on its
+// item's environment, without a deploy record:
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/README.md
+// (C1527).
 package localtarget

@@ -3,6 +3,7 @@ package targetseam
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/secretref"
@@ -18,6 +19,9 @@ type Call struct {
 	Principal principal.Principal
 	Service   string
 	Build     string
+	// Artifact is the transient artifact on a mutant placement, and empty on
+	// every ordinary operation.
+	Artifact string
 	// Share is what a shift asked for, and zero on every other operation.
 	Share float64
 	// Count is what an instance count asked for, and zero on every other
@@ -94,6 +98,23 @@ func (f *Fake) Deploy(_ context.Context, p principal.Principal, d Deployment) (P
 	return Placement{Replacement: ReplacementDrained}, nil
 }
 
+// PlaceMutant records a transient placement and remembers its artifact as the
+// service's running value. No deploy record is involved.
+func (f *Fake) PlaceMutant(_ context.Context, p principal.Principal, m Mutant) (Placement, error) {
+	if err := CheckPrincipal(p); err != nil {
+		return Placement{}, err
+	}
+	if err := m.Validate(); err != nil {
+		return Placement{}, err
+	}
+	f.calls = append(f.calls, Call{
+		Op: OpPlaceMutant, Principal: p, Service: m.Service,
+		Build: filepath.Base(m.Artifact), Artifact: m.Artifact, Credential: m.Credential,
+	})
+	f.running[m.Service] = m.Artifact
+	return Placement{Replacement: ReplacementDrained}, nil
+}
+
 // Stop records the call, forgets what was running for that service, and
 // reports the drain that is the seam's one outcome: no request dropped.
 func (f *Fake) Stop(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (Placement, error) {
@@ -143,6 +164,20 @@ func (f *Fake) Seed(_ context.Context, p principal.Principal, s Seed) error {
 		return fmt.Errorf("targetseam: the seed names no version")
 	}
 	f.calls = append(f.calls, Call{Op: OpSeed, Principal: p, Service: s.Service, Change: s.Version, Credential: s.Credential})
+	return nil
+}
+
+// RestoreSeed records the reset to the selected seed. The fake has no service
+// process or store, so callers assert the seam operation and keep any store
+// contents in their own fixture.
+func (f *Fake) RestoreSeed(_ context.Context, p principal.Principal, s Seed) error {
+	if err := CheckPrincipal(p); err != nil {
+		return err
+	}
+	if err := s.ValidateRestore(); err != nil {
+		return err
+	}
+	f.calls = append(f.calls, Call{Op: OpRestoreSeed, Principal: p, Service: s.Service, Change: s.Version, Credential: s.Credential})
 	return nil
 }
 

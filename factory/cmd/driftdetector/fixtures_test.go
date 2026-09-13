@@ -249,6 +249,10 @@ type erroringTarget struct{ err error }
 func (erroringTarget) Deploy(context.Context, principal.Principal, targetseam.Deployment) (targetseam.Placement, error) {
 	return targetseam.Placement{}, nil
 }
+
+func (e erroringTarget) PlaceMutant(context.Context, principal.Principal, targetseam.Mutant) (targetseam.Placement, error) {
+	return targetseam.Placement{}, e.err
+}
 func (erroringTarget) Stop(context.Context, principal.Principal, string, secretref.Ref) (targetseam.Placement, error) {
 	return targetseam.Placement{}, nil
 }

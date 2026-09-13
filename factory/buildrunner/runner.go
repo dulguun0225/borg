@@ -14,7 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/wayin"
 )
 
-const EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee490c"
+const EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 var ErrDoesNotCompile = errors.New("buildrunner: the build does not compile")
 
@@ -223,8 +223,7 @@ func (r *Runner) Build(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	separationReason := cannotSeparateFetchAndRun(resolution)
-	coverage := coverageWithReason(resolution.Coverage, separationReason)
+	coverage := coverageWithReason(resolution)
 	reading, err := r.schema.Read(ctx, checkout)
 	if err != nil {
 		return Result{}, err
@@ -284,20 +283,38 @@ func (r *Runner) Build(ctx context.Context, req Request) (Result, error) {
 	return Result{Build: completed, Checkout: checkout, ArtifactPath: output}, nil
 }
 
-func coverageWithReason(coverage []build.Coverage, reason string) []build.Coverage {
-	if reason == "" {
-		return coverage
-	}
-	withReason := make([]build.Coverage, len(coverage))
-	copy(withReason, coverage)
-	for i := range withReason {
-		if strings.Contains(reason, "content digests") {
-			withReason[i].MissingDigests = reason
-		} else {
-			withReason[i].FetchWithoutRunningReason = reason
+func coverageWithReason(resolution Resolution) []build.Coverage {
+	coverage := append([]build.Coverage(nil), resolution.Coverage...)
+	for i := range coverage {
+		if !coverage[i].FetchWithoutRunning {
+			coverage[i].FetchWithoutRunningReason = "the toolchain cannot separate fetching from running"
+		}
+		if !coverage[i].Digests {
+			coverage[i].MissingDigests = "the resolved set has no content digests"
 		}
 	}
-	return withReason
+	digestless := false
+	for _, entry := range resolution.Entries {
+		if entry.Digest == "" {
+			digestless = true
+			break
+		}
+	}
+	if digestless {
+		found := false
+		for _, item := range coverage {
+			if item.MissingDigests != "" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			coverage = append(coverage, build.Coverage{
+				Ecosystem: "go", Source: "resolved", MissingDigests: "the resolved set has no content digests",
+			})
+		}
+	}
+	return coverage
 }
 
 func (r *Runner) exposure(ctx context.Context, checkout Checkout, current []build.ResolvedEntry,
@@ -392,23 +409,6 @@ func constraintViolation(constraint SourceConstraint, entries []build.ResolvedEn
 	for _, entry := range entries {
 		if !contains(constraint.Allowed, entry.Source) {
 			return fmt.Sprintf("resolved package %s comes from excluded source %s", entry.Package, entry.Source)
-		}
-	}
-	return ""
-}
-
-func cannotSeparateFetchAndRun(resolution Resolution) string {
-	for _, item := range resolution.Coverage {
-		if !item.FetchWithoutRunning {
-			return "the toolchain cannot separate fetching from running"
-		}
-		if !item.Digests {
-			return "the resolved set has no content digests"
-		}
-	}
-	for _, entry := range resolution.Entries {
-		if entry.Digest == "" {
-			return "the resolved set has no content digests"
 		}
 	}
 	return ""

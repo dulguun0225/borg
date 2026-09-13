@@ -282,6 +282,9 @@ func installWindow(t *testing.T, ctx context.Context, d deps, limit float64) {
 			{"window limit", func() (policy.Version, error) {
 				return factory.AuthorWindowLimit(ctx, installOwner, svc.ID, limit)
 			}},
+			{"mutant cap", func() (policy.Version, error) {
+				return factory.AuthorMutantCap(ctx, installOwner, svc.ID, 1)
+			}},
 		} {
 			if _, err := authoring.write(); err != nil {
 				t.Fatalf("authoring %s of the analysis window on %s: %v", authoring.what, named.name, err)
