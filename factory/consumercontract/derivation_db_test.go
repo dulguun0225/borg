@@ -170,7 +170,7 @@ func TestDeriveAgainWritesBesideTheEarlierRecord(t *testing.T) {
 	// entered it, and it reads no manifest.
 	newer := consumercontract.Derived{
 		Extractor: consumercontract.Extractor{
-			Name: consumercontract.ExtractorName, Version: "2",
+			Name: consumercontract.ExtractorName, Version: consumercontract.ExtractorVersion + "+newer",
 			Toolchain: consumercontract.Toolchain, FactoryVersion: "test+1",
 		},
 		Drafts: []consumercontract.Draft{
@@ -225,7 +225,7 @@ func TestDeriveAgainWritesBesideTheEarlierRecord(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("NewestDerivation = found %v, %v", found, err)
 	}
-	if newest.Extractor.Version != "2" || newest.ArtifactID != second.ID {
+	if newest.Extractor.Version != newer.Extractor.Version || newest.ArtifactID != second.ID {
 		t.Fatalf("the derivation in force is %+v, want the newest extractor's", newest)
 	}
 }

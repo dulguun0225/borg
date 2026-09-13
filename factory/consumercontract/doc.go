@@ -14,7 +14,9 @@
 // [DeriveAgain]. derive.go is [Derive], [GoExtractor], [GoConvention], [FileName] and
 // [ErrNotAnAllowedPredicateKind]; address.go is [Entries] and [Entry], the
 // configuration file that says which producer an address reaches; source.go is
-// what the consumer's own source does with a mirror. read.go is [Querier] and the
+// what the consumer's own source does with a mirror. sourcewalk.go tracks its
+// lexical bindings; writevalues.go derives scalar write assertions; mirror.go
+// reads mirror metadata. read.go is [Querier] and the
 // reads [Get], [ForArtifact], [ForItems], [AgainstProducer], [AgainstInterface],
 // [NamingElement], [ItemsOf], [ConsumerServicesEver], [DerivationFor],
 // [NewestDerivation], [DerivationsForItems] and [StandingCouldNotDerive].
@@ -27,6 +29,9 @@
 // declares and which mirror a shared field name pairs with, deriveunreadable_test.go
 // what makes a checkout could not derive or partial, and decide_test.go what
 // deciding a predicate means — none of those four needs a database.
+// derivenewest_db_test.go covers version ordering and schema upgrades;
+// derivevalues_test.go covers literal writes and unresolved source;
+// exchange_test.go covers presence independently of population.
 //
 // A [Predicate] is drawn from the list of allowed predicate kinds, which is
 // package gatepolicy's rather than this package's — the list is a parameter of
@@ -93,16 +98,23 @@
 // are stated there and in source.go, beside the four constructs it can see and
 // records rather than passes over: a read through reflection, a string-keyed
 // access, a generated accessor, and a mapping read from configuration.
-// [consumerSource.checkDirectCall] is could not derive for the whole checkout, and
-// names the site, where a call reaches into a network client package the
-// checkout imports — resolved by the callee's own package rather than by a
-// name list, so an alias or an otherwise unlisted client package cannot pass
-// silently — whatever the address argument turns out to be: a literal, a
-// plain variable, a value read from a field, or anything else, none of which
-// are traceable to a mirror's configured entry. So is any call at all
-// found where no mirror and no configuration file exist, which is the state an
-// adopted service arrives in. It returns a [Derived], which [Insert] takes with an
-// [Of].
+// [consumerSource.checkDirectCall] is could not derive for the whole checkout,
+// and names the site, where a call through an imported package takes an address
+// this syntactic extractor recognizes: a literal URL or host:port, or a value it
+// traced from configuration or a store read. A call into one of the network
+// client packages source.go lists, or database/sql.Open, is the same even where
+// its address argument could not be traced. Calls that reach no address, such as
+// local computation and standard output, require no mirror and derive no producer
+// edge. [Derive] returns a [Derived], which [Insert] takes with an [Of].
+//
+// Scalar write assertions come from literal assigned values, not mirror tags.
+// A nonliteral write or an untraced selector is recorded as partial. Loops and
+// type switches record their unresolved bindings as partial. This extractor
+// performs no interprocedural analysis or proof of all runtime values. Go source below
+// the root, except vendor, testdata and hidden directories, is outside the
+// published convention and produces could not derive, as does a source parse
+// failure. Newest reads share the derivation's monotonic recorded_order; an
+// empty or unreadable version supersedes earlier predicates too.
 //
 // Who may write what: [Insert] inserts and updates and deletes nothing. item_id,
 // service_id, artifact_id, and producer_service_id are id fields and not foreign
@@ -122,7 +134,7 @@
 // what the record says about the derivation itself, and deriving again at an
 // upgrade, are
 // ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md
-// (C1899, C1900, C1901, C1902, C1906, C1907, C1908, C1910, C1911, C1912,
+// (C1899, C1900, C1901, C1902, C1906, C1907, C1911, C1912,
 // C1913, C1914);
 //
 // which producer a consumer reaches is

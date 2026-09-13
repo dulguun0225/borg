@@ -3,7 +3,6 @@ package policy
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +28,7 @@ func (f *Factory) MarkServiceProvisioned(ctx context.Context, actor record.Actor
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
 		scope: Scope{Kind: ScopeService, ID: serviceID, Key: "provisioned"},
+		list:  []string{string(shape), branch.Name(), master.Name()}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.SetProvisioned(ctx, tx, serviceID, shape, branch, master)
 		},
@@ -148,13 +148,18 @@ func (f *Factory) AuthorMutantCap(ctx context.Context, actor record.Actor,
 }
 
 // AuthorFailureRecordKeyCap authors the cap on a release's distinct failure
-// record keys, which a safeguard may lower and never raise.
+// record keys and the bucket the excess lands in. The version names both so
+// restart restores the pair. A safeguard may lower the cap and never raise it.
 func (f *Factory) AuthorFailureRecordKeyCap(ctx context.Context, actor record.Actor,
-	serviceID string, cap float64) (Version, error) {
-	return f.authorOnService(ctx, actor, gatepolicy.FailureRecordKeyCap, serviceID, cap,
-		func(ctx context.Context, tx pgx.Tx, serviceID string, cap float64) error {
-			return service.SetFailureRecordKeyCap(ctx, tx, actor, serviceID, cap)
-		})
+	serviceID string, cap float64, overflow string) (Version, error) {
+	return f.append(ctx, write{
+		caller: CallerFactory, actor: actor, action: ActionAuthored,
+		parameter: gatepolicy.FailureRecordKeyCap, scope: Scope{Kind: ScopeService, ID: serviceID},
+		number: cap, list: []string{overflow}, authored: true,
+		apply: func(ctx context.Context, tx pgx.Tx) error {
+			return service.SetFailureRecordKeyCap(ctx, tx, actor, serviceID, cap, overflow)
+		},
+	})
 }
 
 // AuthorUnreliableBound authors the rate of disagreement above which a
@@ -307,28 +312,12 @@ func (f *Factory) AuthorOperationCap(ctx context.Context, actor record.Actor,
 // version names the periods by key and no parameter, one write per period.
 func (f *Factory) AuthorChangeFreezePeriod(ctx context.Context, actor record.Actor,
 	serviceID, startsAt, endsAt string) (Version, error) {
-	// A period is added rather than edited, so the version names every period
-	// the record holds after this write and not the one it added: the version
-	// names one value per parameter and scope, and a version naming the last
-	// period alone would have the re-derivation restore one freeze where an
-	// owner authored several.
-	standing, err := service.FreezePeriods(ctx, f.pool, serviceID)
-	if err != nil {
-		return Version{}, err
-	}
-	periods := make([]string, 0, len(standing)+1)
-	for _, p := range standing {
-		periods = append(periods, freezeKey(p.StartsAt, p.EndsAt))
-	}
-	added := freezeKey(startsAt, endsAt)
-	if !slices.Contains(periods, added) {
-		periods = append(periods, added)
-	}
-	slices.Sort(periods)
+	// append merges this period into the cumulative authored list while it
+	// holds the policy lock, so concurrent additions cannot lose each other.
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionAuthored,
 		parameter: gatepolicy.ChangeFreeze, scope: Scope{Kind: ScopeService, ID: serviceID},
-		list: periods, authored: true,
+		list: []string{freezeKey(startsAt, endsAt)}, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
 			return service.AddFreezePeriod(ctx, tx, f.token, actor, serviceID, startsAt, endsAt)
 		},

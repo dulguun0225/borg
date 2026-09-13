@@ -409,7 +409,7 @@ func (p *path) layer(ctx context.Context, candidates []*candidate) (string, []*c
 func readyFor(candidates []*candidate, at step) []*candidate {
 	var ready []*candidate
 	for _, c := range candidates {
-		if c.waiting != (gate.Row{}) || c.held || c.from > at {
+		if c.waiting != (gate.Row{}) || c.held || c.factoryHold != "" || c.from > at {
 			continue
 		}
 		ready = append(ready, c)

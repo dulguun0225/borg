@@ -101,7 +101,9 @@ func ForArtifact(ctx context.Context, q Querier, artifactID string) ([]Predicate
 // attempted twice authors two consumer contract versions and the later one is
 // what the item declares — the same rule the artifact store's version chain
 // already sets, applied here because a predicate has no field saying it was
-// superseded.
+// superseded. The derivation row is authoritative even when it introduced zero
+// predicates. Its recorded order also selects the newest derivation everywhere
+// else in this package, independently of wall-clock ties and random ids.
 func ForItems(ctx context.Context, q Querier, itemIDs []string) ([]Predicate, error) {
 	if len(itemIDs) == 0 {
 		return nil, nil
@@ -111,8 +113,8 @@ func ForItems(ctx context.Context, q Querier, itemIDs []string) ([]Predicate, er
 		d.kind, d.argument
 		from `+Table+` d
 		where d.item_id = any($1)
-		and d.artifact_id = (select newest.artifact_id from `+Table+` newest
-			where newest.item_id = d.item_id order by newest.at desc, newest.artifact_id desc limit 1)
+		and d.artifact_id = (select newest.artifact_id from `+DerivationTable+` newest
+			where newest.item_id = d.item_id order by newest.recorded_order desc limit 1)
 		order by d.service_id, d.producer_service, d.interface_name, d.element, d.kind`, itemIDs)
 }
 
@@ -257,7 +259,7 @@ func NewestDerivation(ctx context.Context, q Querier, itemID string) (Derivation
 		return Derivation{}, false, nil
 	}
 	d, err := scanDerivation(q.QueryRow(ctx, selectDerivation+`
-		where item_id = $1 order by at desc, id desc limit 1`, itemID))
+		where item_id = $1 order by recorded_order desc limit 1`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Derivation{}, false, nil
 	} else if err != nil {
@@ -283,7 +285,8 @@ func StandingCouldNotDerive(ctx context.Context, q Querier) ([]Derivation, error
 		d.extractor_convention, d.unfollowed, d.cause, d.reported
 		from `+DerivationTable+` d
 		where d.cause <> ''
-		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)
+		and d.id = (select newest.id from `+DerivationTable+` newest where newest.item_id = d.item_id
+			order by newest.recorded_order desc limit 1)
 		order by d.at, d.id`)
 	if err != nil {
 		return nil, fmt.Errorf("consumercontract: reading the consumers nobody could read: %w", err)
@@ -317,7 +320,8 @@ func DerivationsForItems(ctx context.Context, q Querier, itemIDs []string) ([]De
 		d.extractor_convention, d.unfollowed, d.cause, d.reported
 		from `+DerivationTable+` d
 		where d.item_id = any($1)
-		and d.at = (select max(newest.at) from `+DerivationTable+` newest where newest.item_id = d.item_id)
+		and d.id = (select newest.id from `+DerivationTable+` newest where newest.item_id = d.item_id
+			order by newest.recorded_order desc limit 1)
 		order by d.service_id, d.item_id`, itemIDs)
 	if err != nil {
 		return nil, fmt.Errorf("consumercontract: reading the derivations of %d items: %w", len(itemIDs), err)

@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
 )
@@ -105,7 +106,8 @@ func (q *Queue) AcceptCommit(ctx context.Context, human record.Actor, serviceID,
 		accepted.Release, accepted.Published = out.Release, out.Published
 		accepted.BuildID, accepted.SkippedNumbers = out.BuildID, out.SkippedNumbers
 		if _, err := q.log.AppendWaitClose(ctx, decisionlog.Entry{
-			Actor: human, Payload: wait.Payload, FormatVersion: waitFormatVersion, Closes: wait.ID,
+			Actor: human, Principal: principal.OfComponent("work"), Payload: wait.Payload,
+			FormatVersion: waitFormatVersion, Closes: wait.ID,
 		}); err != nil {
 			return accepted, err
 		}
@@ -145,10 +147,12 @@ func (q *Queue) AcceptCommit(ctx context.Context, human record.Actor, serviceID,
 	accepted.Release, accepted.Published = outcome.Release, outcome.Published
 	accepted.SkippedNumbers = outcome.SkippedNumbers
 
-	// The closing names the human as actor: the acceptance is theirs, and the log
-	// row naming them is what the design puts at this end of the wait.
+	// The closing names the human as actor and Work as caller: the acceptance
+	// is theirs, made at Work, and the log row naming them is what the design
+	// puts at this end of the wait.
 	if _, err := q.log.AppendWaitClose(ctx, decisionlog.Entry{
-		Actor: human, Payload: wait.Payload, FormatVersion: waitFormatVersion, Closes: wait.ID,
+		Actor: human, Principal: principal.OfComponent("work"), Payload: wait.Payload,
+		FormatVersion: waitFormatVersion, Closes: wait.ID,
 	}); err != nil {
 		return accepted, err
 	}

@@ -143,10 +143,10 @@ func (f *Factory) ConfirmRolePromptOrSkillThreshold(ctx context.Context, actor r
 }
 
 // ratesAt is the realized auto-pass rate at a threshold, from whatever the
-// composition supplied, and nothing where it supplied none.
+// composition supplied. A missing reader is a composition error.
 func (f *Factory) ratesAt(ctx context.Context, scope Scope, gateRow string, threshold float64) ([]AutoPassRate, error) {
 	if f.AutoPassRates == nil {
-		return nil, nil
+		return nil, fmt.Errorf("policy: a threshold write requires an AutoPassRates reader")
 	}
 	return f.AutoPassRates(ctx, scope, gateRow, threshold)
 }

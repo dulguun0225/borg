@@ -121,7 +121,7 @@ func TestTheRetentionPassNamesTheValuesAuthorAndTheVersionsInForce(t *testing.T)
 	written := pendingShortening(t, ctx, d.pool)
 	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
 		RowKind: gate.DecisionLogRetentionShortening.String(), RecordID: written.ID,
-		Verdict: string(gate.VerdictApprove),
+		Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
 	})
 
 	rows := logRows(t, ctx, d.pool, d.token)

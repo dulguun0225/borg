@@ -186,14 +186,10 @@ type candidate struct {
 	encodingDefect         string
 	encodingCouldNotDerive bool
 	tornDown               bool
-	// buildHistory is every build this item's own criteria have been decided
-	// against on the candidate environment, oldest first, appended once per
-	// [path.decideCriteria] call. It is what a criterion's own outcome history
-	// is read over: the design narrows that history to builds composed from
-	// one seed version and whose diffs reach the requirement the criterion
-	// names, and neither narrowing is read here yet, so this is every build of
-	// this candidate rather than that filtered set — the caller [criterion.Unreliable]
-	// asks for, kept the smallest way this run can supply it.
+	// buildHistory is every build this item's criteria have been decided
+	// against on the candidate environment, oldest first. Unreliable groups
+	// these by seed version. The caller does not yet derive which build diffs
+	// reach the requirement or carry a recovery intent's revised encoding.
 	buildHistory []string
 
 	// The seven firings, each as it was decided. The Decomposition row is not

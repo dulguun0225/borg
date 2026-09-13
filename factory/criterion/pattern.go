@@ -47,26 +47,45 @@ var Patterns = []Pattern{
 // it before state, because the state form is a prefix of the longer one and
 // checking them the other way round would never return it.
 func Classify(sentence string) (Pattern, bool) {
-	s := strings.ToLower(sentence)
-	const shall = ", the system shall "
-	switch {
-	case strings.HasPrefix(s, "the system shall "):
-		return PatternAlwaysTrue, true
-	case strings.HasPrefix(s, "when ") && strings.Contains(s, shall):
-		return PatternEvent, true
-	case strings.HasPrefix(s, "while "):
-		when := strings.Index(s, ", when ")
-		if when >= 0 && strings.Contains(s[when:], shall) {
-			return PatternStateWithAnEventInsideIt, true
-		}
-		if strings.Contains(s, shall) {
-			return PatternState, true
-		}
+	s := strings.ToLower(strings.TrimSpace(sentence))
+	const response = "the system shall "
+	if strings.Count(s, response) != 1 {
 		return "", false
-	case strings.HasPrefix(s, "if ") && strings.Contains(s, ", then the system shall "):
-		return PatternUnwantedCondition, true
-	case strings.HasPrefix(s, "where ") && strings.Contains(s, shall):
-		return PatternOptionalFeature, true
+	}
+	before, after, found := strings.Cut(s, response)
+	if !found || strings.Trim(after, " .\t\r\n") == "" {
+		return "", false
+	}
+	if before == "" {
+		return PatternAlwaysTrue, true
+	}
+	const shall = ", the system shall "
+	for _, form := range []struct {
+		prefix, separator string
+		pattern           Pattern
+	}{
+		{"while ", shall, PatternState},
+		{"when ", shall, PatternEvent},
+		{"if ", ", then the system shall ", PatternUnwantedCondition},
+		{"where ", shall, PatternOptionalFeature},
+	} {
+		if !strings.HasPrefix(s, form.prefix) {
+			continue
+		}
+		condition, _, ok := strings.Cut(strings.TrimPrefix(s, form.prefix), form.separator)
+		if !ok || strings.TrimSpace(condition) == "" {
+			return "", false
+		}
+		if form.pattern == PatternState {
+			state, event, combined := strings.Cut(condition, ", when ")
+			if combined {
+				if strings.TrimSpace(state) == "" || strings.TrimSpace(event) == "" {
+					return "", false
+				}
+				return PatternStateWithAnEventInsideIt, true
+			}
+		}
+		return form.pattern, true
 	}
 	return "", false
 }

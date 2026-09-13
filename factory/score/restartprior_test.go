@@ -16,6 +16,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -117,7 +118,7 @@ func appendRejection(t *testing.T, ctx context.Context, log *decisionlog.Writer,
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: closeActor, Payload: string(closePayload), FormatVersion: "decision/1",
 		Closes: opened.ID, Verdict: closeEvent.Verdict, Reason: "the change was wrong",
-		OpenedInWorkAt: record.Now(),
+		OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"),
 	}); err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}

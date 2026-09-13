@@ -75,6 +75,31 @@ func SetExplicitThreshold(ctx context.Context, tx pgx.Tx, token lease.Token, act
 	return nil
 }
 
+// ClearExplicitThreshold removes the materialized reading once an approved
+// safeguard withdrawal leaves its number or size with no standing safeguard.
+// Policy calls it in the same fenced transaction as that approval.
+func ClearExplicitThreshold(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor,
+	serviceID string, quantity gatepolicy.Quantity) error {
+	if err := lease.Fence(ctx, tx, token); err != nil {
+		return err
+	}
+	if err := actor.Validate(); err != nil {
+		return err
+	}
+	if quantity == "" {
+		return ErrQuantityEmpty
+	}
+	if err := mustExist(ctx, tx, serviceID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `delete from `+ExplicitThresholdTable+` where service_id = $1 and quantity = $2`,
+		serviceID, string(quantity))
+	if err != nil {
+		return fmt.Errorf("service: clearing the explicit threshold for %s on %s: %w", quantity, serviceID, err)
+	}
+	return nil
+}
+
 // SetRecentHistorySize writes the smallest change in one quantity the reading
 // against this service's own recent history has to detect, as a share. It is one
 // value per quantity, as the window's own size is, and the average run length

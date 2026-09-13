@@ -207,8 +207,7 @@
 // the consumer contract the install's first-start step derives again at an
 // upgrade that changed the extractor, written beside the earlier record and
 // never over it, is
-// ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md
-// (C1908, C1910).
+// ../../end-goal/how-the-factory-works/07-contracts/12-what-the-derivation-records.md.
 //
 // the pass that destroys what a redaction names and the replay after a restore
 // are

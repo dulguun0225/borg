@@ -400,7 +400,7 @@ func (p *path) criteriaOf(ctx context.Context, c *candidate) ([]gate.CriterionRe
 		})
 	}
 	for i, result := range results {
-		reliability, err := criterion.Unreliable(ctx, p.d.pool, result.CriterionID, c.buildHistory, c.svc.UnreliableBound)
+		reliability, err := criterion.Unreliable(ctx, p.d.pool, result.CriterionID, c.buildHistory, c.svc.UnreliableBound, nil, "")
 		if err != nil {
 			return nil, err
 		}

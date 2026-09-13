@@ -44,6 +44,7 @@ func TestTheDriftMismatchIsOneOfTheHoldsStanding(t *testing.T) {
 	}
 	if _, err := g.Decide(ctx, opened, gate.Given{
 		Actor: owner, Verdict: gate.VerdictApprove, Holds: []string{gate.HoldDriftMismatch},
+		OpenedInWorkAt: openedInWorkAt,
 	}); err != nil {
 		t.Errorf("an approve naming the mismatch: %v", err)
 	}
@@ -76,6 +77,7 @@ func TestApproveRefusesAHoldNotNamedOrLeftOut(t *testing.T) {
 
 	closing, err := g.Decide(ctx, opened, gate.Given{
 		Actor: owner, Verdict: gate.VerdictApprove, Holds: []string{gate.HoldDependencyNotLive},
+		OpenedInWorkAt: openedInWorkAt,
 	})
 	if err != nil {
 		t.Fatalf("naming the hold standing: %v", err)

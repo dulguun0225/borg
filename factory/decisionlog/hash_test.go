@@ -41,22 +41,24 @@ func TestChainHashIsFixed(t *testing.T) {
 // hash to move. A field the hash does not cover is a field that can be
 // edited in the store without Verify noticing.
 func TestChainHashCoversEveryField(t *testing.T) {
-	base := fixedRow().ChainHash()
+	original := fixedRow()
+	original.FormatVersion = "decision/2"
+	base := original.ChainHash()
 	changes := map[string]func(*Row){
-		"FormatVersion":  func(r *Row) { r.FormatVersion = "page_event/1" },
-		"Seq":            func(r *Row) { r.Seq = 3 },
-		"ID":             func(r *Row) { r.ID = "dl_ffeeddccbbaa99887766554433221100" },
-		"Actor.Kind":     func(r *Row) { r.Actor.Kind = record.KindHuman },
-		"Actor.Key":      func(r *Row) { r.Actor.Key = "person:abc" },
-		"Actor.Basis":    func(r *Row) { r.Actor.Basis = record.BasisVerified },
-		"At":             func(r *Row) { r.At = "2026-08-17T00:00:00.000000001Z" },
-		"Shape":          func(r *Row) { r.Shape = ShapeWait },
-		"Payload":        func(r *Row) { r.Payload = `{"verdict":"fail"}` },
-		"PolicyVersion":  func(r *Row) { r.PolicyVersion = "policy-2" },
-		"ScoreVersion":   func(r *Row) { r.ScoreVersion = "score-2" },
-		"Part":           func(r *Row) { r.Part = PartClose },
-		"Closes":         func(r *Row) { r.Closes = "dl_ffeeddccbbaa99887766554433221100" },
-		"Verdict":        func(r *Row) { r.Verdict = "approve" },
+		"FormatVersion":    func(r *Row) { r.FormatVersion = "page_event/1" },
+		"Seq":              func(r *Row) { r.Seq = 3 },
+		"ID":               func(r *Row) { r.ID = "dl_ffeeddccbbaa99887766554433221100" },
+		"Actor.Kind":       func(r *Row) { r.Actor.Kind = record.KindHuman },
+		"Actor.Key":        func(r *Row) { r.Actor.Key = "person:abc" },
+		"Actor.Basis":      func(r *Row) { r.Actor.Basis = record.BasisVerified },
+		"At":               func(r *Row) { r.At = "2026-08-17T00:00:00.000000001Z" },
+		"Shape":            func(r *Row) { r.Shape = ShapeWait },
+		"Payload":          func(r *Row) { r.Payload = `{"verdict":"fail"}` },
+		"PolicyVersion":    func(r *Row) { r.PolicyVersion = "policy-2" },
+		"ScoreVersion":     func(r *Row) { r.ScoreVersion = "score-2" },
+		"Part":             func(r *Row) { r.Part = PartClose },
+		"Closes":           func(r *Row) { r.Closes = "dl_ffeeddccbbaa99887766554433221100" },
+		"Verdict":          func(r *Row) { r.Verdict = "approve" },
 		"Reason":           func(r *Row) { r.Reason = "because" },
 		"OpenedInWorkAt":   func(r *Row) { r.OpenedInWorkAt = "2026-08-17T00:00:00.000000000Z" },
 		"SelfApproval":     func(r *Row) { r.SelfApproval = true },
@@ -72,7 +74,7 @@ func TestChainHashCoversEveryField(t *testing.T) {
 	}
 	for field, change := range changes {
 		t.Run(field, func(t *testing.T) {
-			row := fixedRow()
+			row := original
 			change(&row)
 			if row.ChainHash() == base {
 				t.Fatalf("changing %s did not change the hash", field)
@@ -173,5 +175,35 @@ func TestShapesAndFormatsAgree(t *testing.T) {
 		if !named[s] {
 			t.Errorf("shape %q has no format version in Formats", s)
 		}
+	}
+}
+
+// The extended format fixes all eight added columns, including empty ones.
+func TestExtendedHashKeepsFieldPositions(t *testing.T) {
+	one := fixedRow()
+	one.FormatVersion = "decision/2"
+	one.ReturnsTo = "x"
+	other := one
+	other.ReturnsTo, other.Reading = "", "x"
+	if one.ChainHash() == other.ChainHash() {
+		t.Fatal("moving an extension value preserved the hash")
+	}
+	empty := fixedRow()
+	empty.FormatVersion = "decision/2"
+	if empty.ChainHash() == fixedRow().ChainHash() {
+		t.Fatal("changing the encoding version preserved the hash")
+	}
+}
+
+// This value pins the new encoding independently of the unchanged legacy
+// golden, so preserving old hashes cannot hide a change to the added fields.
+func TestExtendedChainHashIsFixed(t *testing.T) {
+	row := fixedRow()
+	row.FormatVersion, row.ReturnsTo = "decision/2", "implementation"
+	row.CallerKind, row.CallerKey, row.CallerKeyBasis = "agent", "model", "claimed"
+	row.CallerDispatchID, row.CallerScope = "dispatch", "scope"
+	const want = "e15ea4577aa30aa42e24e3271656bd332b6a435a09ce1761f8af48b301890cc1"
+	if got := row.ChainHash(); got != want {
+		t.Fatalf("extended ChainHash() = %q, want %q", got, want)
 	}
 }

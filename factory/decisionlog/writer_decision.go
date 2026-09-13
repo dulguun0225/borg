@@ -43,6 +43,9 @@ var (
 	// [Writer.AppendDecisionClose] for an entry naming when the row was
 	// opened in Work.
 	ErrOpenedInWorkAtRefused = errors.New("decisionlog: only a decision's closing names when the row was opened in Work")
+	// ErrOpenedInWorkAtMissing is returned for a human closing that omits
+	// when the actor opened the row in Work.
+	ErrOpenedInWorkAtMissing = errors.New("decisionlog: a human closing names when the row was opened in Work")
 	// ErrOpenedInWorkAtInvalid is returned by [Writer.AppendDecisionClose]
 	// for a non-empty OpenedInWorkAt that is not [record.TimeLayout].
 	ErrOpenedInWorkAtInvalid = errors.New("decisionlog: when the row was opened in Work is empty or record.TimeLayout")
@@ -121,6 +124,9 @@ func (w *Writer) AppendDecisionClose(ctx context.Context, e Entry) (Row, error) 
 	}
 	if (e.Verdict == "reject" || e.Verdict == "hold") && e.Reason == "" {
 		return Row{}, fmt.Errorf("%w: verdict %q", ErrReasonMissing, e.Verdict)
+	}
+	if e.Actor.Kind == record.KindHuman && e.OpenedInWorkAt == "" {
+		return Row{}, ErrOpenedInWorkAtMissing
 	}
 	if e.OpenedInWorkAt != "" {
 		if _, err := record.ParseTime(e.OpenedInWorkAt); err != nil {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
@@ -55,14 +56,46 @@ type Applied struct {
 // spellings together.
 const RolePromptOrSkillRow = "a_role_prompt_or_a_skill"
 
+// atGateAttempts bounds how often [Reader.AtGate] reads its answer again
+// after a policy write lands between its two reads. A firing that loses the
+// race that many times is refused with [ErrPolicyMoving] rather than spun.
+const atGateAttempts = 8
+
+// ErrPolicyMoving is returned by [Reader.AtGate] where a policy write committed
+// between its reads on every attempt it was allowed.
+var ErrPolicyMoving = errors.New("policy: the policy version moved on every read at the firing")
+
 // AtGate is what applies at one gate firing: the threshold in force for the row
 // and whether a safeguard adds a human. Both reads run at the moment of firing,
 // which is what the design requires of every check a gate makes.
 //
-// p names who is at the row, for whatever else composes it; naming the version
-// in force is not a read of the log — the version below is the copy the audit
-// trail keeps, and never what this reads, so no gate reads the log to fire.
+// p names who is at the row, for whatever else composes it. Naming the policy
+// version reads the settings record; score confirmations for authored
+// thresholds still require a log read through [score.InForceAt].
 func (r *Reader) AtGate(ctx context.Context, p principal.Principal, s Subjects) (Applied, error) {
+	for attempt := 0; ; attempt++ {
+		if attempt == atGateAttempts {
+			return Applied{}, ErrPolicyMoving
+		}
+		applied, err := r.atGate(ctx, s)
+		if err != nil {
+			return Applied{}, err
+		}
+		current, err := r.currentVersionID(ctx)
+		if err != nil {
+			return Applied{}, err
+		}
+		if current == applied.PolicyVersion {
+			return applied, nil
+		}
+		// A policy write committed between the reads; retry the whole answer.
+		if err := ctx.Err(); err != nil {
+			return Applied{}, err
+		}
+	}
+}
+
+func (r *Reader) atGate(ctx context.Context, s Subjects) (Applied, error) {
 	// The version is named on the open event for the trail and is not what the
 	// threshold is read from: the value in force is the field of the record its
 	// scope names. But a version is what that name can point at, and
@@ -150,7 +183,7 @@ func (r *Reader) authoredThreshold(ctx context.Context, s Subjects) (gatepolicy.
 	if s.EnvironmentID == "" || s.GateRow == "" {
 		return gatepolicy.Authored{}, Scope{}, nil
 	}
-	environmentID, err := r.thresholdEnvironment(ctx, s.EnvironmentID)
+	environmentID, err := r.thresholdEnvironment(ctx, s.EnvironmentID, s.GateRow)
 	if err != nil {
 		return gatepolicy.Authored{}, Scope{}, err
 	}
@@ -162,16 +195,17 @@ func (r *Reader) authoredThreshold(ctx context.Context, s Subjects) (gatepolicy.
 // fired against the environment named. A deploy row into a persistent
 // environment reads the environment it deploys into; every other row reads
 // production's, which exists everywhere and is there before the item is. The
-// two are told apart by the environment and not by the row: a candidate's own
+// two are told apart by the row and the environment: a candidate's own
 // environment is created at the gate that decides its deploy, so it cannot hold
 // the threshold that decides it, and every row fired against one reads
 // production's for that candidate's project.
-func (r *Reader) thresholdEnvironment(ctx context.Context, environmentID string) (string, error) {
+func (r *Reader) thresholdEnvironment(ctx context.Context, environmentID, gateRow string) (string, error) {
 	e, err := environment.Get(ctx, r.pool, environmentID)
 	if err != nil {
 		return "", err
 	}
-	if e.Kind.Persistent() {
+	if e.Kind.Persistent() && (gateRow == "deploy_to_production" ||
+		strings.HasPrefix(gateRow, "deploy_to_environment:")) {
 		return e.ID, nil
 	}
 	production, found, err := environment.Production(ctx, r.pool, e.ProjectID)

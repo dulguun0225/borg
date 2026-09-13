@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestAClosingClosesAnOpeningAndNothingElse is the closing's naming rule,
@@ -26,7 +28,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 	}
 
 	t.Run("a closing names something", func(t *testing.T) {
-		entry := decisionlog.Entry{Actor: owner, Payload: "a verdict over nothing", FormatVersion: "decision/1", Verdict: "approve"}
+		entry := decisionlog.Entry{Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "a verdict over nothing", FormatVersion: "decision/1", Verdict: "approve"}
 		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrClosesMissing) {
 			t.Errorf("a closing naming no row: %v, want ErrClosesMissing", err)
 		}
@@ -52,7 +54,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 
 	t.Run("the named row is an opening", func(t *testing.T) {
 		entry := decisionlog.Entry{
-			Actor: owner, Payload: "a verdict", FormatVersion: "decision/1", Verdict: "approve",
+			Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "a verdict", FormatVersion: "decision/1", Verdict: "approve",
 			Closes: "dl_00112233445566778899aabbccddeeff",
 		}
 		if _, err := log.AppendDecisionClose(ctx, entry); !errors.Is(err, decisionlog.ErrNotAnOpening) {
@@ -64,7 +66,7 @@ func TestAClosingClosesAnOpeningAndNothingElse(t *testing.T) {
 		}
 
 		closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-			Actor: owner, Payload: "a verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
+			Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "a verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
 		})
 		if err != nil {
 			t.Fatalf("AppendDecisionClose: %v", err)
@@ -94,13 +96,13 @@ func TestOneOpeningTakesOneClosing(t *testing.T) {
 		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "the verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "the verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
 	}); err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}
 
 	_, err = log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "a second verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "a second verdict", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
 	})
 	if !errors.Is(err, decisionlog.ErrAlreadyEnded) {
 		t.Errorf("a second closing through the method: %v, want ErrAlreadyEnded", err)
@@ -146,7 +148,7 @@ func TestAnAbandonmentEndsAnOpeningAndRefusesASecondEnding(t *testing.T) {
 	}
 
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "too late", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "too late", FormatVersion: "decision/1", Verdict: "approve", Closes: opening.ID,
 	}); !errors.Is(err, decisionlog.ErrAlreadyEnded) {
 		t.Errorf("a closing after an abandonment: %v, want ErrAlreadyEnded", err)
 	}
@@ -225,7 +227,7 @@ func TestARejectOrAHoldWithNoReasonIsRefused(t *testing.T) {
 			t.Fatalf("AppendDecisionOpen: %v", err)
 		}
 		if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-			Actor: owner, FormatVersion: "decision/1", Verdict: verdict, Closes: opening.ID,
+			Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), FormatVersion: "decision/1", Verdict: verdict, Closes: opening.ID,
 		}); !errors.Is(err, decisionlog.ErrReasonMissing) {
 			t.Errorf("a %s with no reason through the method: %v, want ErrReasonMissing", verdict, err)
 		}

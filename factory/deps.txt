@@ -607,7 +607,7 @@ test legalhold -> postgres lease service
 test redaction -> postgres lease legalhold erasurelist
 test window -> postgres lease
 test incident -> postgres lease environment secretref
-test people -> postgres lease erasurelist legalhold policy score
+test people -> postgres lease erasurelist legalhold policy score secretref
 test fleetentry -> postgres lease
 test notifier -> postgres decisionlog driftdetector factorysettings lastcheck lease people policy record service
 test healthmonitor -> postgres boundary build deploy environment item lease notifier people record release secretref targetseam window

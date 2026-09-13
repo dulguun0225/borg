@@ -306,7 +306,7 @@ func approveEveryPendingRow(t *testing.T, ctx context.Context, s *screenServer, 
 			continue
 		}
 		s.mustCall(t, "decide", screens.DecideArgs{
-			OpenEventID: opened.Row.ID, Verdict: string(gate.VerdictApprove),
+			OpenEventID: opened.Row.ID, Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
 		})
 		approved++
 	}

@@ -82,7 +82,9 @@ func TestASafeguardAddsAHumanWhateverTheNumberReads(t *testing.T) {
 	if _, err := g.AutoPass(ctx, opened); !errors.Is(err, gate.ErrHumanDecides) {
 		t.Fatalf("AutoPass over a firing a safeguard reached = %v, want ErrHumanDecides", err)
 	}
-	if _, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove}); err != nil {
+	if _, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	}); err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
 }
@@ -142,7 +144,10 @@ func TestAHoldCloses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictHold, Reason: "the dependency is not live"})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictHold, Reason: "the dependency is not live",
+		OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("Decide(hold): %v", err)
 	}
@@ -180,7 +185,9 @@ func TestARejectNamesTheStageItReturnsTo(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 	feedback := "the encoding of cr_0000000000000000000000000000000b asserts the code, not the criterion"
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictReject, Reason: feedback})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictReject, Reason: feedback, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("Decide(reject, feedback): %v", err)
 	}
@@ -222,16 +229,15 @@ func TestOpenedInWorkAtNamesWorkAsCaller(t *testing.T) {
 		t.Errorf("the closing's caller is %s %q, want the Work screen", closing.CallerKind, closing.CallerKey)
 	}
 
+	// A human's close event names when they opened the row in Work always: one
+	// naming none is refused rather than closing unmarked, which is C0847 and
+	// C0893 together.
 	second, err := g.Fire(ctx, mergeRowFiring(t, ctx, pool, token))
 	if err != nil {
 		t.Fatalf("Fire: %v", err)
 	}
-	plain, err := g.Decide(ctx, second, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
-	if err != nil {
-		t.Fatalf("Decide with no OpenedInWorkAt: %v", err)
-	}
-	if plain.CallerKind != "" || plain.CallerKey != "" {
-		t.Errorf("a verdict with no OpenedInWorkAt named a caller %s %q", plain.CallerKind, plain.CallerKey)
+	if _, err := g.Decide(ctx, second, gate.Given{Actor: owner, Verdict: gate.VerdictApprove}); !errors.Is(err, decisionlog.ErrOpenedInWorkAtMissing) {
+		t.Fatalf("Decide with no OpenedInWorkAt = %v, want ErrOpenedInWorkAtMissing", err)
 	}
 }
 

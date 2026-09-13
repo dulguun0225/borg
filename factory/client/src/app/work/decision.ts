@@ -182,7 +182,11 @@ export class DecisionScreen {
   protected refer(event: Event): void {
     event.preventDefault();
     void submit(this.referralForm, async () => {
-      await this.act('refer', { OpenEventID: this.id(), Reason: this.referral().Reason });
+      await this.act('refer', {
+        OpenEventID: this.id(),
+        Reason: this.referral().Reason,
+        OpenedInWorkAt: this.openedInWorkAt,
+      });
       return null;
     });
   }

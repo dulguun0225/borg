@@ -8,6 +8,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/lease"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -63,13 +64,14 @@ func TestTheTenShapesChainUnbroken(t *testing.T) {
 	}
 	rework, err := log.AppendReworkRequest(ctx, decisionlog.Entry{
 		Actor: gate, Payload: `{"names":"Spec","defect":"the spec says two things"}`, FormatVersion: "rework_request/1",
+		Reason: "the spec says two things", ReturnsTo: "spec",
 	})
 	if err != nil {
 		t.Fatalf("AppendReworkRequest: %v", err)
 	}
 	rejection, err := log.AppendQueueRejection(ctx, decisionlog.Entry{
 		Actor:   record.Actor{Kind: record.KindComponent, Key: "mergequeue", Basis: record.BasisClaimed},
-		Payload: `{"reading":"no longer passes"}`, FormatVersion: "queue_rejection/1",
+		Payload: `{"reading":"no longer passes"}`, FormatVersion: "queue_rejection/1", Reading: "no longer passes",
 	})
 	if err != nil {
 		t.Fatalf("AppendQueueRejection: %v", err)
@@ -103,7 +105,7 @@ func TestTheTenShapesChainUnbroken(t *testing.T) {
 	}
 	closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: owner, Payload: `{"note":"looks fine"}`, FormatVersion: "decision/1",
-		Closes: opening.ID, Verdict: "approve", OpenedInWorkAt: record.Now(),
+		Closes: opening.ID, Verdict: "approve", OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"),
 	})
 	if err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)

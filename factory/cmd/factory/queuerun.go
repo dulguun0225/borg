@@ -207,7 +207,7 @@ func (p *path) Unreliable(ctx context.Context, serviceID, criterionID string, bu
 	if err != nil {
 		return false, err
 	}
-	reliability, err := criterion.Unreliable(ctx, p.d.pool, criterionID, buildIDs, svc.UnreliableBound)
+	reliability, err := criterion.Unreliable(ctx, p.d.pool, criterionID, buildIDs, svc.UnreliableBound, nil, "")
 	if err != nil {
 		return false, err
 	}

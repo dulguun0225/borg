@@ -79,6 +79,7 @@ func TestARejectSupersedesEveryApprovalBelowItsTarget(t *testing.T) {
 	if _, err := g.Decide(ctx, opened, gate.Given{
 		Actor: owner, Verdict: gate.VerdictReject,
 		Reason: "the spec says two things", ReturnsTo: gate.ReturnsToSpec,
+		OpenedInWorkAt: openedInWorkAt,
 	}); err != nil {
 		t.Fatalf("Decide: %v", err)
 	}

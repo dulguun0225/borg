@@ -34,7 +34,9 @@ func TestFireThenApproveIsTwoChainedRows(t *testing.T) {
 	if !slices.Contains(opened.Marks, gate.MarkTheNumber) {
 		t.Errorf("the firing's marks are %v, want them to include the number", opened.Marks)
 	}
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}

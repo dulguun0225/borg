@@ -80,14 +80,14 @@ func HumanConfirmed(ctx context.Context, pool *pgxpool.Pool, serviceID string,
 // [_Factory_] counts every criterion admitted as an exception. It is the
 // in-force set narrowed to [PatternNoPattern], and a build with no items is no
 // criteria and no error, the way [InForce] reads that build.
-func CountNoPattern(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string) (int, error) {
+func CountNoPattern(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, rejectedSpecIDs ...string) (int, error) {
 	if len(itemIDs) == 0 {
 		return 0, nil
 	}
 	var count int
 	err := pool.QueryRow(ctx, `select count(*) from `+Table+`
-		where service_id = $1 and item_id = any($2) and pattern = $3`+notWithdrawn,
-		serviceID, itemIDs, string(PatternNoPattern)).Scan(&count)
+		where service_id = $1 and item_id = any($2) and pattern = $3`+inForceOn(4),
+		serviceID, itemIDs, string(PatternNoPattern), append([]string{}, rejectedSpecIDs...)).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("criterion: counting the no-pattern criteria of %s: %w", serviceID, err)
 	}
@@ -158,14 +158,14 @@ func WithdrawalsWithAnAuthority(ctx context.Context, pool *pgxpool.Pool,
 //
 // It is the in-force set narrowed, so it takes the same build — a service and
 // the set of items the build is made of — and no items is no criteria.
-func ForConstraint(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, constraintID string) ([]Criterion, error) {
+func ForConstraint(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, constraintID string, rejectedSpecIDs ...string) ([]Criterion, error) {
 	if len(itemIDs) == 0 || constraintID == "" {
 		return nil, nil
 	}
 	return query(ctx, pool, serviceID,
 		selectCriterion+` where service_id = $1 and item_id = any($2) and $3 = any(constraint_derived)`+
-			notWithdrawn+` order by at`,
-		serviceID, itemIDs, constraintID)
+			inForceOn(4)+` order by at`,
+		serviceID, itemIDs, constraintID, append([]string{}, rejectedSpecIDs...))
 }
 
 // UnderWithdrawnConstraints is every criterion in force for the build that was
@@ -177,14 +177,14 @@ func ForConstraint(ctx context.Context, pool *pgxpool.Pool, serviceID string, it
 // stand, so a rule no longer in force and still enforced is visible rather than
 // silent. Withdrawing such a criterion is an item like any other, and the
 // constraint's own withdrawal removes none of them.
-func UnderWithdrawnConstraints(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs, constraintIDs []string) ([]Criterion, error) {
+func UnderWithdrawnConstraints(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs, constraintIDs []string, rejectedSpecIDs ...string) ([]Criterion, error) {
 	if len(itemIDs) == 0 || len(constraintIDs) == 0 {
 		return nil, nil
 	}
 	return query(ctx, pool, serviceID,
 		selectCriterion+` where service_id = $1 and item_id = any($2) and constraint_derived && $3`+
-			notWithdrawn+` order by at`,
-		serviceID, itemIDs, constraintIDs)
+			inForceOn(4)+` order by at`,
+		serviceID, itemIDs, constraintIDs, append([]string{}, rejectedSpecIDs...))
 }
 
 // ControllingHazard is every criterion in force for the build that bounds the
@@ -193,14 +193,14 @@ func UnderWithdrawnConstraints(ctx context.Context, pool *pgxpool.Pool, serviceI
 // mechanical rejection is made from — a build in an area graded irreversible
 // with no criterion in force naming its operation. That rejection is
 // [CheckHazardControlled] below.
-func ControllingHazard(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, areaID string) ([]Criterion, error) {
+func ControllingHazard(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, areaID string, rejectedSpecIDs ...string) ([]Criterion, error) {
 	if len(itemIDs) == 0 || areaID == "" {
 		return nil, nil
 	}
 	return query(ctx, pool, serviceID,
 		selectCriterion+` where service_id = $1 and item_id = any($2) and hazard_derived = $3`+
-			notWithdrawn+` order by at`,
-		serviceID, itemIDs, areaID)
+			inForceOn(4)+` order by at`,
+		serviceID, itemIDs, areaID, append([]string{}, rejectedSpecIDs...))
 }
 
 // HazardUncontrolledError is the Spec gate's mechanical rejection: a build in
@@ -232,7 +232,7 @@ func (e *HazardUncontrolledError) Error() string {
 // before the two over the requirement field and closes the row on the first
 // that rejects.
 func CheckHazardControlled(ctx context.Context, pool *pgxpool.Pool,
-	serviceID string, itemIDs []string, areaID string, irreversible bool,
+	serviceID string, itemIDs []string, areaID string, irreversible bool, rejectedSpecIDs ...string,
 ) error {
 	if !irreversible {
 		return nil
@@ -240,12 +240,12 @@ func CheckHazardControlled(ctx context.Context, pool *pgxpool.Pool,
 	if areaID == "" {
 		return ErrAreaIDEmpty
 	}
-	controlling, err := ControllingHazard(ctx, pool, serviceID, itemIDs, areaID)
+	controlling, err := ControllingHazard(ctx, pool, serviceID, itemIDs, areaID, rejectedSpecIDs...)
 	if err != nil {
 		return err
 	}
-	if len(controlling) == 0 {
-		return &HazardUncontrolledError{AreaID: areaID}
+	if len(controlling) > 0 {
+		return nil
 	}
-	return nil
+	return &HazardUncontrolledError{AreaID: areaID}
 }

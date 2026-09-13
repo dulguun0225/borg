@@ -1,8 +1,7 @@
 // What makes a checkout could not derive or partial beside a mirror this
 // extractor can read: a call reaching an address outside the mirror convention
-// entirely, any call at all found with no mirror to read it against, and the two
-// constructs beside reflection and a string-keyed access this extractor records
-// rather than passes over. Reaches no database.
+// entirely, and the two constructs beside reflection and a string-keyed access
+// this extractor records rather than passes over. Reaches no database.
 package consumercontract_test
 
 import (
@@ -13,12 +12,10 @@ import (
 )
 
 // TestADirectNetworkCallOutsideTheMirrorConventionIsCouldNotDerive: a call into
-// a network client package the checkout imports — detected by the callee's own
-// import path, not by a name list, so an alias or an otherwise unlisted client
-// package cannot pass silently — is could not derive for the whole consumer
-// contract, naming the site, whatever its address argument is: a literal, a
-// plain variable, a value read from a field, or anything else, none of which
-// are traceable to a mirror's configured entry.
+// a recognized network client package is detected by the callee's import path,
+// so an alias cannot hide it, and is could not derive for the whole consumer
+// contract. A call through another imported package is detected where its
+// argument is an address this syntactic extractor can trace.
 func TestADirectNetworkCallOutsideTheMirrorConventionIsCouldNotDerive(t *testing.T) {
 	for name, of := range map[string]struct{ code string }{
 		"a literal address": {code: `package main
@@ -122,23 +119,32 @@ func main() {}
 	}
 }
 
-// TestAServiceThatMakesAnyCallWithNoMirrorIsCouldNotDerive: a service whose file
-// names no producer for an address it reaches is could not derive until its
-// entries are authored, which is the state an adopted service arrives in — and
-// that state is any call at all, absent a mirror to read it against.
-func TestAServiceThatMakesAnyCallWithNoMirrorIsCouldNotDerive(t *testing.T) {
-	dir := checkout(t, map[string]string{
-		"main.go": `package main
+// TestCallsThatReachNoProducerNeedNoMirror: a call alone does not imply a
+// producer edge. Local computation and standard output have no address for a
+// configuration entry to name, so both derive the complete empty contract of
+// a service that consumes nothing.
+func TestCallsThatReachNoProducerNeedNoMirror(t *testing.T) {
+	for name, code := range map[string]string{
+		"local computation": `package main
+
+func twice(n int) int { return n * 2 }
+
+func main() { _ = twice(2) }
+`,
+		"standard output": `package main
 
 import "fmt"
 
 func main() { fmt.Println("hello") }
 `,
-	})
-	d, _ := derived(t, dir)
-	if !d.CouldNotDerive() || d.Reported == "" {
-		t.Fatalf("a checkout that calls something with no mirror and no %s derived %s, want could not derive",
-			consumercontract.ConfigurationFile, d.Describe())
+	} {
+		t.Run(name, func(t *testing.T) {
+			d, got := derived(t, checkout(t, map[string]string{"main.go": code}))
+			if d.CouldNotDerive() || d.Partial() || len(got) != 0 {
+				t.Fatalf("a checkout whose calls reach no producer derived %s with %v, want complete and empty",
+					d.Describe(), got)
+			}
+		})
 	}
 }
 

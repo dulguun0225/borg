@@ -68,7 +68,7 @@ func TestALegalHoldEndsOnlyAtTheRowThatDecidesItsWithdrawal(t *testing.T) {
 	before := decisionCount(t, ctx, d.pool)
 	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
 		RowKind: gate.LegalHoldWithdrawal.String(), RecordID: withdrawalID,
-		Verdict: string(gate.VerdictApprove),
+		Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
 	})
 	reaching, err = legalhold.Reaching(ctx, d.pool, subject)
 	if err != nil {

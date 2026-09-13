@@ -315,6 +315,7 @@ export interface ApproveThroughHoldArgs {
 export interface ReferArgs {
   OpenEventID: string;
   Reason: string;
+  OpenedInWorkAt: Instant;
 }
 
 export interface EditInPlaceArgs {

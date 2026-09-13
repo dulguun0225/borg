@@ -25,3 +25,4 @@ node_modules
 
 # Scratch of the plan-execution tooling: ledgers, briefs, review packages.
 .superpowers/
+temp.md

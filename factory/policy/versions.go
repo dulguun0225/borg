@@ -118,11 +118,11 @@ func (r *Reader) AuthoredAutoPassRate(ctx context.Context, p principal.Principal
 	}
 	for n := len(versions) - 1; n >= 0; n-- {
 		v := versions[n]
-		if v.Parameter != gatepolicy.RiskThreshold || len(v.AutoPassRates) == 0 {
+		if v.Parameter != gatepolicy.RiskThreshold || v.Action != ActionAuthored {
 			continue
 		}
 		if v.Scope.Kind == scope.Kind && v.Scope.ID == scope.ID && v.Scope.Key == gateRow {
-			return v.AutoPassRates, true, nil
+			return v.AutoPassRates, len(v.AutoPassRates) != 0, nil
 		}
 	}
 	return nil, false, nil

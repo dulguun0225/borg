@@ -117,8 +117,9 @@ func (s Scope) String() string {
 	return s.Kind + ":" + s.ID + ":" + s.Key
 }
 
-// AuthoredValue is one authored parameter as a version names it: the parameter,
-// the scope it was authored on, and the value.
+// AuthoredValue is one authored field as a version names it: the parameter,
+// the scope it was authored on, and the value. Provisioning has no gate-policy
+// parameter and names the service's provisioned key with its credential list.
 type AuthoredValue struct {
 	Parameter gatepolicy.Parameter `json:"parameter"`
 	Scope     Scope                `json:"scope"`
@@ -318,9 +319,9 @@ func versionOf(row decisionlog.Row) (Version, error) {
 //
 // The time of the call is not in it, because a key that carried the time would
 // differ at every repeat and there would be no repeated step to recognise. The
-// comparison is against the version in force and not against every version ever
-// appended, so an owner who sets a value, sets another, and sets the first again
-// writes all three.
+// comparison for a mutable value is against the version in force, so setting
+// a value, another, and the first again writes all three. Record creations
+// additionally search history to preserve their original minted identity.
 func writeKey(caller Caller, actor record.Actor, action Action, parameter gatepolicy.Parameter,
 	scope Scope, number float64, list []string, named string) string {
 	h := sha256.New()

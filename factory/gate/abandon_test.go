@@ -56,7 +56,9 @@ func TestAbandonRequiresAReasonAndEndsTheDecision(t *testing.T) {
 
 	// A close on an abandoned row is refused by the writer's own rule: the
 	// decision already ended without a verdict.
-	if _, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove}); err == nil {
+	if _, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	}); err == nil {
 		t.Error("Decide on an abandoned row was accepted")
 	}
 }

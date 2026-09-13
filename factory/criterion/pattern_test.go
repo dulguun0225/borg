@@ -44,6 +44,15 @@ func TestClassifyIsCaseInsensitiveOnTheKeywords(t *testing.T) {
 func TestClassifyRefusesASentenceFittingNoPattern(t *testing.T) {
 	for _, sentence := range []string{
 		"The checkout page loads fast.",
+		"The system shall ",
+		"The system shall .",
+		"When , the system shall respond.",
+		"When an event arrives, the system shall ",
+		"While , when an event arrives, the system shall respond.",
+		"While running, when , the system shall respond.",
+		"If , then the system shall respond.",
+		"Where , the system shall respond.",
+		"The system shall respond. The system shall store the input.",
 		"While a deploy is running, nothing else happens.",
 		"",
 	} {

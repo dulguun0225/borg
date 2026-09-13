@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -236,24 +237,24 @@ func ResultsForBuild(ctx context.Context, pool *pgxpool.Pool, buildID string) ([
 		selectResult+` where build_id = $1 order by run, at, criterion_id`, buildID)
 }
 
-// Latest is what a gate reads: per criterion, the row of that criterion's
-// highest run. It is per criterion and not the highest run of the build,
-// because a criterion the build's own process decided has one row at run 0 and
-// no later one — a build that also ran on its candidate environment would
-// otherwise report nothing about it.
+// Latest is what a gate reads: the build's own run and the latest candidate
+// environment run, one row per criterion, the candidate run's result standing
+// where both decided one. A criterion missing from that candidate run has no
+// current result; carrying an older result forward would hide a missing
+// execution.
 func Latest(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]Result, error) {
 	return readResults(ctx, pool, buildID,
-		`select distinct on (criterion_id) id, actor_kind, actor_key, actor_key_basis, at,
-			build_id, run, criterion_id, outcome, place, composition
-		from `+ResultTable+` where build_id = $1 order by criterion_id, run desc`, buildID)
+		`select distinct on (criterion_id) `+strings.TrimPrefix(selectResult, "select ")+
+			` where build_id = $1 and (place = 'build' or
+			run = (select max(run) from `+ResultTable+` where build_id = $1 and place = 'candidate_environment'))
+			order by criterion_id, run desc`, buildID)
 }
 
 // LatestRun is the highest run number recorded for one build, across every
 // criterion and place, and 0 where none is recorded yet — the build's own
 // process is run 0, so a build that has not reached the candidate environment
 // reads the same as one with no results at all. It is the single number a
-// gate reads about the run itself, as against [Latest]'s per-criterion form,
-// which the outcome history and undecided still need.
+// gate reads about the run itself, alongside [Latest]'s result rows.
 func LatestRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, error) {
 	var highest int
 	if err := pool.QueryRow(ctx, `select coalesce(max(run), 0) from `+ResultTable+` where build_id = $1`, buildID).

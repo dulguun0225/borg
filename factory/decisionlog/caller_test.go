@@ -103,3 +103,21 @@ func TestOpenedInWorkAtNamesWorkAsCaller(t *testing.T) {
 		t.Fatalf("a refused row reached the log: %v", err)
 	}
 }
+
+func TestAHumanCloseRequiresWhenTheRowWasOpenedInWork(t *testing.T) {
+	ctx, pool, log, _ := newLog(t)
+	opening, err := log.AppendDecisionOpen(ctx, decisionlog.Entry{Actor: gate, FormatVersion: "decision/1", PolicyVersion: "p", ScoreVersion: "s"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{Actor: owner, FormatVersion: "decision/1", Closes: opening.ID, Verdict: "approve", Principal: principal.OfComponent("work")}); !errors.Is(err, decisionlog.ErrOpenedInWorkAtMissing) {
+		t.Fatalf("human close without opened time: %v", err)
+	}
+	bad := aRow()
+	bad.Actor, bad.Shape, bad.Part, bad.FormatVersion = owner, decisionlog.ShapeDecision, decisionlog.PartClose, "decision/2"
+	bad.Closes, bad.Verdict = opening.ID, "approve"
+	bad.CallerKind, bad.CallerKey, bad.CallerKeyBasis = "component", "work", "claimed"
+	if got := refusedBy(t, insertAround(ctx, pool, bad)); got != "human_close_opened_in_work_at_required" {
+		t.Fatalf("SQL refusal = %q", got)
+	}
+}

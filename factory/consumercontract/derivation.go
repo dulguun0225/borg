@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/dulguun0225/borg/factory/record"
 )
@@ -81,8 +82,11 @@ func Extractors(factoryVersion string, convention ...string) []Extractor {
 // ExtractorFor is the extractor this factory version ships for a toolchain, and
 // false where none covers it — which is [CauseNoExtractor], the could-not-derive
 // cause that lifts when an extractor ships and takes no item on the consumer.
-func ExtractorFor(toolchain, factoryVersion string) (Extractor, bool) {
-	for _, e := range Extractors(factoryVersion) {
+// convention is what [Extractors] takes: the composed Go convention, which the
+// extractor publishes with itself, so a caller resolving by toolchain publishes
+// the same fact the one enumerating them does.
+func ExtractorFor(toolchain, factoryVersion string, convention ...string) (Extractor, bool) {
+	for _, e := range Extractors(factoryVersion, convention...) {
 		if e.Toolchain == toolchain {
 			return e, true
 		}
@@ -195,8 +199,15 @@ func (d Derived) validate(of Of) error {
 	if d.Cause != "" && !slices.Contains(Causes, d.Cause) {
 		return fmt.Errorf("%w: %q is neither of the two causes", ErrDerivationIncomplete, d.Cause)
 	}
-	if d.Cause == "" && d.Extractor.Name == "" {
-		return fmt.Errorf("%w: it names neither an extractor nor a cause", ErrDerivationIncomplete)
+	if d.Cause != CauseNoExtractor {
+		for _, required := range []struct{ what, value string }{
+			{"extractor", d.Extractor.Name}, {"extractor version", d.Extractor.Version},
+			{"factory version", d.Extractor.FactoryVersion},
+		} {
+			if strings.TrimSpace(required.value) == "" {
+				return fmt.Errorf("%w: it names no %s", ErrDerivationIncomplete, required.what)
+			}
+		}
 	}
 	if d.Cause != "" && len(d.Drafts) > 0 {
 		return fmt.Errorf("%w: it could not derive and carries %d predicate(s)",

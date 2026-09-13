@@ -30,8 +30,12 @@ import (
 // area is a build no hazard rejection reaches.
 func (p *path) specRejection(ctx context.Context, c *candidate) (check, found string, err error) {
 	build := []string{c.itemID}
+	rejected, err := p.rejectedSpecs(ctx)
+	if err != nil {
+		return "", "", err
+	}
 	irreversible := c.hazard.AreaID != ""
-	err = criterion.CheckHazardControlled(ctx, p.d.pool, c.svc.ID, build, c.hazard.AreaID, irreversible)
+	err = criterion.CheckHazardControlled(ctx, p.d.pool, c.svc.ID, build, c.hazard.AreaID, irreversible, rejected...)
 	var uncontrolled *criterion.HazardUncontrolledError
 	switch {
 	case errors.As(err, &uncontrolled):
@@ -39,7 +43,7 @@ func (p *path) specRejection(ctx context.Context, c *candidate) (check, found st
 	case err != nil:
 		return "", "", err
 	}
-	inForce, err := criterion.InForce(ctx, p.d.pool, c.svc.ID, build)
+	inForce, err := criterion.InForce(ctx, p.d.pool, c.svc.ID, build, rejected...)
 	if err != nil {
 		return "", "", err
 	}

@@ -3,6 +3,7 @@ package consumercontract
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -161,6 +162,9 @@ func Range(argument string) (float64, float64, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("%w: the high end of %q is not a number", ErrArgumentUnreadable, argument)
 	}
+	if math.IsNaN(from) || math.IsNaN(to) || math.IsInf(from, 0) || math.IsInf(to, 0) {
+		return 0, 0, fmt.Errorf("%w: range endpoints must be finite", ErrArgumentUnreadable)
+	}
 	if from > to {
 		return 0, 0, fmt.Errorf("%w: the range %q has its ends the wrong way round", ErrArgumentUnreadable, argument)
 	}
@@ -296,6 +300,9 @@ func (p Predicate) AgainstExchange(documents []Document) Result {
 	for at, d := range documents {
 		value, carried := d[p.Element]
 		if !carried {
+			if p.Kind == gatepolicy.PredicatePopulated || (p.Kind == gatepolicy.PredicateSent && p.Argument == Sent) {
+				return Result{Predicate: p, Decided: true, Why: fmt.Sprintf("exchange %d does not carry %s", at+1, p.Element)}
+			}
 			continue
 		}
 		present++
@@ -303,6 +310,9 @@ func (p Predicate) AgainstExchange(documents []Document) Result {
 			return Result{Predicate: p, Decided: true,
 				Why: fmt.Sprintf("exchange %d: %s", at+1, why)}
 		}
+	}
+	if p.Kind == gatepolicy.PredicateSent && p.Argument == LeftOut {
+		return Result{Predicate: p, Decided: true, Held: true}
 	}
 	if present == 0 {
 		switch p.Kind {
@@ -333,10 +343,12 @@ func violates(p Predicate, value any) string {
 			return fmt.Sprintf("the name %s does not carry the unit %s", p.Element, p.Argument)
 		}
 		return ""
-	case gatepolicy.PredicatePopulated, gatepolicy.PredicateSent:
-		if p.Kind == gatepolicy.PredicateSent && p.Argument == LeftOut {
+	case gatepolicy.PredicateSent:
+		if p.Argument == LeftOut {
 			return p.Element + " is carried and this consumer leaves it out"
 		}
+		return ""
+	case gatepolicy.PredicatePopulated:
 		switch v := value.(type) {
 		case nil:
 			return p.Element + " is null"

@@ -57,7 +57,9 @@ const AdvisoryLockKey int64 = 0x5888022f314e314d
 // the store around it. acknowledgement_actor_human, abandonment_actor_component
 // and wait_open_actor_component are the same shape of rule for the other
 // three parts a kind of actor is fixed for: only a human acknowledges, only a
-// component abandons, and only a component opens a wait.
+// component abandons, and a component opens a wait. The agent credential
+// failure exception requires a matching caller, dispatch, scope, and a JSON
+// payload naming kind credential_unreachable and the credential_name.
 //
 // returns_to_scope allows a returns_to only on a decision's closing where the
 // verdict is reject, or on a rework request; returns_to_required is a rework
@@ -143,63 +145,17 @@ var DDL = []string{
 		(shape = 'decision' and part = 'closing' and verdict in ('approve', 'reject', 'hold', 'refer'))
 		or (not (shape = 'decision' and part = 'closing') and verdict = '')
 	),
-	constraint reason_scope check (
-		(shape = 'decision' and part in ('closing', 'abandonment')) or shape = 'rework_request' or reason = ''
-	),
-	constraint reason_required check (
-		not (shape = 'decision' and part = 'closing' and verdict in ('reject', 'hold') and reason = '')
-		and not (shape = 'decision' and part = 'abandonment' and reason = '')
-		and not (shape = 'rework_request' and reason = '')
-	),
 	constraint opened_in_work_at_scope check (
 		(shape = 'decision' and part = 'closing') or opened_in_work_at = ''
 	),
 	constraint opened_in_work_at_is_time_or_empty check (
 		opened_in_work_at = '' or opened_in_work_at ~ '` + record.TimePattern + `'
 	),
-	constraint opened_in_work_at_caller_is_work check (
-		opened_in_work_at = '' or (caller_kind = 'component' and caller_key = 'work')
-	),
 	constraint self_approval_scope check (
 		self_approval = false or (shape = 'decision' and part = 'closing')
 	),
 	constraint acknowledgement_actor_human check (
 		part <> 'acknowledgement' or actor_kind = 'human'
-	),
-	constraint abandonment_actor_component check (
-		part <> 'abandonment' or actor_kind = 'component'
-	),
-	constraint wait_open_actor_component check (
-		not (shape = 'wait' and part = 'opening') or actor_kind = 'component'
-	),
-	constraint returns_to_scope check (
-		(shape = 'decision' and part = 'closing' and verdict = 'reject')
-		or shape = 'rework_request' or returns_to = ''
-	),
-	constraint returns_to_required check (
-		not (shape = 'rework_request' and returns_to = '')
-	),
-	constraint reading_scope check (
-		shape = 'queue_rejection' or reading = ''
-	),
-	constraint reading_required check (
-		not (shape = 'queue_rejection' and reading = '')
-	),
-	constraint moved_release_scope check (
-		shape = 'queue_rejection' or moved_release = ''
-	),
-	constraint caller_present_together check (
-		(caller_kind = '') = (caller_key = '') and (caller_kind = '') = (caller_key_basis = '')
-	),
-	constraint caller_kind_known check (
-		caller_kind = '' or caller_kind in ('human', 'component', 'agent')
-	),
-	constraint caller_key_basis_known check (
-		caller_key_basis = '' or caller_key_basis in ('claimed', 'verified')
-	),
-	constraint caller_dispatch_scope_matches_kind check (
-		(caller_kind = 'agent' and caller_dispatch_id <> '' and caller_scope <> '')
-		or (caller_kind <> 'agent' and caller_dispatch_id = '' and caller_scope = '')
 	)
 )`,
 
@@ -215,9 +171,146 @@ var DDL = []string{
 	`alter table ` + Table + ` add column if not exists caller_dispatch_id text not null default ''`,
 	`alter table ` + Table + ` add column if not exists caller_scope text not null default ''`,
 
+	// Reapply changed rules to existing tables without rewriting or rejecting
+	// historical rows. NOT VALID still checks every future insert and update.
+	`alter table ` + Table + ` drop constraint if exists reason_scope`,
+	`alter table ` + Table + ` add constraint reason_scope check (
+		(shape = 'decision' and part in ('closing', 'abandonment')) or shape = 'rework_request' or reason = ''
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists reason_required`,
+	`alter table ` + Table + ` add constraint reason_required check (
+		not (shape = 'decision' and part = 'closing' and verdict in ('reject', 'hold') and reason = '')
+		and not (shape = 'decision' and part = 'abandonment' and reason = '')
+		and not (shape = 'rework_request' and reason = '')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists human_close_opened_in_work_at_required`,
+	`alter table ` + Table + ` add constraint human_close_opened_in_work_at_required check (
+  not (shape = 'decision' and part = 'closing' and actor_kind = 'human') or opened_in_work_at <> ''
+ ) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists opened_in_work_at_caller_is_work`,
+	`alter table ` + Table + ` add constraint opened_in_work_at_caller_is_work check (
+		opened_in_work_at = '' or (caller_kind = 'component' and caller_key = 'work')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists abandonment_actor_component`,
+	`alter table ` + Table + ` add constraint abandonment_actor_component check (
+		part <> 'abandonment' or actor_kind = 'component'
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists wait_open_actor_component`,
+	`alter table ` + Table + ` add constraint wait_open_actor_component check (
+		not (shape = 'wait' and part = 'opening') or actor_kind = 'component'
+		or (actor_kind = 'agent' and caller_kind = actor_kind and caller_key = actor_key
+			and caller_key_basis = actor_key_basis and caller_dispatch_id <> '' and caller_scope <> ''
+			and case when payload is json object then coalesce(
+				payload::jsonb ->> 'kind' = 'credential_unreachable'
+				and jsonb_typeof(payload::jsonb -> 'credential_name') = 'string'
+				and payload::jsonb ->> 'credential_name' <> '', false) else false end)
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists returns_to_scope`,
+	`alter table ` + Table + ` add constraint returns_to_scope check (
+		(shape = 'decision' and part = 'closing' and verdict = 'reject')
+		or shape = 'rework_request' or returns_to = ''
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists returns_to_required`,
+	`alter table ` + Table + ` add constraint returns_to_required check (
+		not (shape = 'rework_request' and returns_to = '')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists reading_scope`,
+	`alter table ` + Table + ` add constraint reading_scope check (
+		shape = 'queue_rejection' or reading = ''
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists reading_required`,
+	`alter table ` + Table + ` add constraint reading_required check (
+		not (shape = 'queue_rejection' and reading = '')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists moved_release_scope`,
+	`alter table ` + Table + ` add constraint moved_release_scope check (
+		shape = 'queue_rejection' or moved_release = ''
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists caller_present_together`,
+	`alter table ` + Table + ` add constraint caller_present_together check (
+		(caller_kind = '') = (caller_key = '') and (caller_kind = '') = (caller_key_basis = '')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists caller_kind_known`,
+	`alter table ` + Table + ` add constraint caller_kind_known check (
+		caller_kind = '' or caller_kind in ('human', 'component', 'agent')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists caller_key_basis_known`,
+	`alter table ` + Table + ` add constraint caller_key_basis_known check (
+		caller_key_basis = '' or caller_key_basis in ('claimed', 'verified')
+	) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists caller_dispatch_scope_matches_kind`,
+	`alter table ` + Table + ` add constraint caller_dispatch_scope_matches_kind check (
+		(caller_kind = 'agent' and caller_dispatch_id <> '' and caller_scope <> '')
+		or (caller_kind <> 'agent' and caller_dispatch_id = '' and caller_scope = '')
+	) not valid`,
+
 	`alter table ` + Table + ` drop constraint if exists format_version_matches_shape`,
 	`alter table ` + Table + ` add constraint format_version_matches_shape check (` +
 		formatVersionMatchesShape + `) not valid`,
+
+	`alter table ` + Table + ` drop constraint if exists structured_fields_match_format`,
+	`alter table ` + Table + ` add constraint structured_fields_match_format check (
+  format_version not in (
+   'decision/1', 'page_event/1', 'page_event/2', 'wait/1', 'rework_request/1',
+   'queue_rejection/1', 'truncation/1', 'policy_version/1', 'score_version/1',
+   'install_event/1', 'read_event/1'
+  ) or (
+   returns_to = '' and reading = '' and moved_release = '' and caller_kind = ''
+   and caller_key = '' and caller_key_basis = '' and caller_dispatch_id = '' and caller_scope = ''
+  )
+ ) not valid`,
+
+	// This rule compares a human's wait closing against its opening — the
+	// ceiling clear and the commit acceptance, the two the design has a human
+	// end at Work — so a trigger enforces it where a CHECK cannot read another
+	// row.
+	`create or replace function decision_log_check_wait_close() returns trigger language plpgsql as $$
+ declare opening_payload text;
+ begin
+  if new.actor_kind <> 'human' or new.caller_kind <> 'component' or new.caller_key <> 'work'
+   or not (new.payload is json object) then
+   raise exception 'wait close requires a component or a human at Work clearing a ceiling or accepting a commit'
+    using errcode = '23514', constraint = 'wait_close_actor_component';
+  end if;
+  select payload into opening_payload from decision_log
+   where id = new.closes and shape = 'wait' and part = 'opening';
+  if not found or not (opening_payload is json object) then
+   raise exception 'human wait close names no wait opening with a payload'
+    using errcode = '23514', constraint = 'wait_close_actor_component';
+  end if;
+  if not coalesce(
+   ((opening_payload::jsonb ->> 'kind' = 'credential_at_ceiling'
+     and jsonb_typeof(opening_payload::jsonb -> 'credential_name') = 'string'
+     and opening_payload::jsonb ->> 'credential_name' <> ''
+     and jsonb_typeof(opening_payload::jsonb -> 'period_start') = 'string'
+     and opening_payload::jsonb ->> 'period_start' <> '')
+    or (opening_payload::jsonb ->> 'kind' = 'master holds a commit the queue did not make'
+     and jsonb_typeof(opening_payload::jsonb -> 'commit') = 'string'
+     and opening_payload::jsonb ->> 'commit' <> ''))
+   and new.payload::jsonb = opening_payload::jsonb, false) then
+   raise exception 'human wait close does not repeat the ceiling or commit opening it ends'
+    using errcode = '23514', constraint = 'wait_close_actor_component';
+  end if;
+  return new;
+ end $$`,
+	`drop trigger if exists decision_log_wait_close_actor on ` + Table,
+	`create trigger decision_log_wait_close_actor before insert or update on ` + Table + `
+  for each row when (new.shape = 'wait' and new.part = 'closing' and new.actor_kind <> 'component')
+  execute function decision_log_check_wait_close()`,
 
 	`create unique index if not exists decision_log_one_closing on ` + Table +
 		` (closes) where shape = 'decision' and part = 'closing'`,
@@ -241,14 +334,25 @@ var DDL = []string{
 // stricter rule than the one being added and a scan could find nothing.
 const formatVersionMatchesShape = `
 		(format_version = 'decision/1' and shape = 'decision')
+		or (format_version = 'decision/2' and shape = 'decision')
 		or (format_version = 'page_event/2' and shape = 'page_event')
+		or (format_version = 'page_event/3' and shape = 'page_event')
+		or (format_version = 'page_event/4' and shape = 'page_event')
 		or (format_version = 'page_event/1' and shape = 'page_event')
 		or (format_version = 'wait/1' and shape = 'wait')
+		or (format_version = 'wait/2' and shape = 'wait')
 		or (format_version = 'rework_request/1' and shape = 'rework_request')
+		or (format_version = 'rework_request/2' and shape = 'rework_request')
 		or (format_version = 'queue_rejection/1' and shape = 'queue_rejection')
+		or (format_version = 'queue_rejection/2' and shape = 'queue_rejection')
 		or (format_version = 'truncation/1' and shape = 'truncation')
+		or (format_version = 'truncation/2' and shape = 'truncation')
 		or (format_version = 'policy_version/1' and shape = 'policy_version')
+		or (format_version = 'policy_version/2' and shape = 'policy_version')
 		or (format_version = 'score_version/1' and shape = 'score_version')
+		or (format_version = 'score_version/2' and shape = 'score_version')
 		or (format_version = 'install_event/1' and shape = 'install_event')
+		or (format_version = 'install_event/2' and shape = 'install_event')
 		or (format_version = 'read_event/1' and shape = 'read_event')
+		or (format_version = 'read_event/2' and shape = 'read_event')
 	`

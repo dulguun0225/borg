@@ -53,7 +53,7 @@ func TestAReferredRowIsRefusedWherePriorAppendsLeaveAnotherRowOfItsOwnPending(t 
 		t.Fatalf("appending the phantom pending row: %v", err)
 	}
 
-	if _, err := g.Refer(ctx, opened, author, "I cannot judge this myself", merging); !errors.Is(err, gate.ErrRowPending) {
+	if _, err := g.Refer(ctx, opened, author, "I cannot judge this myself", openedInWorkAt, merging); !errors.Is(err, gate.ErrRowPending) {
 		t.Errorf("a refer whose re-firing finds another pending row of its own = %v, want ErrRowPending", err)
 	}
 }

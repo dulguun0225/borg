@@ -9,7 +9,8 @@
 // hand.
 //
 // safeguard.go holds the vocabulary and [Writer.Insert]; query.go holds the
-// reads, [BySubjects] and [All]. [SubjectKind] is what a safeguard is drawn
+// reads, [BySubjects], [BySubjectsInTx] and [All]. The transaction read
+// includes the writer's uncommitted additions and approved withdrawals. [SubjectKind] is what a safeguard is drawn
 // on and [SubjectKinds] is the nine the design names: a
 // stage, a service, a project, an area, a contract element (named by its
 // contract's id and the element's name, so a safeguard outlives the element

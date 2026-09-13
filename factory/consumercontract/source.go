@@ -68,6 +68,7 @@ import (
 type consumerSource struct {
 	reads      map[string]bool
 	writes     map[string]bool
+	values     map[string][]ast.Expr
 	calls      map[string]bool
 	unfollowed []string
 	// directCall is what a call outside the mirror convention names, once one
@@ -125,25 +126,27 @@ func readSource(root string, returns map[string]string, storeTypes map[string]bo
 	}
 	source := consumerSource{
 		reads: map[string]bool{}, writes: map[string]bool{}, calls: map[string]bool{},
-		storeTypes: storeTypes,
+		storeTypes: storeTypes, values: map[string][]ast.Expr{},
 	}
 	fset := token.NewFileSet()
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+		if entry.IsDir() {
+			if err := rejectNestedSource(filepath.Join(root, name)); err != nil {
+				return consumerSource{}, err
+			}
+			continue
+		}
+		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
 		if _, ok := named(name); ok {
 			// The mirror is the shape being read against, not a use of it.
 			continue
 		}
-		parsed, err := parser.ParseFile(fset, filepath.Join(root, name), nil, parser.ParseComments|parser.SkipObjectResolution)
+		parsed, err := parser.ParseFile(fset, filepath.Join(root, name), nil, parser.ParseComments)
 		if err != nil {
-			// A file that does not parse is not something to read a consumer's
-			// assumptions out of, and it is not this extractor's to refuse
-			// either: the build has to compile one step earlier, and a mirror
-			// that does not parse is refused by name.
-			continue
+			return consumerSource{}, fmt.Errorf("%s does not parse: %v", name, err)
 		}
 		if isGenerated(parsed) {
 			source.cannotFollow(fmt.Sprintf("a generated accessor in %s", name))
@@ -209,86 +212,6 @@ func (s *consumerSource) walk(parsed *ast.File, file string, returns map[string]
 	}
 }
 
-// walkNode is one declaration or one function body, with the variable types in
-// scope for it.
-func (s *consumerSource) walkNode(node ast.Node, file string, varTypes map[string]string, returns map[string]string) {
-	written := map[ast.Node]bool{}
-	// tainted is, for a variable this declaration assigns, what
-	// [consumerSource.addressFlowsFrom] traced its value back to, scoped to this
-	// declaration the way varTypes is.
-	tainted := map[string]string{}
-	ast.Inspect(node, func(node ast.Node) bool {
-		switch n := node.(type) {
-		case *ast.AssignStmt:
-			for i, target := range n.Lhs {
-				if ident, ok := target.(*ast.Ident); ok && i < len(n.Rhs) {
-					if typeName, ok := typeOfExpr(n.Rhs[i], returns); ok {
-						varTypes[ident.Name] = typeName
-					}
-					if reason, ok := s.addressFlowsFrom(n.Rhs[i], varTypes); ok {
-						tainted[ident.Name] = reason
-					}
-				}
-				if selector, ok := target.(*ast.SelectorExpr); ok && selector.Sel != nil {
-					if typeName, ok := receiverType(selector.X, varTypes); ok {
-						s.writes[typeName+"."+selector.Sel.Name] = true
-					}
-					written[selector] = true
-				}
-			}
-		case *ast.CompositeLit:
-			typeName, hasType := identName(n.Type)
-			for _, element := range n.Elts {
-				pair, ok := element.(*ast.KeyValueExpr)
-				if !ok {
-					continue
-				}
-				if key, ok := pair.Key.(*ast.Ident); ok && hasType {
-					s.writes[typeName+"."+key.Name] = true
-				}
-			}
-		case *ast.CallExpr:
-			if selector, ok := n.Fun.(*ast.SelectorExpr); ok && selector.Sel != nil {
-				if typeName, ok := receiverType(selector.X, varTypes); ok {
-					s.calls[typeName+"."+selector.Sel.Name] = true
-				}
-				written[selector] = true
-				s.checkDirectCall(n, selector, file, tainted)
-			}
-			if ident, ok := n.Fun.(*ast.Ident); ok {
-				s.calls[ident.Name] = true
-			}
-		case *ast.SelectorExpr:
-			if n.Sel == nil {
-				return true
-			}
-			if ident, ok := n.X.(*ast.Ident); ok && ident.Name == "reflect" {
-				s.cannotFollow(fmt.Sprintf("a read through reflection in %s", file))
-			}
-			if !written[n] {
-				if typeName, ok := receiverType(n.X, varTypes); ok {
-					s.reads[typeName+"."+n.Sel.Name] = true
-				}
-			}
-		case *ast.IndexExpr:
-			if key, ok := n.Index.(*ast.BasicLit); ok && key.Kind == token.STRING {
-				name, err := strconv.Unquote(key.Value)
-				if err == nil {
-					s.cannotFollow(fmt.Sprintf("a string-keyed access to %q in %s", name, file))
-				}
-			}
-			if call, ok := n.Index.(*ast.CallExpr); ok {
-				if selector, ok := call.Fun.(*ast.SelectorExpr); ok && selector.Sel != nil {
-					if pkg, ok := selector.X.(*ast.Ident); ok && configRead(pkg.Name, selector.Sel.Name) {
-						s.cannotFollow(fmt.Sprintf("a mapping read from configuration in %s", file))
-					}
-				}
-			}
-		}
-		return true
-	})
-}
-
 // checkDirectCall records the first call resolved through an import — never a
 // mirror's own operation, which this file calls through a local receiver or a
 // bare local name — that reaches outside the mirror convention entirely: a
@@ -304,7 +227,7 @@ func (s *consumerSource) checkDirectCall(call *ast.CallExpr, selector *ast.Selec
 		return
 	}
 	pkg, ok := selector.X.(*ast.Ident)
-	if !ok || selector.Sel == nil {
+	if !ok || pkg.Obj != nil || selector.Sel == nil {
 		return
 	}
 	path, imported := s.imports[pkg.Name]
@@ -354,7 +277,7 @@ func (s *consumerSource) addressFlowsFrom(expr ast.Expr, varTypes map[string]str
 	switch e := expr.(type) {
 	case *ast.CallExpr:
 		if selector, ok := e.Fun.(*ast.SelectorExpr); ok && selector.Sel != nil {
-			if pkg, ok := selector.X.(*ast.Ident); ok && configRead(pkg.Name, selector.Sel.Name) {
+			if pkg, ok := selector.X.(*ast.Ident); ok && pkg.Obj == nil && configRead(s.imports[pkg.Name], selector.Sel.Name) {
 				return "a value read from configuration", true
 			}
 		}
@@ -446,6 +369,9 @@ func typeOfExpr(expr ast.Expr, returns map[string]string) (string, bool) {
 // parameter list, reading through one level of pointer.
 func addFieldTypes(types map[string]string, fields []*ast.Field) {
 	for _, field := range fields {
+		for _, ident := range field.Names {
+			delete(types, ident.Name)
+		}
 		fieldType := field.Type
 		if star, ok := fieldType.(*ast.StarExpr); ok {
 			fieldType = star.X

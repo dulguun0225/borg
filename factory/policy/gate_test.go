@@ -233,8 +233,8 @@ func TestEveryRowButADeployIntoAPersistentEnvironmentReadsProductionsThreshold(t
 //
 // The row here names no environment and nothing is authored on it, so
 // [Reader.scoreVersionAt] takes its own early return and never reaches
-// [score.InForceAt] — which does read the log, for a reason of its own, an
-// authored threshold's confirmation, that is no part of this claim.
+// [score.InForceAt], which still reads the log for an authored threshold's
+// confirmation. This test covers the unauthored path only.
 func TestAtGateNamesTheVersionWithNoLogRead(t *testing.T) {
 	ctx, in := newFactory(t)
 	newest := newestVersion(t, ctx, in)

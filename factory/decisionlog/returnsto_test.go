@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 )
 
 // TestACloseNamesWhatAReturnsTo is C0847: a close event whose verdict sends the
@@ -20,7 +22,7 @@ func TestACloseNamesWhatAReturnsTo(t *testing.T) {
 		t.Fatalf("AppendDecisionOpen: %v", err)
 	}
 	closing, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "x", FormatVersion: "decision/1", Verdict: "reject",
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "x", FormatVersion: "decision/1", Verdict: "reject",
 		Reason: "no good", Closes: opening.ID, ReturnsTo: "implementation",
 	})
 	if err != nil {
@@ -39,7 +41,7 @@ func TestACloseNamesWhatAReturnsTo(t *testing.T) {
 	// A reject naming no stage is admitted too: decomposition's reject sends
 	// the item nowhere, and the field stays unwritten.
 	noTarget, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "x", FormatVersion: "decision/1", Verdict: "reject",
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "x", FormatVersion: "decision/1", Verdict: "reject",
 		Reason: "start over", Closes: second.ID,
 	})
 	if err != nil {
@@ -50,7 +52,7 @@ func TestACloseNamesWhatAReturnsTo(t *testing.T) {
 	}
 
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
-		Actor: owner, Payload: "x", FormatVersion: "decision/1", Verdict: "approve",
+		Actor: owner, OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"), Payload: "x", FormatVersion: "decision/1", Verdict: "approve",
 		Closes: second.ID, ReturnsTo: "implementation",
 	}); !errors.Is(err, decisionlog.ErrReturnsToRefused) {
 		t.Errorf("an approve naming a target: %v, want ErrReturnsToRefused", err)
@@ -70,8 +72,8 @@ func TestACloseNamesWhatAReturnsTo(t *testing.T) {
 	}
 
 	badRow := aRow()
-	badRow.FormatVersion, badRow.Shape, badRow.Part = "decision/1", decisionlog.ShapeDecision, decisionlog.PartClose
-	badRow.Closes, badRow.Verdict, badRow.ReturnsTo = second.ID, "approve", "implementation"
+	badRow.FormatVersion, badRow.Shape, badRow.Part = "decision/2", decisionlog.ShapeDecision, decisionlog.PartClose
+	badRow.Closes, badRow.Verdict, badRow.ReturnsTo = abandonmentOpening.ID, "approve", "implementation"
 	if got, want := refusedBy(t, insertAround(ctx, pool, badRow)), "returns_to_scope"; got != want {
 		t.Errorf("an approve naming a target around the method was refused by %q, want %q", got, want)
 	}

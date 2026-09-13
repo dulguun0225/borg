@@ -129,7 +129,7 @@ func TestASafeguardIsPlacedOnASubjectByNameAndWithdrawnById(t *testing.T) {
 	s.principal = reviewer.Key
 	s.mustCall(t, "decideRecordRow", screens.DecideRecordRowArgs{
 		RowKind: gate.SafeguardWithdrawal.String(), RecordID: withdrawalID,
-		Verdict: string(gate.VerdictApprove),
+		Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
 	})
 	s.principal = s.p.human.Key
 

@@ -385,7 +385,11 @@ func (p *path) checkEncodings(ctx context.Context, c *candidate, repo, serviceID
 	if err != nil {
 		return err
 	}
-	withdrawn, err := criterion.Withdrawn(ctx, p.d.pool, ids)
+	rejected, err := p.rejectedSpecs(ctx)
+	if err != nil {
+		return err
+	}
+	withdrawn, err := criterion.Withdrawn(ctx, p.d.pool, ids, rejected...)
 	if err != nil {
 		return err
 	}

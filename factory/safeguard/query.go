@@ -30,6 +30,20 @@ const selectSafeguards = `select id, actor_kind, actor_key, actor_key_basis, at,
 // about one gate row, stage, duty, severity, quantity or service reads only
 // the safeguards keyed to it.
 func BySubjects(ctx context.Context, pool *pgxpool.Pool, parameter gatepolicy.Parameter, subjects []Subject) ([]Safeguard, error) {
+	return bySubjects(ctx, pool, parameter, subjects)
+}
+
+// BySubjectsInTx reads the safeguards in force within a writer's transaction,
+// including additions and approvals made by that transaction.
+func BySubjectsInTx(ctx context.Context, tx pgx.Tx, parameter gatepolicy.Parameter, subjects []Subject) ([]Safeguard, error) {
+	return bySubjects(ctx, tx, parameter, subjects)
+}
+
+type subjectQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func bySubjects(ctx context.Context, pool subjectQuerier, parameter gatepolicy.Parameter, subjects []Subject) ([]Safeguard, error) {
 	if len(subjects) == 0 {
 		return nil, nil
 	}

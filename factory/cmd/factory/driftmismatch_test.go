@@ -31,6 +31,9 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	if !strings.Contains(out.String(), "An drift detector is installed") {
 		t.Errorf("the run does not report an drift detector installed:\n%s", out)
 	}
+	// Keep one composition for the subsequent reads. Composing another is a
+	// process restart, which deliberately redelivers every outstanding wait.
+	path := p(ctx, t, d)
 
 	// Installing the drift detector is substrate outside the twelve duties,
 	// so the page a mismatch fires reaches whoever the declaration says installed
@@ -99,7 +102,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	// The gate row itself: it is held, and it pages nobody, so acknowledging it
 	// at Work writes the decision's acknowledgement and calls the notifier for
 	// nothing — no page event ever named this row.
-	onTheRow, err := p(ctx, t, d).notifier.EventsFor(ctx, c.deployGate.opening)
+	onTheRow, err := path.notifier.EventsFor(ctx, c.deployGate.opening)
 	if err != nil {
 		t.Fatalf("reading the page events on the gate row: %v", err)
 	}
@@ -109,7 +112,7 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 
 	// The mismatch's own page: reached, to whoever installed the drift detector,
 	// because a mismatch belongs to no duty of the twelve.
-	events, err := p(ctx, t, d).notifier.EventsFor(ctx, raised.Raised)
+	events, err := path.notifier.EventsFor(ctx, raised.Raised)
 	if err != nil {
 		t.Fatalf("reading the page events: %v", err)
 	}
@@ -125,7 +128,6 @@ func TestADriftMismatchHoldsTheProductionDeployAndPages(t *testing.T) {
 	}
 
 	// Unanswered, it widens exactly once, to the owner. There is no second widening.
-	path := p(ctx, t, d)
 	for range 3 {
 		if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 			t.Fatalf("a pass stopped: %v", err)

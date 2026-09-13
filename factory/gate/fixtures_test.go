@@ -46,6 +46,9 @@ var owner = record.Actor{Kind: record.KindHuman, Key: "person:owner", Basis: rec
 // log takes.
 var ownerReading = principal.OfHuman("person:owner", record.BasisClaimed)
 
+// openedInWorkAt is a valid [record.TimeLayout] instant a human's [gate.Given] carries: [decisionlog.Writer] refuses a human close naming none.
+var openedInWorkAt = record.FormatTime(time.Now().Add(-time.Minute))
+
 // fakeScore answers with one assessment and records what it was asked, so a test
 // can assert that the gate handed the score what the firing knew.
 type fakeScore struct {
@@ -419,6 +422,7 @@ func deployableService(t *testing.T, ctx context.Context, pool *pgxpool.Pool, to
 	defer func() { _ = tx.Rollback(ctx) }()
 	if err := service.Adopt(ctx, tx, token, owner, s.ID, service.Reachability{
 		TargetReached: true, InstancesReplaceable: true, RollbackPathPresent: true, EmissionReadable: true,
+		TakingTraffic: true,
 	}); err != nil {
 		t.Fatalf("adopting %s: %v", s.ID, err)
 	}

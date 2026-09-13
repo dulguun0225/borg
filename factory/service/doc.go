@@ -27,7 +27,8 @@
 // [PagingHours], [SetObjective], [SetPagingHours], [SetProductLicence] and
 // [SetSnapshotRetention]. threshold.go is [Threshold] and
 // [SetExplicitThreshold], the absolute number a safeguard sets per quantity
-// beside the size it is read at, with [SetRecentHistorySize] per quantity,
+// beside the size it is read at, [ClearExplicitThreshold] when an approved
+// withdrawal removes either half, with [SetRecentHistorySize] per quantity,
 // [SetOperationCap] — the cap on how many
 // operations one release may hold open per interval and the overflow operation
 // the excess lands in — [SetEnvironmentHourRate] and [SetSearchBudget].

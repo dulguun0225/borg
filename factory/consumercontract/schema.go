@@ -108,6 +108,7 @@ var DDL = []string{
 	item_id text not null,
 	service_id text not null,
 	artifact_id text not null,
+	recorded_order bigserial unique,
 	extractor text not null,
 	extractor_version text not null,
 	toolchain text not null,
@@ -126,6 +127,24 @@ var DDL = []string{
 	constraint reported_only_on_a_failure check (reported = '' or cause = 'extraction_failed'),
 	constraint one_derivation_per_version unique (artifact_id)
 )`,
+
+	// Existing rows have no insertion sequence. Preserve the old deterministic
+	// timestamp/id ordering once, then order every new derivation by sequence.
+	`do $$ begin
+		if not exists (select 1 from pg_attribute where attrelid = '` + DerivationTable + `'::regclass
+			and attname = 'recorded_order' and not attisdropped) then
+			alter table ` + DerivationTable + ` add column recorded_order bigint;
+			with ranked as (select id, row_number() over (order by at, id) as n from ` + DerivationTable + `)
+			update ` + DerivationTable + ` d set recorded_order = ranked.n from ranked where d.id = ranked.id;
+		end if;
+	end $$`,
+	`create sequence if not exists consumer_contract_derivation_recorded_order_seq`,
+	`select setval('consumer_contract_derivation_recorded_order_seq',
+		greatest((select coalesce(max(recorded_order), 0) + 1 from ` + DerivationTable + `),
+		(select last_value + 1 from consumer_contract_derivation_recorded_order_seq)), false)`,
+	`alter table ` + DerivationTable + ` alter column recorded_order set default nextval('consumer_contract_derivation_recorded_order_seq'),
+		alter column recorded_order set not null`,
+	`create unique index if not exists consumer_contract_derivation_recorded_order on ` + DerivationTable + ` (recorded_order)`,
 
 	`create index if not exists consumer_contract_by_item on ` + Table + ` (item_id)`,
 	`create index if not exists consumer_contract_by_producer on ` + Table + ` (producer_service_id, interface_name, element)`,

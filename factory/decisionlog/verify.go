@@ -24,11 +24,14 @@ const (
 	// fields. A row edited in place breaks this way, and its successors do
 	// not, because their prev_hash still names its unchanged stored hash.
 	BreakFields
+	// BreakFormat is an unknown encoding or structured fields on a legacy row.
+	BreakFormat
 )
 
 // BrokenError is what [Reader.Verify] returns for the first row that breaks
 // the chain. Row is that row as it is stored, Break is how it breaks, and
-// Want is the hash the chain requires where the row has something else.
+// Want is the hash the chain requires where the row has something else,
+// or empty for BreakFormat.
 type BrokenError struct {
 	Row   Row
 	Break Break
@@ -37,6 +40,8 @@ type BrokenError struct {
 
 func (e *BrokenError) Error() string {
 	switch e.Break {
+	case BreakFormat:
+		return fmt.Sprintf("decisionlog: row %d (%s) has fields incompatible with format %q", e.Row.Seq, e.Row.ID, e.Row.FormatVersion)
 	case BreakPredecessor:
 		return fmt.Sprintf("decisionlog: row %d (%s) names predecessor hash %q, the chain requires %q",
 			e.Row.Seq, e.Row.ID, e.Row.PrevHash, e.Want)
@@ -50,8 +55,8 @@ func (e *BrokenError) Error() string {
 // the chain, as a [*BrokenError], or nil for a log that is whole. An empty
 // log is whole.
 //
-// Each row is checked twice: that it names its predecessor's stored hash,
-// and that its own stored hash is the hash of its fields. The predecessor
+// Each row must name its predecessor's stored hash, match its declared
+// format, and store the hash of its fields. The predecessor
 // check comes first, so a row that is both misplaced and edited is reported
 // as misplaced. Row order is seq, which has gaps wherever an append rolled
 // back; this requires the order and not the contiguity, because a gap is a
@@ -102,6 +107,9 @@ func verify(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if row.PrevHash != want {
 			return &BrokenError{Row: row, Break: BreakPredecessor, Want: want}
+		}
+		if err := row.ValidateFormat(); err != nil {
+			return &BrokenError{Row: row, Break: BreakFormat}
 		}
 		if computed := row.ChainHash(); computed != row.Hash {
 			return &BrokenError{Row: row, Break: BreakFields, Want: computed}

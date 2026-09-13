@@ -247,7 +247,7 @@ func (d *Dispatch) couldNotReach(ctx context.Context, as principal.Principal, on
 		return "", fmt.Errorf("dispatch: marshalling the row for %s: %w", credentialName, err)
 	}
 	row, err := d.c.Log.AppendWaitOpen(ctx, decisionlog.Entry{
-		Actor: as.Actor, Payload: string(payload), FormatVersion: HoldFormatVersion,
+		Actor: as.Actor, Principal: as, Payload: string(payload), FormatVersion: HoldFormatVersion,
 	})
 	if err != nil {
 		return "", err

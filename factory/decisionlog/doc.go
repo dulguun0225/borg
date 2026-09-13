@@ -6,8 +6,10 @@
 //
 // # The code
 //
-// row.go holds [Shape], one of [Shapes], [Part], [Formats] — which format
-// version declares which shape — [Entry], which a caller supplies, [Row],
+// formats.go holds [Formats], which format version declares which shape,
+// [Row.ValidateFormat], and the pairing between legacy and extended versions.
+// row.go holds
+// [Shape], one of [Shapes], [Part], [Entry], which a caller supplies, [Row],
 // which is what is stored, and [Row.ChainHash]. schema.go holds [Table],
 // [Sequence], [IDPrefix], [AdvisoryLockKey], and [DDL]. writer_core.go holds
 // [Writer], [NewWriter], and the transaction machinery every append method
@@ -20,7 +22,8 @@
 // and the checks shared across more than one of them: [refuseClosingOnlyFields]
 // and the actor-kind rule an abandonment and an acknowledgement each take.
 // writer_wait.go holds [Writer.AppendWaitOpen] and [Writer.AppendWaitClose],
-// the former refusing an actor that is not a component.
+// the former admitting a component or an agent reporting its own unreachable
+// model credential with a matching principal.
 // writer_shapes.go holds the six one-row methods that name no version and
 // close nothing: [Writer.AppendPageEvent], [Writer.AppendReworkRequest] —
 // which admits [Entry.Reason] and [Entry.ReturnsTo], both required —
@@ -39,7 +42,12 @@
 // row's own columns and the dispatch and the scope in the payload — and
 // [Reader.AppendReadEvent], the same append for a reader of stored report text
 // a redaction could reach, whose words are not in this log and whose store is
-// not this one. verify.go holds the
+// not this one. readtx.go holds [Reader.WithByShape], which commits the read
+// event before opening a read-committed transaction for its callbacks. One
+// callback takes the caller's lock before the query, and the other makes
+// dependent writes against the rows read under that lock. A callback failure
+// rolls back those writes and leaves the read audit committed.
+// verify.go holds the
 // chain walk beneath [Reader.Verify], with [Break] and [BrokenError] naming
 // the first row that breaks it. closed.go holds [Closed] and the pairing
 // beneath [Reader.ClosedDecisions]; closedwait.go holds [ClosedWait] and the
@@ -62,9 +70,8 @@
 // consistent — TestFormatVersionsMatchDDL is what checks it. [Row.ChainHash]
 // hashes the row's own stored format version in place of a package-wide
 // constant, so a later format version changing the serialisation changes what
-// it hashes and not what an earlier row already wrote. Every format version
-// this package accepts today shares one serialisation and algorithm, SHA-256
-// over this length-prefixed order:
+// it hashes and not what an earlier row already wrote. Every accepted version
+// uses SHA-256. Legacy versions hash this length-prefixed order:
 //
 //	format_version
 //	prev_hash, seq in decimal, id
@@ -73,13 +80,26 @@
 //	policy_version, score_version
 //	part, closes
 //	verdict, reason, opened_in_work_at, self_approval
+//
+// Extended versions append all eight fields below, including empty ones:
+//
 //	returns_to, reading, moved_release
 //	caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope
 //
 // Each field is written as its length in bytes, big-endian in eight bytes,
 // then the bytes themselves, so no two different rows serialise the same way.
-// A future format version needing a different serialisation branches
-// [Row.ChainHash] on the stored format version; today there is one branch.
+// [Row.ChainHash] branches on the stored version. decision/2, wait/2,
+// rework_request/2, queue_rejection/2, truncation/2, policy_version/2,
+// score_version/2, install_event/2 and read_event/2 extend their /1 payloads;
+// page_event/3 extends page_event/1, and page_event/4 extends page_event/2.
+// The writer promotes an entry to the corresponding extended version when
+// its structured fields require it, keeping the payload bytes unchanged.
+// Existing rows keep their encoding and hash. A legacy row with any added
+// field populated is refused by the schema and reported by Verify as
+// [BreakFormat], even if a superuser removed the schema check.
+//
+// Schema upgrades reapply changed checks as NOT VALID: existing rows remain
+// untouched, and each future insert or update must satisfy the new checks.
 //
 // The close event's columns — verdict, reason, opened_in_work_at,
 // self_approval, returns_to — sit beside the payload rather than inside it,
@@ -126,11 +146,18 @@
 // Three rows fix the kind of actor that may write them, over and above
 // [record.Actor.Validate]'s own rule that a kind be one of [record.Kinds]:
 // only a human acknowledges ([ErrAcknowledgementNotHuman]), only a component
-// abandons ([ErrAbandonmentNotComponent]), and only a component opens a wait
-// ([ErrWaitOpenNotComponent]) — the component that met the condition being
-// the design's own actor for that row. A wait's closing takes no such rule:
-// whichever component next reaches the work the wait stopped may write it,
-// and that may not be the one that met the condition.
+// abandons ([ErrAbandonmentNotComponent]), and a component opens a wait
+// ([ErrWaitOpenNotComponent]). The credential failure is the exception:
+// an agent unable to reach its own model credential opens as that agent,
+// with the same principal as caller. The wait writer and SQL check inspect
+// the payload for kind credential_unreachable and a nonempty credential_name
+// in that case. A wait's closing is a component's — whichever component next
+// reaches the work the wait stopped may write it, and that may not be the one
+// that met the condition — except the two the design has a human end at Work
+// ([ErrWaitCloseNotComponent]): the owner authorising an overage on a
+// credential at its ceiling, and a human accepting a commit master holds that
+// the queue did not make. Both close with the human as actor, Work as caller,
+// and the opening's payload repeated, which the writer and a trigger check.
 //
 // [Entry.Principal] is who made the call, carried beside [Entry.Actor], who
 // decided; the two are different facts and often the same value, and most
@@ -139,7 +166,7 @@
 // [Reader]'s methods validate the principal a read names, and stored in the
 // caller_kind, caller_key, caller_key_basis, caller_dispatch_id and
 // caller_scope columns beside the actor's own. [Writer.AppendDecisionClose]
-// is the one caller this package itself gives a rule to: a non-empty
+// also gives the caller a rule: a non-empty
 // opened_in_work_at is refused unless the principal is the Work screen's own
 // component principal, since the field is Work's report of when the human
 // opened the row there and not the human's.
@@ -197,6 +224,13 @@
 // is outside this package, seam 2 of "Security comes last" states it, and
 // what a truncation costs the score's per-author priors is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md.
+//
+// An agent's credential failure naming the agent as caller and actor is
+// ../../end-goal/how-the-factory-works/10-fleet/05-an-account-that-runs-out-is-a-hold.md
+// (C2459). A human at Work accepting a commit master holds that the queue did
+// not make, the wait's closing naming them as actor, is
+// ../../end-goal/how-the-factory-works/05-environments/05-what-the-queue-reads-before-it-mints.md
+// (C1612).
 //
 // What defines it: the ten shapes, the chain, the one-writer rule, and the
 // fencing token are seam 2 of "Security comes last",

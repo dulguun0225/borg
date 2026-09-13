@@ -33,6 +33,19 @@ func TestAFlappingCriterionIsMarkedUnreliableAndRaisesOneIntent(t *testing.T) {
 	if shipped.criteria[0].Unreliable {
 		t.Fatalf("a criterion decided over its only build reads as unreliable, and there is nothing yet to disagree with")
 	}
+	stored, err := criterion.ResultsForBuild(ctx, d.pool, shipped.buildID)
+	if err != nil {
+		t.Fatalf("reading the first build's criterion results: %v", err)
+	}
+	composition := ""
+	for _, result := range stored {
+		if result.CriterionID == criterionID && result.Place == criterion.PlaceCandidateEnvironment {
+			composition = result.Composition
+		}
+	}
+	if composition == "" {
+		t.Fatalf("the first build has no candidate-environment composition: %+v", stored)
+	}
 
 	path := p(ctx, t, d)
 
@@ -42,7 +55,7 @@ func TestAFlappingCriterionIsMarkedUnreliableAndRaisesOneIntent(t *testing.T) {
 	// present and never for pointing at anything.
 	const secondBuildID = "bl_flapping_second"
 	if err := criterion.RecordResults(ctx, d.pool, d.token, deployActor,
-		criterion.Run{BuildID: secondBuildID, Number: 1, Place: criterion.PlaceCandidateEnvironment, Composition: "synthetic"},
+		criterion.Run{BuildID: secondBuildID, Number: 1, Place: criterion.PlaceCandidateEnvironment, Composition: composition},
 		map[string]criterion.Outcome{criterionID: criterion.OutcomeFailed},
 	); err != nil {
 		t.Fatalf("recording the second build's disagreeing result: %v", err)
@@ -77,7 +90,7 @@ func TestAFlappingCriterionIsMarkedUnreliableAndRaisesOneIntent(t *testing.T) {
 	// a second one.
 	const thirdBuildID = "bl_flapping_third"
 	if err := criterion.RecordResults(ctx, d.pool, d.token, deployActor,
-		criterion.Run{BuildID: thirdBuildID, Number: 1, Place: criterion.PlaceCandidateEnvironment, Composition: "synthetic"},
+		criterion.Run{BuildID: thirdBuildID, Number: 1, Place: criterion.PlaceCandidateEnvironment, Composition: composition},
 		map[string]criterion.Outcome{criterionID: criterion.OutcomeFailed},
 	); err != nil {
 		t.Fatalf("recording the third build's disagreeing result: %v", err)

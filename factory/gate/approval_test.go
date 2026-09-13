@@ -39,7 +39,9 @@ func TestApprovalTimesIsWhatOrdersTheMergeQueue(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Fire at %s for %s: %v", row, itemID, err)
 		}
-		closing, err := g.Decide(ctx, opened, gate.Given{Actor: human, Verdict: verdict, Reason: feedback})
+		closing, err := g.Decide(ctx, opened, gate.Given{
+			Actor: human, Verdict: verdict, Reason: feedback, OpenedInWorkAt: openedInWorkAt,
+		})
 		if err != nil {
 			t.Fatalf("Decide at %s for %s: %v", row, itemID, err)
 		}

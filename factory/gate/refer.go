@@ -50,7 +50,11 @@ type Referred struct {
 // the way [Firing.referrers] is one level down, so a second refer at the
 // re-fired row is refused against a holder who has already referred it and not
 // only against the holders a fresh read of the People declaration finds.
-func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, reason string, again Firing) (Referred, error) {
+//
+// openedInWorkAt is when the referring human opened the row in Work, which the
+// close event carries as [Given.OpenedInWorkAt] does, and which the log refuses
+// a human's closing without.
+func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, reason, openedInWorkAt string, again Firing) (Referred, error) {
 	if err := permits(opened.Gate, VerdictRefer); err != nil {
 		return Referred{}, err
 	}
@@ -75,7 +79,7 @@ func (g *Gate) Refer(ctx context.Context, opened Opened, actor record.Actor, rea
 		return Referred{}, err
 	}
 
-	closed, err := g.close(ctx, opened, actor, "", ClosingPayload{
+	closed, err := g.close(ctx, opened, actor, openedInWorkAt, ClosingPayload{
 		CloseEvent: score.CloseEvent{Verdict: string(VerdictRefer)},
 		Reason:     reason,
 	})

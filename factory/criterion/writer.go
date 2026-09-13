@@ -212,10 +212,24 @@ const selectCriterion = `select id, actor_kind, actor_key, actor_key_basis, at, 
 const notWithdrawn = ` and not exists (select 1 from ` + WithdrawalTable + ` w
 	where w.criterion_id = ` + Table + `.id and w.item_id = any($2))`
 
+// inForceOn is [notWithdrawn] with the rejected spec versions read out: the
+// clause every read of what is in force for a build shares, with $2 the
+// build's items and $param the spec versions the gate rejected, on which
+// neither an introduction nor a withdrawal takes effect. One clause, so the
+// reads cannot come to answer differently.
+func inForceOn(param int) string {
+	rejected := fmt.Sprintf("$%d", param)
+	return ` and spec_artifact_id <> all(` + rejected + `) and not exists (select 1 from ` + WithdrawalTable + ` w
+	where w.criterion_id = ` + Table + `.id and w.item_id = any($2)
+	and w.spec_artifact_id <> all(` + rejected + `))`
+}
+
 // InForce is every criterion in force for one build of the service, in the order
 // they were written. A build is a set of items — the ones merged into the
 // repository it was made from, plus the item whose branch it is — and itemIDs
-// is that set, assembled by the caller.
+// is that set, assembled by the caller. rejectedSpecIDs is the set of spec
+// versions the gate rejected, read from its decisions by the caller. Neither
+// introductions nor withdrawals on those versions take effect.
 //
 // Both halves of the design's query are read here: the item that introduced the
 // criterion is in the build, and no spec version in the build withdraws it. In
@@ -230,25 +244,26 @@ const notWithdrawn = ` and not exists (select 1 from ` + WithdrawalTable + ` w
 //
 // It takes the pool and no transaction, because reading the set is not a
 // reason to be inside the write that changes it.
-func InForce(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string) ([]Criterion, error) {
+func InForce(ctx context.Context, pool *pgxpool.Pool, serviceID string, itemIDs []string, rejectedSpecIDs ...string) ([]Criterion, error) {
 	if len(itemIDs) == 0 {
 		return nil, nil
 	}
 	return query(ctx, pool, serviceID,
-		selectCriterion+` where service_id = $1 and item_id = any($2)`+notWithdrawn+` order by at`,
-		serviceID, itemIDs)
+		selectCriterion+` where service_id = $1 and item_id = any($2)`+inForceOn(3)+` order by at`,
+		serviceID, itemIDs, append([]string{}, rejectedSpecIDs...))
 }
 
 // Withdrawn is every criterion the build's own items withdraw, whether or not
 // the criterion was introduced in this build. It is what the encoding check
 // reads for its third direction: an encoding naming a criterion that same
 // build withdraws decides a promise the service no longer makes.
-func Withdrawn(ctx context.Context, pool *pgxpool.Pool, itemIDs []string) ([]string, error) {
+func Withdrawn(ctx context.Context, pool *pgxpool.Pool, itemIDs []string, rejectedSpecIDs ...string) ([]string, error) {
 	if len(itemIDs) == 0 {
 		return nil, nil
 	}
 	rows, err := pool.Query(ctx, `select criterion_id from `+WithdrawalTable+`
-		where item_id = any($1) order by at, criterion_id`, itemIDs)
+		where item_id = any($1) and spec_artifact_id <> all($2) order by at, criterion_id`,
+		itemIDs, append([]string{}, rejectedSpecIDs...))
 	if err != nil {
 		return nil, fmt.Errorf("criterion: reading what the build withdraws: %w", err)
 	}

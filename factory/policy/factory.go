@@ -49,7 +49,10 @@ type Factory struct {
 	// package may not read it — the direction between the two is People to
 	// here. A nil value carries the declaration the version in force names
 	// forward unchanged, which is what a factory whose People screen is not
-	// built does.
+	// built does. The callback runs under the policy transaction's lock. It
+	// must supply a snapshot without acquiring a pool connection or another
+	// database lock; the current composition leaves it nil and carries the
+	// snapshot written through AppendPeopleVersion instead.
 	Declaration func(ctx context.Context) (DeclarationSnapshot, error)
 
 	// Removal is what the deployer performs when a service is retired: it ends
@@ -71,9 +74,9 @@ type Factory struct {
 	// AutoPassRates is the realized auto-pass rate at a threshold, one per
 	// factor set, computed in the same call that appends the version and frozen
 	// there. It is supplied rather than computed here because what it is
-	// computed from is the score's own decisions. A nil value freezes no rate,
-	// which is what a factory with no such reader composed does, and
-	// [Reader.AuthoredAutoPassRate] then finds none.
+	// computed from is the score's own decisions. A nil reader refuses a
+	// threshold write. An empty result means no observations at that setting;
+	// [Reader.AuthoredAutoPassRate] then answers no baseline.
 	AutoPassRates func(ctx context.Context, scope Scope, gateRow string, threshold float64) ([]AutoPassRate, error)
 }
 
@@ -190,33 +193,78 @@ type write struct {
 	confirmsScoreVersion string
 }
 
-// append is every owner write: read the version in force, derive the write's
-// key, and where that key is not the one the version in force already carries,
-// open one fenced transaction and put the version and the record write in it.
-//
-// A step taken again derives the same key as the version in force and returns
-// that version, having written nothing.
+// append serializes the read of the previous version and both writes in one
+// fenced transaction, appending the version before the scope's field. A repeat
+// of the latest write returns it; a creation retry finds its original version
+// even after unrelated writes, preserving the identity already created.
 func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	if err := ownerOnly(w.actor); err != nil {
 		return Version{}, err
 	}
 
-	previous, err := f.newest(ctx, w.actor)
-	if err != nil && !errors.Is(err, ErrNoVersion) {
+	var version Version
+	err := decisionlog.NewReader(f.pool, f.token).WithByShape(ctx,
+		principal.Principal{Actor: w.actor}, decisionlog.ShapePolicyVersion,
+		func(ctx context.Context, tx pgx.Tx) error {
+			// Serialize before reading the state the next version carries forward.
+			_, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey())
+			return err
+		},
+		func(ctx context.Context, tx pgx.Tx, rows []decisionlog.Row) error {
+			var err error
+			version, err = f.appendIn(ctx, tx, w, rows)
+			return err
+		})
+	if err != nil {
 		return Version{}, err
 	}
+	return version, nil
+}
 
+// appendIn carries forward the state read under the policy lock and writes
+// both records in that same transaction. The reader owns its commit.
+func (f *Factory) appendIn(ctx context.Context, tx pgx.Tx, w write, rows []decisionlog.Row) (Version, error) {
+	var previous Version
+	var err error
+	if len(rows) > 0 {
+		previous, err = versionOf(rows[len(rows)-1])
+		if err != nil {
+			return Version{}, err
+		}
+	}
+	if w.authored && w.parameter == gatepolicy.ChangeFreeze {
+		// Each call adds one period; derive the cumulative list under the
+		// same lock as the version that carries it, not before the transaction.
+		for _, value := range previous.Authored {
+			if value.Parameter == w.parameter && value.Scope == w.scope {
+				for _, period := range value.List {
+					if !slices.Contains(w.list, period) {
+						w.list = append(w.list, period)
+					}
+				}
+			}
+		}
+		slices.Sort(w.list)
+	}
 	key := writeKey(w.caller, w.actor, w.action, w.parameter, w.scope, w.number, w.list,
 		w.keyExtra+w.dropSafeguard+w.dropHalt+w.dropLegalHold+w.shortening+
 			w.confirmsScoreVersion+w.decision)
-	// Every write is keyed, a creation included: the ids the version names are
-	// minted here and are not in the key, so a step taken again derives the key
-	// the version in force already carries and writes neither a second version
-	// nor a second record.
+	if w.action == ActionCreated {
+		// A creation retains its identity across unrelated writes. Mutable
+		// parameters compare with the latest write, allowing A-B-A.
+		for _, row := range rows {
+			created, err := versionOf(row)
+			if err != nil {
+				return Version{}, err
+			}
+			if created.Key == key {
+				return created, nil
+			}
+		}
+	}
 	if previous.Key != "" && previous.Key == key {
 		return previous, nil
 	}
-
 	declaration := previous.Declaration
 	switch {
 	case w.declaration != nil:
@@ -226,23 +274,6 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 		if err != nil {
 			return Version{}, fmt.Errorf("policy: reading the People declaration in force: %w", err)
 		}
-	}
-
-	tx, err := f.pool.Begin(ctx)
-	if err != nil {
-		return Version{}, fmt.Errorf("policy: beginning the write of %s: %w", w.scope, err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	if err := lease.Fence(ctx, tx, f.token); err != nil {
-		return Version{}, err
-	}
-	// The lock covers the read of the version in force above and the append
-	// below. Two owner writes at once would otherwise each carry forward the
-	// state the other was about to change, and the newer version would name an
-	// authored value the older one had already moved.
-	if _, err := tx.Exec(ctx, `select pg_advisory_xact_lock($1)`, AdvisoryLockKey()); err != nil {
-		return Version{}, fmt.Errorf("policy: taking the version lock: %w", err)
 	}
 
 	version := Version{
@@ -302,9 +333,6 @@ func (f *Factory) append(ctx context.Context, w write) (Version, error) {
 	// write that has no earlier one to update — Install's own.
 	if err := factorysettings.SetCurrentPolicyVersionID(ctx, tx, version.ID); err != nil {
 		return Version{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return Version{}, fmt.Errorf("policy: committing the write of %s: %w", version.Scope, err)
 	}
 	return version, nil
 }

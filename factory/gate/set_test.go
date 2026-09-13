@@ -121,7 +121,9 @@ func TestTheDecompositionRowDecidesOverASetAndAppliesItsRiskiestMember(t *testin
 			payload.Set[1].Requirements)
 	}
 
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -150,7 +152,10 @@ func TestARejectAtDecompositionNamesNoStage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FireSet: %v", err)
 	}
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictReject, Reason: "this should have been three items"})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictReject, Reason: "this should have been three items",
+		OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
@@ -292,7 +297,9 @@ func TestEditInPlaceAtDecompositionSupersedesTheSet(t *testing.T) {
 	// Nobody else can decide this row — Decomposition names no duty, so it
 	// widens to the owner — and the editor closing it carries the self-approval
 	// field rather than passing unmarked.
-	closed, err := g.Decide(ctx, reopened, gate.Given{Actor: author, Verdict: gate.VerdictApprove})
+	closed, err := g.Decide(ctx, reopened, gate.Given{
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the editor closing the row nobody else can decide: %v", err)
 	}

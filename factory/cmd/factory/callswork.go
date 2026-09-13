@@ -319,7 +319,7 @@ func (c *calls) Refer(ctx context.Context, who principal.Principal, args screens
 	if err != nil {
 		return err
 	}
-	if _, err := c.p.gate.Refer(ctx, opened, actor, args.Reason, again); err != nil {
+	if _, err := c.p.gate.Refer(ctx, opened, actor, args.Reason, args.OpenedInWorkAt, again); err != nil {
 		return err
 	}
 	c.afterADecision(opened)

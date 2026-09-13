@@ -25,13 +25,13 @@ func TestReferRequiresAReasonAndRefusesWithNobodyLeft(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	if _, err := g.Refer(ctx, opened, owner, "", mergeFiring); !errors.Is(err, gate.ErrReasonMissing) {
+	if _, err := g.Refer(ctx, opened, owner, "", openedInWorkAt, mergeFiring); !errors.Is(err, gate.ErrReasonMissing) {
 		t.Errorf("Refer with no reason = %v, want ErrReasonMissing", err)
 	}
 
 	// Nobody holds duty 7 (UAT), which the merge row waits on, so the row
 	// already waits on the owner and a refer has nobody left to reach.
-	if _, err := g.Refer(ctx, opened, owner, "I cannot judge this myself", mergeFiring); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
+	if _, err := g.Refer(ctx, opened, owner, "I cannot judge this myself", openedInWorkAt, mergeFiring); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
 		t.Errorf("Refer with nobody left = %v, want ErrNobodyLeftToReferTo", err)
 	}
 
@@ -74,14 +74,14 @@ func TestAReferAtDecompositionReFiresTheSet(t *testing.T) {
 
 	// The row as it is fired waits on the owner, so a refer at it reaches
 	// nobody and chains nothing: the refusal is read before the close.
-	if _, err := g.Refer(ctx, opened, owner, "I cannot judge this decomposition",
+	if _, err := g.Refer(ctx, opened, owner, "I cannot judge this decomposition", openedInWorkAt,
 		gate.Firing{Row: gate.Decomposition}); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
 		t.Fatalf("a refer at a row waiting on the owner = %v, want ErrNobodyLeftToReferTo", err)
 	}
 
 	held := opened
 	held.WaitsOn = gate.Waits{Duty: gate.DutyUAT, Holders: []string{author.Key, second.Key}}
-	referred, err := g.Refer(ctx, held, author, "I cannot judge this decomposition",
+	referred, err := g.Refer(ctx, held, author, "I cannot judge this decomposition", openedInWorkAt,
 		gate.Firing{Row: gate.Decomposition})
 	if err != nil {
 		t.Fatalf("Refer at the Decomposition row: %v", err)
@@ -152,7 +152,7 @@ func TestAReferAtDecompositionCarriesReferrersAndRefusesARepeat(t *testing.T) {
 		t.Fatalf("the safeguarded row waits on %v, want both holders of duty 7", opened.WaitsOn.Holders)
 	}
 
-	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", gate.Firing{Row: gate.Decomposition})
+	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", openedInWorkAt, gate.Firing{Row: gate.Decomposition})
 	if err != nil {
 		t.Fatalf("the first holder referring: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestAReferAtDecompositionCarriesReferrersAndRefusesARepeat(t *testing.T) {
 			first.Reopened.WaitsOn.Holders)
 	}
 
-	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", gate.Firing{Row: gate.Decomposition})
+	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", openedInWorkAt, gate.Firing{Row: gate.Decomposition})
 	if err != nil {
 		t.Fatalf("the second holder referring: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestAReferAtDecompositionCarriesReferrersAndRefusesARepeat(t *testing.T) {
 		t.Fatalf("the row after both holders referred waits on %+v, want the owner", last.Reopened.WaitsOn)
 	}
 
-	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", gate.Firing{Row: gate.Decomposition}); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
+	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", openedInWorkAt, gate.Firing{Row: gate.Decomposition}); !errors.Is(err, gate.ErrNobodyLeftToReferTo) {
 		t.Errorf("a refer at the widened row = %v, want ErrNobodyLeftToReferTo", err)
 	}
 }

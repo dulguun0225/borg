@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 )
@@ -41,6 +42,7 @@ func appendClosedFiring(t *testing.T, ctx context.Context, log *decisionlog.Writ
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: gate, Payload: string(closePayload), FormatVersion: "decision/1",
 		Closes: opened.ID, Verdict: closeEvent.Verdict, OpenedInWorkAt: record.Now(),
+		Principal: principal.OfComponent("work"),
 	}); err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}

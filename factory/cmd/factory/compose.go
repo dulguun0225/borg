@@ -467,7 +467,7 @@ func (p *path) inForceFor(ctx context.Context, svc service.Service, of []string)
 	if err != nil {
 		return nil, err
 	}
-	return criterion.InForce(ctx, p.d.pool, svc.ID, ids)
+	return p.criteriaInForce(ctx, svc.ID, ids)
 }
 
 // itemsInBuild is a build's set of items: the ones merged into the repository

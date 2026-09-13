@@ -6,19 +6,20 @@
 //
 // factory.go is [Factory] and [NewFactory], the [Created] ids Factory mints for
 // a write that creates a record, and the one write path every method below
-// takes: the version in force is read, the write's key derived, and the version
-// and the record write put in one fenced transaction, the version first. A
-// write whose key is the one the version in force already carries writes
-// nothing, a creation included — which is what the minted id is for, a record
-// writer that chose its own id being unable to hand it to a version already
-// appended. [Factory.Declaration],
+// takes: one fenced transaction locks before reading the version in force,
+// derives the write's key and appends the version before the record write.
+// A repeat of the latest write returns that version. A creation retry searches
+// the earlier versions too, preserving its minted record identity across
+// unrelated writes. [Factory.Declaration],
 // [Factory.AutoPassRates] and [Factory.Removal] are the three functions the
 // composition supplies, for what this package may not read and may not reach —
 // a retirement through a factory composed with no deployer is [ErrNoDeployer].
 // AutoPassRates is required at construction: [NewFactory] takes it as an
 // argument and panics on a nil one, a threshold write with none composed
-// otherwise freezing no rate in silence. Declaration and Removal stay unset
-// until the composition assigns them.
+// otherwise freezing no rate in silence. Threshold writes also reject a reader
+// reset to nil. An empty result means no observed rate at that setting; the
+// newest threshold with no rate never falls back to an older baseline.
+// Declaration and Removal stay unset until the composition assigns them.
 //
 // version.go is [Version] — a row of the decision log and no table of this
 // package's — with [Caller], [Action], [Scope], [AuthoredValue],
@@ -55,6 +56,8 @@
 // where a safeguard on the explicit threshold writes the number and the size
 // beside it onto the service record, and
 // [Factory.WriteSafeguardWithdrawal] and [Factory.ApproveSafeguardWithdrawal].
+// Additions and approved withdrawals materialize the newest standing number
+// and size within the same transaction, clearing the reading if either is absent.
 // admission.go is [Admissions] with [Reader.ReportStoreAdmissions], the two
 // safeguards drawn on the report store read in force.
 // stop.go is the halt and the legal hold with the same three calls each.
@@ -79,11 +82,16 @@
 // This package fires no row: package gate does, and its caller hands the close
 // event here.
 //
-// rederive.go is [Factory.Rederive] and [Rederived]: the factory's start
+// rederive.go is [Factory.Rederive] and [Rederived], and rederivewrite.go is
+// the restoration of each field: the factory's start
 // rewrites every authored field the newest version names that does not hold
 // what it names, and appends no version. Every field a version names is
-// re-derived. A write that sets a second value beside the first — the objective
-// and its period, the paging hours, the operation cap and its overflow, the
+// re-derived. Provisioning carries the credential shape and both credential
+// references in its list, under the service's provisioned scope key and no
+// gate-policy parameter. The harm-page switch is restored separately from the
+// per-service cap sharing its parameter. A write that sets a second value beside the first — the objective
+// and its period, the paging hours, the operation and failure key caps with
+// their overflow buckets, the
 // search budget's two numbers, the page cap and its interval — names both on
 // the version, the first as the number and the rest as the list, so the pair is
 // written together: one number of a pair written alone would leave the record
@@ -107,8 +115,8 @@
 // firing writes onto its open event, carrying the threshold — read from the
 // environment record per row, or from the factory-wide settings record at the
 // one row with no environment — whether a safeguard adds a human, and the
-// score version in force at that row. Which environment record is the row's is
-// read off the record's own kind: a deploy row into a persistent environment
+// score version in force at that row. It retries if the policy version changes
+// between its first and last read. The row and environment kind determine the scope: a deploy row into a persistent environment
 // reads the environment it deploys into and every other row reads production's,
 // a candidate's own environment being created at the gate that decides its
 // deploy and so unable to hold the threshold that decides it. The policy
@@ -116,8 +124,9 @@
 // and [Reader.currentVersionID] is what names it: a read of the factory-wide
 // settings record's own field, [factorysettings.SetCurrentPolicyVersionID]
 // being what [Factory.append] writes it with in the same transaction as every
-// version — the version below is the copy the audit trail keeps, and never
-// what this reads, so no gate reads the log to fire. A version is still what
+// version. Reading that identifier and the threshold does not read the log;
+// resolving the score confirmation for an authored threshold still does through
+// [score.InForceAt]. A version is still what
 // that name can point at: [Factory.Install] guarantees one stands before any
 // firing, every path able to fire a gate installing first, so
 // [Reader.AtGate] refuses [ErrNoVersion] rather than naming none. The
@@ -156,7 +165,7 @@
 // log, the order of the two writes and the re-derivation at the start are
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
 // (C2199, C2200, C2201, C2202, C2203, C2206, C2207, C2208, C2209, C2210, C2213,
-// C2216, C2217, C2218, C2219, C2228, C2229, C2233, C2234, C2235, C2236, C2237,
+// C2216, C2217, C2218, C2219, C2228, C2229, C2233, C2234, C2236, C2237,
 // C2239, C2240, C2241, C2242, C2243, C2244, C2245, C2246, C2247, C2248, C2249,
 // C2250, C2251, C2252, C2253, C2255, C2256, C2257, C2258, C2259, C2260, C2261,
 // C2262, C2263, C2264, C2265, C2266, C2269, C2270, C2273).

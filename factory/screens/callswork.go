@@ -98,8 +98,9 @@ type ApproveThroughHoldArgs struct {
 
 // ReferArgs closes a row with the fourth verdict, which re-fires it.
 type ReferArgs struct {
-	OpenEventID string
-	Reason      string
+	OpenEventID    string
+	Reason         string
+	OpenedInWorkAt string // RFC 3339 UTC
 }
 
 // EditInPlaceArgs is a version a human writes together with the factory at a

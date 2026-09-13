@@ -208,6 +208,9 @@ func insertRowTx(ctx context.Context, tx pgx.Tx, shape Shape, part Part, e Entry
 		row.CallerDispatchID = e.Principal.DispatchID
 		row.CallerScope = e.Principal.Scope
 	}
+	if row.hasExtendedFields() {
+		row.FormatVersion = extendedFormat(row.FormatVersion)
+	}
 	row.Hash = row.ChainHash()
 
 	_, err = tx.Exec(ctx, insertRow,

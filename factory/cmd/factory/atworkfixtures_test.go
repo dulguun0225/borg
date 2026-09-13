@@ -125,7 +125,10 @@ func decideOne(ctx context.Context, p *path, opened gate.Opened, line string) er
 		}
 		reason := strings.TrimSpace(rest)
 		if action == gate.VerdictRefer {
-			return made.Refer(ctx, who, screens.ReferArgs{OpenEventID: openEventID, Reason: reason})
+			return made.Refer(ctx, who, screens.ReferArgs{
+				OpenEventID: openEventID, Reason: reason,
+				OpenedInWorkAt: record.FormatTime(time.Now().Add(-theScriptedOpenInWork)),
+			})
 		}
 		return made.Decide(ctx, who, screens.DecideArgs{
 			OpenEventID: openEventID, Verdict: string(action), Reason: reason,

@@ -56,7 +56,7 @@ func TestEveryAuthoredValueBesideTheElevenTakesAVersionAndIsInForce(t *testing.T
 			return in.factory.AuthorMutantCap(ctx, owner, in.service.ID, 40)
 		}},
 		{gatepolicy.FailureRecordKeyCap, 100, func() (policy.Version, error) {
-			return in.factory.AuthorFailureRecordKeyCap(ctx, owner, in.service.ID, 100)
+			return in.factory.AuthorFailureRecordKeyCap(ctx, owner, in.service.ID, 100, "other")
 		}},
 		{gatepolicy.UnreliableBound, 0.2, func() (policy.Version, error) {
 			return in.factory.AuthorUnreliableBound(ctx, owner, in.service.ID, 0.2)

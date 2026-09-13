@@ -3,9 +3,6 @@ package consumercontract
 import (
 	"errors"
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,11 +71,9 @@ import (
 // called through an import at all. Absent such an argument to trace, a call
 // into a network client package this checkout imports is could not derive the
 // same way, which is what keeps a call address this cannot trace at all —
-// net.Dial given a plain variable, say — from passing silently. So is a
-// checkout that makes any call at all and holds no mirror and no
-// configuration file, which is the state an adopted service arrives in until
-// its entries are authored; only a checkout that makes no call at all derives
-// complete and empty.
+// net.Dial given a plain variable, say — from passing silently. Calls that do
+// not reach an address, including local computation and standard output, need
+// no mirror and derive no producer edge.
 
 // consumePrefix is the file-name prefix of a mirror.
 const consumePrefix = "consume."
@@ -95,7 +90,7 @@ const tagUnit = "unit"
 const (
 	Toolchain        = "go"
 	ExtractorName    = "go/ast"
-	ExtractorVersion = "1"
+	ExtractorVersion = "3"
 )
 
 // GoConvention is where a consumer's declaration sits for the Go toolchain and
@@ -150,13 +145,13 @@ func FileName(address string) string { return consumePrefix + address + ".go" }
 // extractor cannot read are all could not derive: a record, not an empty list,
 // because "no consumer reads this" and "no consumer's read was visible" call for
 // opposite responses. So is a checkout that reaches an address outside a mirror
-// entirely, and a checkout with no mirror file that makes any call at all — the
-// state an adopted service arrives in until its entries are authored. Only a
-// checkout with no mirror file that makes no call either derives complete and
-// empty, which is every service that consumes nothing.
+// entirely. A checkout with no mirror derives complete and empty where the source
+// analysis finds no call that reaches an address outside the convention.
 //
-// Only the root directory is read, which is the same limit contract's derivation
-// has and for the same reason.
+// Only root Go source is analyzed. Source below the root that is not vendor,
+// testdata, or hidden is outside this convention and records could not derive;
+// unreadable source does too. Scalar write assertions follow literal assignments;
+// nonliteral values and unresolved source bindings make the record partial.
 func Derive(root string, allowed []string, extractor Extractor) (Derived, error) {
 	derived := Derived{Extractor: extractor}
 	entries, err := os.ReadDir(root)
@@ -240,24 +235,21 @@ func Derive(root string, allowed []string, extractor Extractor) (Derived, error)
 	if source.directCall != "" {
 		return failed(extractor, source.directCall), nil
 	}
-	derived.Unfollowed = source.unfollowed
 
 	if len(mirrors) == 0 {
-		if len(source.calls) > 0 {
-			return failed(extractor, fmt.Sprintf(
-				"the checkout makes %d call(s) and holds no mirror and no %s naming a producer",
-				len(source.calls), ConfigurationFile)), nil
-		}
+		derived.Unfollowed = source.unfollowed
 		return derived, nil
 	}
 
 	for _, m := range loaded {
-		drafts, err := declared(m.entry, m.form, m.units, m.receivers, source, allowed)
+		drafts, err := declared(m.entry, m.form, m.units, m.receivers, &source, allowed)
 		if err != nil {
 			return Derived{}, err
 		}
 		derived.Drafts = append(derived.Drafts, drafts...)
 	}
+	slices.Sort(source.unfollowed)
+	derived.Unfollowed = source.unfollowed
 	return derived, nil
 }
 
@@ -281,7 +273,7 @@ func failed(extractor Extractor, reported string) Derived {
 // written can otherwise be asserted populated once for each side, and this
 // package writes a predicate exactly once.
 func declared(entry Entry, form contract.Form, units map[string]string, receivers map[string]string,
-	source consumerSource, allowed []string) ([]Draft, error) {
+	source *consumerSource, allowed []string) ([]Draft, error) {
 	var drafts []Draft
 	seen := map[string]bool{}
 	add := func(element string, kind gatepolicy.PredicateKind, argument string) error {
@@ -340,7 +332,7 @@ func declared(entry Entry, form contract.Form, units map[string]string, receiver
 				if !written {
 					continue
 				}
-				if err := sendsInside(add, e); err != nil {
+				if err := source.sendsInside(add, e); err != nil {
 					return nil, err
 				}
 			case e.Position == contract.PositionStore && written:
@@ -349,10 +341,10 @@ func declared(entry Entry, form contract.Form, units map[string]string, receiver
 				if err := add(e.Name, gatepolicy.PredicateSent, Sent); err != nil {
 					return nil, err
 				}
-				if err := sendsPopulated(add, e); err != nil {
+				if err := source.sendsPopulated(add, e); err != nil {
 					return nil, err
 				}
-				if err := sendsInside(add, e); err != nil {
+				if err := source.sendsInside(add, e); err != nil {
 					return nil, err
 				}
 				if read {
@@ -374,33 +366,6 @@ func declared(entry Entry, form contract.Form, units map[string]string, receiver
 		}
 	}
 	return drafts, nil
-}
-
-// sendsPopulated is whether a value the consumer writes to a store is written
-// populated. It is a store element's own predicate: over what the consumer
-// sends to an interface, the design gives sent-or-left-out and the domain or
-// range and never populated, so this is called for a store write and never
-// for a request element sent.
-func sendsPopulated(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
-	if e.Populated {
-		return add(e.Name, gatepolicy.PredicatePopulated, "")
-	}
-	return nil
-}
-
-// sendsInside is what the consumer asserts about the domain and the range of a
-// value it writes, the write side of the same tags [receives] reads on the side
-// the source shows populated.
-func sendsInside(add func(string, gatepolicy.PredicateKind, string) error, e contract.Element) error {
-	if len(e.Domain) > 0 {
-		if err := add(e.Name, gatepolicy.PredicateSentDomain, contract.DomainText(e.Domain)); err != nil {
-			return err
-		}
-	}
-	if e.Range != nil {
-		return add(e.Name, gatepolicy.PredicateSentRange, e.Range.Text())
-	}
-	return nil
 }
 
 // receives is what the consumer asserts about what it reads: that the element
@@ -441,87 +406,4 @@ func named(file string) (string, bool) {
 		return "", false
 	}
 	return address, true
-}
-
-// mirrorMeta is the unit each of a mirror's fields asserts, by the element name
-// the form gives it; the return type of each exported operation with exactly
-// one plain result, by the operation's own name; and the receiver type of each
-// exported operation declared as a method, by the operation's own name. The
-// unit is the one thing a form does not carry — it belongs to an element's
-// name — so it is read off the mirror's own tags; the return type is what
-// pairs a value the source binds to a call's result with the mirror the call
-// reaches, and the receiver type is what pairs a call made through it with
-// this mirror rather than another declaring the same operation name, since a
-// form does not carry either.
-func mirrorMeta(path string) (units map[string]string, returns map[string]string, receivers map[string]string, err error) {
-	fset := token.NewFileSet()
-	parsed, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("%s does not parse: %v", path, err)
-	}
-	units = map[string]string{}
-	returns = map[string]string{}
-	receivers = map[string]string{}
-	for _, decl := range parsed.Decls {
-		switch d := decl.(type) {
-		case *ast.GenDecl:
-			if d.Tok != token.TYPE {
-				continue
-			}
-			for _, spec := range d.Specs {
-				typeSpec, ok := spec.(*ast.TypeSpec)
-				if !ok || !typeSpec.Name.IsExported() {
-					continue
-				}
-				structType, ok := typeSpec.Type.(*ast.StructType)
-				if !ok {
-					continue
-				}
-				for _, field := range structType.Fields.List {
-					if field.Tag == nil {
-						continue
-					}
-					for _, word := range contract.TagWords(field.Tag.Value) {
-						name, argument, found := strings.Cut(word, "=")
-						if !found || name != tagUnit || argument == "" {
-							continue
-						}
-						for _, ident := range field.Names {
-							if ident.IsExported() {
-								units[typeSpec.Name.Name+"."+ident.Name] = argument
-							}
-						}
-					}
-				}
-			}
-		case *ast.FuncDecl:
-			if !d.Name.IsExported() {
-				continue
-			}
-			if d.Recv != nil && len(d.Recv.List) == 1 {
-				recvType := d.Recv.List[0].Type
-				if star, ok := recvType.(*ast.StarExpr); ok {
-					recvType = star.X
-				}
-				if ident, ok := recvType.(*ast.Ident); ok {
-					receivers[d.Name.Name] = ident.Name
-				}
-			}
-			if d.Type.Results == nil || len(d.Type.Results.List) != 1 {
-				continue
-			}
-			result := d.Type.Results.List[0]
-			if len(result.Names) > 0 {
-				continue
-			}
-			resultType := result.Type
-			if star, ok := resultType.(*ast.StarExpr); ok {
-				resultType = star.X
-			}
-			if ident, ok := resultType.(*ast.Ident); ok {
-				returns[d.Name.Name] = ident.Name
-			}
-		}
-	}
-	return units, returns, receivers, nil
 }

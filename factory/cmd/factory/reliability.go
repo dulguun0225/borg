@@ -23,17 +23,16 @@ import (
 // it the same way this run did: while unreliable, a criterion's failure blocks
 // nothing, per [criterion.Outcome.Blocks].
 //
-// history is every build this item's own criteria have been decided against
-// so far, [candidate.buildHistory] appended with buildID once: the two cuts
-// the design puts on that history — one seed version, a diff reaching the
-// requirement — are not derived anywhere yet, so this reads the wider set
-// [criterion.Unreliable]'s own doc names that choice as the caller's to make.
+// history is every build this item's criteria have been decided against,
+// oldest first. Unreliable groups it by the recorded seed. Requirement reach
+// and the recovery intent's encoding version are not derived by this caller;
+// without recovery evidence a crossing remains unreliable.
 func (p *path) markUnreliable(ctx context.Context, c *candidate, buildID string, results []gate.CriterionResult) error {
 	if !slices.Contains(c.buildHistory, buildID) {
 		c.buildHistory = append(c.buildHistory, buildID)
 	}
 	for i, result := range results {
-		reliability, err := criterion.Unreliable(ctx, p.d.pool, result.CriterionID, c.buildHistory, c.svc.UnreliableBound)
+		reliability, err := criterion.Unreliable(ctx, p.d.pool, result.CriterionID, c.buildHistory, c.svc.UnreliableBound, nil, "")
 		if err != nil {
 			return err
 		}

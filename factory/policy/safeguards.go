@@ -49,7 +49,7 @@ func (f *Factory) AddSafeguard(ctx context.Context, actor record.Actor, paramete
 			if err != nil {
 				return err
 			}
-			return f.writeExplicitThreshold(ctx, tx, actor, parameter, subject, bound)
+			return f.writeExplicitThreshold(ctx, tx, actor, parameter, subject)
 		},
 	})
 	if err != nil || placed.ID != "" {
@@ -91,13 +91,11 @@ func decidableKinds(names []string) error {
 // monitor, off the service record — so placing the safeguard is what puts the
 // number there.
 //
-// It is the pair or nothing: the owner sets the size when they set the number,
-// so the field is written once both safeguards stand and neither alone writes
-// anything. The counterpart is read through the pool rather than tx, every
-// safeguard before this one having committed, and the one being placed is the
-// bound in hand.
+// It is the pair or nothing. Both halves are read in the transaction after
+// the addition or approved withdrawal, using the newest standing safeguard
+// for each. Removing either last half removes the materialized reading.
 func (f *Factory) writeExplicitThreshold(ctx context.Context, tx pgx.Tx, actor record.Actor,
-	parameter gatepolicy.Parameter, subject safeguard.Subject, bound safeguard.Bound) error {
+	parameter gatepolicy.Parameter, subject safeguard.Subject) error {
 	if parameter != gatepolicy.ExplicitThreshold && parameter != gatepolicy.ExplicitThresholdSize {
 		return nil
 	}
@@ -108,24 +106,19 @@ func (f *Factory) writeExplicitThreshold(ctx context.Context, tx pgx.Tx, actor r
 	if err != nil {
 		return err
 	}
-
-	counterpart := gatepolicy.ExplicitThresholdSize
-	if parameter == gatepolicy.ExplicitThresholdSize {
-		counterpart = gatepolicy.ExplicitThreshold
-	}
-	standing, err := safeguard.BySubjects(ctx, f.pool, counterpart, []safeguard.Subject{subject})
+	numbers, err := safeguard.BySubjectsInTx(ctx, tx, gatepolicy.ExplicitThreshold, []safeguard.Subject{subject})
 	if err != nil {
 		return err
 	}
-	if len(standing) == 0 {
-		return nil
+	sizes, err := safeguard.BySubjectsInTx(ctx, tx, gatepolicy.ExplicitThresholdSize, []safeguard.Subject{subject})
+	if err != nil {
+		return err
 	}
-
-	number, size := bound.Number, standing[0].Bound.Number
-	if parameter == gatepolicy.ExplicitThresholdSize {
-		number, size = standing[0].Bound.Number, bound.Number
+	if len(numbers) == 0 || len(sizes) == 0 {
+		return service.ClearExplicitThreshold(ctx, tx, f.token, actor, subject.ID, quantity)
 	}
-	return service.SetExplicitThreshold(ctx, tx, f.token, actor, subject.ID, quantity, number, size)
+	return service.SetExplicitThreshold(ctx, tx, f.token, actor, subject.ID, quantity,
+		numbers[len(numbers)-1].Bound.Number, sizes[len(sizes)-1].Bound.Number)
 }
 
 // WriteSafeguardWithdrawal writes a withdrawal of one safeguard, pending. The
@@ -175,12 +168,19 @@ func (f *Factory) ApproveSafeguardWithdrawal(ctx context.Context, actor record.A
 	if err != nil {
 		return Version{}, err
 	}
+	withdrawing, err := f.safeguardByID(ctx, safeguardID)
+	if err != nil {
+		return Version{}, err
+	}
 	return f.append(ctx, write{
 		caller: CallerFactory, actor: actor, action: ActionWithdrawalApproved,
 		scope: Scope{Kind: "safeguard", ID: safeguardID}, dropSafeguard: safeguardID,
 		decision: decision, minted: Created{WithdrawalID: withdrawalID},
 		apply: func(ctx context.Context, tx pgx.Tx) error {
-			return f.safeguards.ApproveWithdrawal(ctx, tx, withdrawalID)
+			if err := f.safeguards.ApproveWithdrawal(ctx, tx, withdrawalID); err != nil {
+				return err
+			}
+			return f.writeExplicitThreshold(ctx, tx, actor, withdrawing.Parameter, withdrawing.Subject)
 		},
 	})
 }

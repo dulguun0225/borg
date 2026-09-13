@@ -15,6 +15,7 @@ import (
 	"github.com/dulguun0225/borg/factory/agentrun"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 )
 
@@ -225,7 +226,7 @@ func (d *Dispatch) ClearCeiling(ctx context.Context, actor record.Actor, credent
 			return fmt.Errorf("dispatch: marshalling the clear for %s: %w", credentialName, err)
 		}
 		if _, err := d.c.Log.AppendWaitClose(ctx, decisionlog.Entry{
-			Actor: actor, Payload: string(payload), FormatVersion: HoldFormatVersion, Closes: row.ID,
+			Actor: actor, Principal: principal.OfComponent("work"), Payload: string(payload), FormatVersion: HoldFormatVersion, Closes: row.ID,
 		}); err != nil {
 			return err
 		}

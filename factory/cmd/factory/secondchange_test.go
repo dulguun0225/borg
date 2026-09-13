@@ -332,9 +332,10 @@ func TestASafeguardPutsAHumanBackAtAGateAndTheHoldStopsTheDeploy(t *testing.T) {
 	// the safeguard itself is.
 	if err := decideOutsideEveryItemAt(ctx, d.pool, d.token,
 		owner(t, ctx, d.pool, d.token, "reviewer"), recordRow{
-			kind:     gate.SafeguardWithdrawal.String(),
-			recordID: written.ID,
-			verdict:  gate.VerdictApprove,
+			kind:           gate.SafeguardWithdrawal.String(),
+			recordID:       written.ID,
+			verdict:        gate.VerdictApprove,
+			openedInWorkAt: theOpenedInWorkAt,
 		}); err != nil {
 		t.Fatalf("deciding the safeguard's withdrawal: %v", err)
 	}

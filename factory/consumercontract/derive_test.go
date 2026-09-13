@@ -159,7 +159,7 @@ func main() {
 			t.Fatalf("%s was not derived; a store's consumer writes as well as reads. derived %v", want, got)
 		}
 	}
-	if got["Ledger.Amount/sent_range"] != "0..100" {
+	if got["Ledger.Amount/sent_range"] != "3..3" {
 		t.Errorf("the range written is %q", got["Ledger.Amount/sent_range"])
 	}
 }
@@ -200,7 +200,7 @@ func main() { report() }
 	if got["Ask.Reason/sent"] != consumercontract.Sent {
 		t.Errorf("Ask.Reason is %q, and the code writes it", got["Ask.Reason/sent"])
 	}
-	if got["Ask.Reason/sent_domain"] != "slow|error" {
+	if got["Ask.Reason/sent_domain"] != "slow" {
 		t.Errorf("the domain written is %q", got["Ask.Reason/sent_domain"])
 	}
 }

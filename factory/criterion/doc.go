@@ -59,7 +59,8 @@
 // In force is per build and not per service, and a build is a set of items: the
 // ones merged into the repository it was made from, plus the item whose branch
 // it is. [InForce] takes that set and reads both halves — introduced by an item
-// in the build, and withdrawn by no spec version in it. Which item introduced a
+// in the build, and withdrawn by no spec version in it. The caller supplies rejected spec
+// versions from the gate decisions; their introductions and withdrawals are excluded. Which item introduced a
 // criterion is a column here and not a hop through the spec version that
 // introduced it, so the query neither joins into a table this package does not
 // own nor assembles every spec version of every merged item. What that costs is
@@ -125,15 +126,19 @@
 // Merge to master reads the same reading the run took. Becoming unreliable
 // raises the intent this package's own doc names, keyed by the criterion
 // through [intent.Evidence.CriterionID], with the command-line interface's
-// own dedup over [intent.OnEvidence] standing in for the design's "a second
-// raise while that intent is open joins it" — the two narrowings the design
-// puts on the outcome history, one seed version and a diff reaching the
-// requirement, are not derived anywhere yet, so the caller reads every build
-// of the candidate rather than that filtered set.
+// dedup over [intent.OnEvidence]. [Unreliable] groups outcomes by the seed
+// version recorded in their composition and excludes the reaching builds
+// supplied by its caller. The command-line interface does not yet derive
+// which diffs reach the requirement or which build carries an encoding
+// introduced by the recovery intent. It supplies neither input, so the
+// requirement-filtered history and recovery are not composed. Once a
+// criterion crosses the bound, this caller keeps it unreliable.
 //
 // [WithdrawalsWithAnAuthority] is read by the score, through the reader the
 // command-line interface composes for it: each withdrawal is a resolved factor
-// at the Spec row, routed to the human that provenance names. It takes the spec
+// at the Spec row. The composition resolves human-confirmed provenance;
+// constraint and hazard duty scopes and the irreversible withdrawal guard
+// remain unbuilt. It takes the spec
 // versions a human decided as an argument, the decision being the decision log's
 // fact and not this table's, and that caller walks the log for them.
 //
@@ -154,7 +159,7 @@
 // in force, withdrawal, the withdrawal of a criterion whose provenance names an
 // authority, the outcome history and the unreliable bound are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/02-spec/02-in-force-and-withdrawal.md
-// (C1052, C1053, C1054, C1056, C1057, C1059, C1061, C1062, C1066);
+// (C1052, C1053, C1054, C1057, C1059, C1062);
 //
 // the six patterns, the requirement field, the sentence fitting no pattern,
 // opaque ids, a quality of behaviour and decidability are

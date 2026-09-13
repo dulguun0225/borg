@@ -32,7 +32,8 @@
 // [URLEnv], [URL], [Open] and [Apply].
 //
 // The tests are db_test.go, every one of them against the database, and
-// head_test.go beside it, which also covers agreement.go's two methods —
+// head_test.go beside it, which also covers agreement.go's two methods,
+// and hashformat_test.go covering legacy and extended audit encodings —
 // except exemption_test.go, stale_test.go and recordedrelease_test.go, which
 // touch no database because [Excused], [Holds], [MustDeliver] and
 // [RecordedRelease] are pure code over plain inputs.
@@ -91,7 +92,8 @@
 // [VerifyChain] is the second comparison: it reads the factory's log past
 // the head this store recorded last pass and confirms the chain still holds
 // it, extended and nothing else, using [decisionlog.Row] and
-// [decisionlog.Row.ChainHash] alone — this package selects decision_log
+// [decisionlog.Row.ValidateFormat] and [decisionlog.Row.ChainHash] —
+// this package selects decision_log
 // directly rather than importing [decisionlog.Reader], which would append a
 // read event with a fencing token this package does not hold. Finding the
 // chain broken is [Writer.RaiseChainMismatch]'s own mismatch, naming

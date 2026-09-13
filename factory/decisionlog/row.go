@@ -89,30 +89,6 @@ const (
 	PartAcknowledgement Part = "acknowledgement"
 )
 
-// Formats maps every format version this package accepts to the [Shape] it
-// serialises. [Row.FormatVersion] declares a row's shape this way, and an
-// append naming a format version not in this table is refused: "the writer
-// refuses a row declaring no shape." format_version_matches_shape in [DDL]
-// lists the same pairs, and TestFormatVersionsMatchDDL is what keeps the two
-// agreeing. A shape may gain a second format version, where a serialisation or a
-// field list needs to change: the page event has two, page_event/2 carrying
-// the service id its wait is about, and every other shape has one. Both are
-// accepted, an append-only log holding rows written under every version it has
-// had.
-var Formats = map[string]Shape{
-	"decision/1":        ShapeDecision,
-	"page_event/1":      ShapePageEvent,
-	"page_event/2":      ShapePageEvent,
-	"wait/1":            ShapeWait,
-	"rework_request/1":  ShapeReworkRequest,
-	"queue_rejection/1": ShapeQueueRejection,
-	"truncation/1":      ShapeTruncation,
-	"policy_version/1":  ShapePolicyVersion,
-	"score_version/1":   ShapeScoreVersion,
-	"install_event/1":   ShapeInstallEvent,
-	"read_event/1":      ShapeReadEvent,
-}
-
 // Entry is what a caller hands an append method: who decided, what about,
 // under which format version and versions, and — where the shape takes one —
 // which row it closes, its verdict, and its reason. Which of these a given
@@ -127,10 +103,13 @@ type Entry struct {
 	// [record.Actor.Validate].
 	Actor record.Actor
 	// Payload is what the row says, as the exact bytes the chain hashes.
-	// This package neither parses it nor constrains its format.
+	// Only the agent credential-wait exception inspects its kind and
+	// credential_name; other payloads are opaque to this package.
 	Payload string
 	// FormatVersion is required on every entry and declares the row's shape
-	// through [Formats]. A value not in that table, or one that declares a
+	// through [Formats]. The writer promotes a legacy version to its extended
+	// counterpart when structured fields require it; the payload bytes stay
+	// unchanged. A value not in that table, or one that declares a
 	// shape a given method does not write, is refused.
 	FormatVersion string
 	// PolicyVersion is the gate policy a decision was decided under, or the
@@ -152,7 +131,8 @@ type Entry struct {
 	// Reason is a decision closing's reason, required where Verdict is
 	// reject or hold, or a decision abandonment's own reason — "why no
 	// verdict is coming" — required there always, doc.go stating why the two
-	// share one column. Refused by every other method.
+	// share one column. A rework request also requires its defect as Reason.
+	// Refused by every other method.
 	Reason string
 	// OpenedInWorkAt is when the actor opened the gate's row in Work, in
 	// [record.TimeLayout], or the empty string. Set on a decision closing
@@ -232,9 +212,8 @@ type Row struct {
 // The field order is the one doc.go states, and it hashes the row's own
 // stored FormatVersion rather than a package-wide constant: a later format
 // version changing the serialisation changes what it hashes, not what an
-// earlier row already wrote. Every format version this package accepts today
-// shares the one serialisation below; a format version needing a different
-// one would branch here on r.FormatVersion.
+// earlier row already wrote. Legacy versions end at SelfApproval; extended
+// versions include all eight additional fields, even when empty.
 //
 // Each field is written as its length in bytes, big-endian in eight bytes,
 // then its bytes.
@@ -259,16 +238,22 @@ func (r Row) ChainHash() string {
 		r.Reason,
 		r.OpenedInWorkAt,
 		selfApprovalField(r.SelfApproval),
-		r.ReturnsTo,
-		r.Reading,
-		r.MovedRelease,
-		string(r.CallerKind),
-		r.CallerKey,
-		string(r.CallerKeyBasis),
-		r.CallerDispatchID,
-		r.CallerScope,
 	} {
 		writeField(h, field)
+	}
+	if extendedEncoding(r.FormatVersion) {
+		for _, field := range []string{
+			r.ReturnsTo,
+			r.Reading,
+			r.MovedRelease,
+			string(r.CallerKind),
+			r.CallerKey,
+			string(r.CallerKeyBasis),
+			r.CallerDispatchID,
+			r.CallerScope,
+		} {
+			writeField(h, field)
+		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }

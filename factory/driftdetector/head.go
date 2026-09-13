@@ -69,20 +69,24 @@ func recordedHead(ctx context.Context, pool *pgxpool.Pool) (Head, bool, error) {
 // component and the factory's lease is not its to fence with.
 const selectLogRows = `select seq, id, format_version, actor_kind, actor_key, actor_key_basis, at,
 	shape, payload, policy_version, score_version, part, closes, verdict, reason,
-	opened_in_work_at, self_approval, prev_hash, hash
+	opened_in_work_at, self_approval, returns_to, reading, moved_release,
+ caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope, prev_hash, hash
 	from ` + decisionlog.Table + ` where seq > $1 order by seq`
 
 func scanLogRow(row pgx.Row) (decisionlog.Row, error) {
 	var r decisionlog.Row
-	var kind, basis string
+	var kind, basis, callerKind, callerBasis string
 	err := row.Scan(&r.Seq, &r.ID, &r.FormatVersion, &kind, &r.Actor.Key, &basis, &r.At,
 		&r.Shape, &r.Payload, &r.PolicyVersion, &r.ScoreVersion, &r.Part, &r.Closes, &r.Verdict, &r.Reason,
-		&r.OpenedInWorkAt, &r.SelfApproval, &r.PrevHash, &r.Hash)
+		&r.OpenedInWorkAt, &r.SelfApproval, &r.ReturnsTo, &r.Reading, &r.MovedRelease,
+		&callerKind, &r.CallerKey, &callerBasis, &r.CallerDispatchID, &r.CallerScope, &r.PrevHash, &r.Hash)
 	if err != nil {
 		return decisionlog.Row{}, err
 	}
 	r.Actor.Kind = record.Kind(kind)
 	r.Actor.Basis = record.Basis(basis)
+	r.CallerKind = record.Kind(callerKind)
+	r.CallerKeyBasis = record.Basis(callerBasis)
 	return r, nil
 }
 
@@ -94,7 +98,8 @@ func scanLogRow(row pgx.Row) (decisionlog.Row, error) {
 func checkpointRow(ctx context.Context, pool *pgxpool.Pool, seq int64) (decisionlog.Row, bool, error) {
 	r, err := scanLogRow(pool.QueryRow(ctx, `select seq, id, format_version, actor_kind, actor_key,
 		actor_key_basis, at, shape, payload, policy_version, score_version, part, closes, verdict, reason,
-		opened_in_work_at, self_approval, prev_hash, hash from `+decisionlog.Table+` where seq = $1`, seq))
+		opened_in_work_at, self_approval, returns_to, reading, moved_release,
+ caller_kind, caller_key, caller_key_basis, caller_dispatch_id, caller_scope, prev_hash, hash from `+decisionlog.Table+` where seq = $1`, seq))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return decisionlog.Row{}, false, nil
 	} else if err != nil {
@@ -111,8 +116,9 @@ func checkpointRow(ctx context.Context, pool *pgxpool.Pool, seq int64) (decision
 //
 // mismatch is true and why explains it where the row the recorded head
 // named no longer carries that hash, or where a row after it fails to name
-// its predecessor's stored hash or fails to hash to its own stored hash —
-// the same two ways decisionlog's own chain breaks, over the same fields,
+// its predecessor's stored hash, has fields outside its declared format,
+// or fails to hash to its own stored hash — the same ways decisionlog's
+// own chain breaks, over the same fields,
 // recomputed here because that package's [decisionlog.Reader] is not this
 // package's to call.
 func VerifyChain(ctx context.Context, ownPool, factoryPool *pgxpool.Pool) (newHead Head, mismatch bool, why string, err error) {
@@ -136,6 +142,9 @@ func VerifyChain(ctx context.Context, ownPool, factoryPool *pgxpool.Pool) (newHe
 		// that column exactly as it was and only recomputing from the row's
 		// current fields catches it, the same check every row after the
 		// checkpoint gets below.
+		if err := row.ValidateFormat(); err != nil {
+			return recorded, true, err.Error(), nil
+		}
 		if computed := row.ChainHash(); computed != row.Hash {
 			return recorded, true, fmt.Sprintf(
 				"row %d (%s) stores hash %q, its fields hash to %q", row.Seq, row.ID, row.Hash, computed), nil
@@ -162,6 +171,9 @@ func VerifyChain(ctx context.Context, ownPool, factoryPool *pgxpool.Pool) (newHe
 					"row %d (%s) names predecessor hash %q, the chain recorded last pass requires %q",
 					row.Seq, row.ID, row.PrevHash, prevHash), nil
 			}
+		}
+		if err := row.ValidateFormat(); err != nil {
+			return recorded, true, err.Error(), nil
 		}
 		if computed := row.ChainHash(); computed != row.Hash {
 			return recorded, true, fmt.Sprintf(

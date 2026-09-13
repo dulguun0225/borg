@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
@@ -157,6 +158,7 @@ func TestAHumanConfirmedWithdrawalRoutesToAnotherHolderOfTheDutyWhereTheDeciderN
 	}
 	if _, err := w.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: decider, FormatVersion: "decision/1", Verdict: "approve", Closes: opened.ID,
+		OpenedInWorkAt: record.Now(), Principal: principal.OfComponent("work"),
 	}); err != nil {
 		t.Fatalf("appending the decider's approval: %v", err)
 	}

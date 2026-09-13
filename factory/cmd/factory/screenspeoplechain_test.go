@@ -70,7 +70,7 @@ func TestASecondHolderIsWhatMakesAWithdrawalDecidable(t *testing.T) {
 	// Alice wrote it and Bob holds the duty, so the row does not route to her.
 	status, body := s.call(t, "decideRecordRow", screens.DecideRecordRowArgs{
 		RowKind: gate.SafeguardWithdrawal.String(), RecordID: withdrawalID,
-		Verdict: string(gate.VerdictApprove),
+		Verdict: string(gate.VerdictApprove), OpenedInWorkAt: theOpenedInWorkAt,
 	})
 	if status == http.StatusNoContent || status == http.StatusOK {
 		t.Fatalf("the human who wrote the withdrawal decided its own row while another holder existed: %s", body)

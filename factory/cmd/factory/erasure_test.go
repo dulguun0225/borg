@@ -61,10 +61,12 @@ func TestOneErasureReachesEveryRecordThatQuotedTheWords(t *testing.T) {
 	socket := localtarget.WayInSocket(d.dir, theService)
 	waitForTheWayIn(t, socket)
 	reportThrough(t, overTheSocket(socket), firstReport, "bug", false)
+	// Arrival groups the report before Submit returns. The interval pass is
+	// catch-up and must not create another group for the same arrival.
 	if moved, err := ps.Tick(ctx, passGrouper); err != nil {
 		t.Fatalf("the grouper pass: %v\n%s", err, out)
-	} else if !moved {
-		t.Fatalf("the grouper grouped nothing:\n%s", out)
+	} else if moved {
+		t.Fatalf("the catch-up pass regrouped an arrival already handled:\n%s", out)
 	}
 
 	reportID := reports.ids(t, ctx)[0]

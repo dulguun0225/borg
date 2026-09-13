@@ -66,7 +66,7 @@ func TestEachRunIsItsOwnRowsAndNothingIsOverwritten(t *testing.T) {
 		}
 	}
 
-	// A gate reads the latest run per criterion, and every earlier run stands
+	// A gate reads the latest candidate run, and every earlier run stands
 	// with the composition it was decided against.
 	latest, err := criterion.Latest(ctx, pool, buildID)
 	if err != nil {
@@ -76,14 +76,14 @@ func TestEachRunIsItsOwnRowsAndNothingIsOverwritten(t *testing.T) {
 	for _, r := range latest {
 		got[r.CriterionID] = r
 	}
-	if len(got) != 2 {
-		t.Fatalf("Latest returned %d criteria, want 2: %+v", len(got), latest)
+	if len(got) != 1 {
+		t.Fatalf("Latest returned %d criteria, want only the one run 2 decided: %+v", len(got), latest)
 	}
 	if got[first].Run != 2 || got[first].Outcome != criterion.OutcomeFailed {
 		t.Errorf("the latest result of %s is %+v, want run 2 failed", first, got[first])
 	}
-	if got[second].Run != 1 || got[second].Outcome != criterion.OutcomeFailed {
-		t.Errorf("the latest result of %s is %+v, want run 1, which is the last run that decided it", second, got[second])
+	if _, stale := got[second]; stale {
+		t.Errorf("Latest carried %s forward from an earlier run", second)
 	}
 }
 
@@ -179,8 +179,8 @@ func TestTheBuildsOwnProcessWritesRunZero(t *testing.T) {
 		t.Fatalf("RecordResults over the environment: %v", err)
 	}
 
-	// Latest is per criterion and not the build's highest run, so what the
-	// build's own process decided is still read at the gate.
+	// The build's own process is a separate place, so its run 0 is still
+	// read beside the latest candidate run.
 	latest, err := criterion.Latest(ctx, pool, buildID)
 	if err != nil {
 		t.Fatalf("Latest: %v", err)

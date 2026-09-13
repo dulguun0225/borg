@@ -80,12 +80,14 @@ func TestASelfApprovalIsRefusedWhereASecondHolderExists(t *testing.T) {
 	}
 
 	if _, err := g.Decide(ctx, opened, gate.Given{
-		Actor: author, Verdict: gate.VerdictApprove,
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
 	}); !errors.Is(err, gate.ErrSelfApproval) {
 		t.Fatalf("the author closing their own version = %v, want ErrSelfApproval", err)
 	}
 
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: second, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the second holder closing it: %v", err)
 	}
@@ -108,7 +110,9 @@ func TestASelfApprovalIsCarriedWhereNoSecondHolderExists(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	closing, err := g.Decide(ctx, opened, gate.Given{Actor: author, Verdict: gate.VerdictApprove})
+	closing, err := g.Decide(ctx, opened, gate.Given{
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the sole holder closing their own version: %v", err)
 	}
@@ -140,7 +144,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 		t.Fatalf("Fire: %v", err)
 	}
 
-	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", merging)
+	first, err := g.Refer(ctx, opened, author, "I cannot judge this myself", openedInWorkAt, merging)
 	if err != nil {
 		t.Fatalf("the first holder referring: %v", err)
 	}
@@ -149,7 +153,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 			first.Reopened.WaitsOn.Holders)
 	}
 
-	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", merging)
+	last, err := g.Refer(ctx, first.Reopened, second, "nor can I", openedInWorkAt, merging)
 	if err != nil {
 		t.Fatalf("the last holder referring: %v", err)
 	}
@@ -158,7 +162,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 			last.Reopened.WaitsOn)
 	}
 
-	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", merging); !errors.Is(err,
+	if _, err := g.Refer(ctx, last.Reopened, owner, "and neither can I", openedInWorkAt, merging); !errors.Is(err,
 		gate.ErrNobodyLeftToReferTo) {
 		t.Errorf("a refer at the widened row = %v, want ErrNobodyLeftToReferTo", err)
 	}
@@ -167,6 +171,7 @@ func TestAReferWidensToTheOwnerAndIsThenRefused(t *testing.T) {
 	// read, and that close is not refused.
 	if _, err := g.Decide(ctx, last.Reopened, gate.Given{
 		Actor: owner, Verdict: gate.VerdictReject, Reason: "the diff is larger than anyone here can read",
+		OpenedInWorkAt: openedInWorkAt,
 	}); err != nil {
 		t.Errorf("rejecting at the widened row: %v", err)
 	}
@@ -188,7 +193,9 @@ func TestAnAcknowledgementIsRefusedOnceTheDecisionHasEnded(t *testing.T) {
 	if _, err := g.Acknowledge(ctx, opened, author); err != nil {
 		t.Fatalf("Acknowledge while the row is pending: %v", err)
 	}
-	if _, err := g.Decide(ctx, opened, gate.Given{Actor: author, Verdict: gate.VerdictApprove}); err != nil {
+	if _, err := g.Decide(ctx, opened, gate.Given{
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	}); err != nil {
 		t.Fatalf("Decide: %v", err)
 	}
 

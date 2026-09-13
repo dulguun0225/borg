@@ -172,7 +172,7 @@ func TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt(t *testing.T) {
 	}
 
 	if _, err := g.Decide(ctx, opened, gate.Given{
-		Actor: author, Verdict: gate.VerdictApprove,
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
 		// The refusal is [gate.ErrSelfApproval] and not one of its own: the
 		// log's writer refuses five closes and nothing else, and a close by
 		// the human a record's routing bars is an instance of the fifth —
@@ -180,7 +180,9 @@ func TestAWithdrawalRowDoesNotRouteToTheHumanWhoWroteIt(t *testing.T) {
 	}); !errors.Is(err, gate.ErrSelfApproval) {
 		t.Fatalf("the writer closing their own withdrawal = %v, want ErrSelfApproval", err)
 	}
-	closed, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove})
+	closed, err := g.Decide(ctx, opened, gate.Given{
+		Actor: second, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the other holder closing it: %v", err)
 	}
@@ -210,7 +212,9 @@ func TestAWithdrawalRowStillFiresWhereTheTwoAreOnePerson(t *testing.T) {
 		t.Fatalf("a halt's withdrawal waits on %+v, want the owner", opened.WaitsOn)
 	}
 
-	closed, err := g.Decide(ctx, opened, gate.Given{Actor: owner, Verdict: gate.VerdictApprove})
+	closed, err := g.Decide(ctx, opened, gate.Given{
+		Actor: owner, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the one owner closing the row: %v", err)
 	}
@@ -254,12 +258,14 @@ func TestALegalHoldsWithdrawalIsARowOfItsOwn(t *testing.T) {
 			opened.HumanDecides, opened.Assessment.Vector)
 	}
 	if _, err := g.Decide(ctx, opened, gate.Given{
-		Actor: author, Verdict: gate.VerdictApprove,
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
 		// One refusal and not two, for the reason above.
 	}); !errors.Is(err, gate.ErrSelfApproval) {
 		t.Errorf("the writer closing their own withdrawal = %v, want ErrSelfApproval", err)
 	}
-	if _, err := g.Decide(ctx, opened, gate.Given{Actor: second, Verdict: gate.VerdictApprove}); err != nil {
+	if _, err := g.Decide(ctx, opened, gate.Given{
+		Actor: second, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	}); err != nil {
 		t.Errorf("the holder the row routes to closing it: %v", err)
 	}
 }
@@ -314,7 +320,9 @@ func TestTheRetentionShorteningRowNamesWhoseEvidenceGoes(t *testing.T) {
 	// Nobody else can decide it — the row names no duty, so it widens to the
 	// owner — and the close by the human who wrote the value says so rather
 	// than passing unmarked.
-	closed, err := g.Decide(ctx, opened, gate.Given{Actor: author, Verdict: gate.VerdictApprove})
+	closed, err := g.Decide(ctx, opened, gate.Given{
+		Actor: author, Verdict: gate.VerdictApprove, OpenedInWorkAt: openedInWorkAt,
+	})
 	if err != nil {
 		t.Fatalf("the writer closing the row nobody else can decide: %v", err)
 	}

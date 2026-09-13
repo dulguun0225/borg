@@ -66,19 +66,23 @@ func (r *Reader) AppendReadEvent(ctx context.Context, p principal.Principal, wha
 // a principal [principal.Principal.Validate] refuses, so a read event naming an
 // agent without the scope it was dispatched under is not written.
 func (r *Reader) appendReadEvent(ctx context.Context, p principal.Principal, asked string) error {
+	entry, err := readEventEntry(p, asked)
+	if err != nil {
+		return err
+	}
+	_, err = commitAppend(ctx, r.pool, r.token, ShapeReadEvent, "", entry, nil)
+	return err
+}
+
+func readEventEntry(p principal.Principal, asked string) (Entry, error) {
 	if err := p.Validate(); err != nil {
-		return fmt.Errorf("decisionlog: the read event for %q names %s: %w", asked, p, err)
+		return Entry{}, fmt.Errorf("decisionlog: the read event for %q names %s: %w", asked, p, err)
 	}
 	payload, err := json.Marshal(readEventPayload{Dispatch: p.DispatchID, Scope: p.Scope, Read: asked})
 	if err != nil {
-		return fmt.Errorf("decisionlog: marshalling the read event for %q: %w", asked, err)
+		return Entry{}, fmt.Errorf("decisionlog: marshalling the read event for %q: %w", asked, err)
 	}
-	_, err = commitAppend(ctx, r.pool, r.token, ShapeReadEvent, "", Entry{
-		Actor:         p.Actor,
-		Payload:       string(payload),
-		FormatVersion: "read_event/1",
-	}, nil)
-	return err
+	return Entry{Actor: p.Actor, Payload: string(payload), FormatVersion: "read_event/1"}, nil
 }
 
 // Read is the whole log in row order, after appending a read event naming

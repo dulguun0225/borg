@@ -123,6 +123,7 @@ func appendFiring(t *testing.T, ctx context.Context, log *decisionlog.Writer,
 	if _, err := log.AppendDecisionClose(ctx, decisionlog.Entry{
 		Actor: closeActor, Payload: string(closePayload), FormatVersion: "decision/1",
 		Closes: opened.ID, Verdict: closeEvent.Verdict, OpenedInWorkAt: record.Now(),
+		Principal: principal.OfComponent("work"),
 	}); err != nil {
 		t.Fatalf("AppendDecisionClose: %v", err)
 	}
