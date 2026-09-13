@@ -19,9 +19,9 @@ import (
 // not a record.
 const HoldFormatVersion = "wait/1"
 
-// The conditions that stop a dispatch, in the words the row stores. Six stop
-// one in the design and five are computed here, in the order the design gives
-// them; the sixth, and why, is in doc.go.
+// The conditions that stop a dispatch, in the words the row stores. Seven are
+// computed here in the order the design gives them, with the provisioning stop
+// beside them.
 const (
 	// HoldNoEntryCoversTheStage is a stage no fleet entry covers.
 	HoldNoEntryCoversTheStage = "no fleet entry covers this stage on this item"
@@ -42,6 +42,9 @@ const (
 	// the item requiring seam 5 enforced where the factory does not enforce
 	// it.
 	HoldConstraintRequiresSeam5 = "a constraint in force requires seam 5 enforced, and this factory does not enforce it"
+	// HoldServiceNotProvisioned is an implementation stage whose service's
+	// repository or store is missing.
+	HoldServiceNotProvisioned = "the service's repository or a store is missing"
 	// HoldIntentAwaitsAdmission is an intent grouped from reports that no human
 	// has admitted, while the safeguard on the report store that holds one
 	// stands. It is not one of the design's six: an owner who placed that
@@ -375,6 +378,9 @@ func (d *Dispatch) stillHolds(ctx context.Context, held Hold, credentials creden
 	case HoldConstraintRequiresSeam5:
 		requiring, err := d.constraintRequiringSeam5(ctx, on)
 		return requiring != "", err
+	case HoldServiceNotProvisioned:
+		provisioned, err := d.c.Provisioning.Provisioned(ctx, held.ServiceID)
+		return !provisioned, err
 	default:
 		// A condition this component does not compute is left standing:
 		// closing a hold whose condition nothing here can re-test would say

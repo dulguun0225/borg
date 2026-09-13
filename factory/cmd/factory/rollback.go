@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // The deployer's side of the health monitor: what reaching a deploy target
@@ -103,8 +104,9 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 			SkippedReleaseIDs: r.SkippedReleaseIDs,
 			Source:            r.Source,
 		},
-		RecordedDigest: made.ArtifactDigest,
-		Artifacts:      artifactsOf{dir: addresses[0]},
+		RecordedDigest:      made.ArtifactDigest,
+		Artifacts:           artifactsOf{dir: addresses[0]},
+		ConfigurationSource: p,
 	})
 	if err != nil {
 		return err
@@ -131,6 +133,22 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 		ServiceID: r.ServiceID,
 	})
 	return err
+}
+
+// Configuration resolves the authored value set whose content digest the
+// returned-to deploy record names.
+func (p *path) Configuration(ctx context.Context, serviceID, digest string) (targetseam.ValueSet, error) {
+	versions, err := service.ValueSetVersions(ctx, p.d.pool, serviceID)
+	if err != nil {
+		return targetseam.ValueSet{}, err
+	}
+	for _, version := range versions {
+		if version.Digest == digest {
+			values, _, err := deploy.ResolveValueSet(version.Content, p.d.secrets)
+			return values, err
+		}
+	}
+	return targetseam.ValueSet{}, fmt.Errorf("factory: no value set has configuration digest %s", digest)
 }
 
 // deleteExpiredSnapshots is the deployer's own pass over the copies its deploys

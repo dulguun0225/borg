@@ -21,7 +21,7 @@
 // force, the item's own count for the stage, the area chain followed from the
 // item's area at [Dispatch.following], the transition onto the item, and the
 // agent run record. hold.go is [Hold] with [HoldKind],
-// [HoldFormatVersion], the conditions' constants — the six the design gives and
+// [HoldFormatVersion], the conditions' constants — the seven the design gives and
 // [HoldIntentAwaitsAdmission] beside them — [RoutedToTheOwner], [Open],
 // [Rematch] with the two entry points a record's writer calls,
 // [Dispatch.RematchOnRolePromptInForce] and [Dispatch.RematchOnIntentState],
@@ -124,7 +124,10 @@
 // a constraint of the document kind requiring seam 5 enforced. The sixth is a
 // constraint of the dispatch-decided kind, whose predicate is decided against
 // an entry's processing location: package constraint builds the document kind
-// alone, so there is no record here to read and the condition is unbuilt.
+// alone, so there is no record here to read and the condition is unbuilt. An
+// implementation stage also reads [Provisioning] before it reaches for its
+// service's repository or store, and writes [HoldServiceNotProvisioned] while
+// either is missing.
 //
 // The claim a dispatch is, and its expiry, are not built either, so a stage
 // with a stopped agent is not re-entered until something calls this component
@@ -251,5 +254,8 @@
 //
 // This component's row, and the calls it may make, are
 // ../../end-goal/components.md (C0007, C0026); its restart, which is nothing,
-// is ../../end-goal/one-process.md (C2759, C2767).
+// is ../../end-goal/one-process.md (C2759, C2767). A missing repository or
+// store stops dispatch as a log wait, as defined by
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
+// (C0728).
 package dispatch

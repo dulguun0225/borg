@@ -143,4 +143,9 @@
 // the gate approved is
 // ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md
 // (C1562).
+//
+// Re-verification reads the candidate composition identity — including the
+// seed and value-set versions — alongside a moved release, as defined by
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1491).
 package mergequeue

@@ -29,6 +29,11 @@ import (
 // what a snapshot of nothing and an empty schema history both read as.
 func DataDir(dir, service string) string { return filepath.Join(dir, service+".data") }
 
+// SeedFile is the opaque seed content recorded in a candidate store. A
+// platform-specific store can replace this representation while keeping the
+// target seam's version and credential contract.
+func SeedFile(dir, service string) string { return filepath.Join(DataDir(dir, service), "seed") }
+
 // HistoryFile is the schema history the deployer keeps in the service's store:
 // one line per change applied, six fields separated by spaces — the change's
 // identity, its checksum, `widened` or `removed`, the release that shipped it,
@@ -93,7 +98,40 @@ var (
 	// name pointing at nothing is no copy of what the change is about to
 	// destroy.
 	ErrSnapshotGone = errors.New("localtarget: the snapshot the change names is not here")
+	// ErrSeedIncomplete is returned where a candidate seed has no version.
+	ErrSeedIncomplete = errors.New("localtarget: the candidate seed names no version")
 )
+
+// Seed creates the local candidate store from the selected owner version. The
+// content is kept as supplied so a service process can interpret its own seed;
+// repeating the preparation for a recomposition leaves the first seed intact.
+func (l *Local) Seed(_ context.Context, p principal.Principal, s targetseam.Seed) error {
+	if err := targetseam.CheckPrincipal(p); err != nil {
+		return err
+	}
+	if err := s.Validate(); err != nil {
+		return err
+	}
+	if s.Version == "" {
+		return ErrSeedIncomplete
+	}
+	if !filepath.IsLocal(s.Service) {
+		return fmt.Errorf("%w: %q", ErrServiceNotLocal, s.Service)
+	}
+	store := DataDir(l.dir, s.Service)
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		return fmt.Errorf("localtarget: making the store of service %q: %w", s.Service, err)
+	}
+	if _, err := os.Stat(SeedFile(l.dir, s.Service)); err == nil {
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("localtarget: reading the seed of service %q: %w", s.Service, err)
+	}
+	if err := os.WriteFile(SeedFile(l.dir, s.Service), []byte(s.Content), 0o644); err != nil {
+		return fmt.Errorf("localtarget: writing the seed of service %q: %w", s.Service, err)
+	}
+	return nil
+}
 
 // ApplySchemaChange runs the script the service ships for the change, with the
 // store's directory as its one argument, and appends the change to the schema

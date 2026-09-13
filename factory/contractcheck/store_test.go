@@ -59,6 +59,27 @@ func TestADropOfADeprecatedStoreElementWaitsOnItsBackfill(t *testing.T) {
 	}
 }
 
+func TestAnEmptySeedRecordsAStorePredicateAsUndecided(t *testing.T) {
+	ctx, g := newGraph(t)
+
+	ship(t, ctx, g, g.producer, []contract.Form{stored(element("ID", "string", true, false))}, nil, window.ExitTimedOut)
+	ship(t, ctx, g, g.consumer, nil, []consumercontract.Draft{
+		draft(g.producer, theStore, "ID", gatepolicy.PredicateRead, ""),
+	}, window.ExitTimedOut)
+	candidate := candidateOf(t, ctx, g, g.producer,
+		[]contract.Form{stored(element("ID", "string", true, false))}, nil, nil)
+	checked, err := g.check.Enforce(ctx, candidate, g.production)
+	if err != nil {
+		t.Fatalf("Enforce: %v", err)
+	}
+	if len(checked.Unsatisfied) != 1 || !checked.Unsatisfied[0].Undecided() {
+		t.Fatalf("store results = %+v, want one recorded undecided predicate", checked.Unsatisfied)
+	}
+	if checked.Passed() {
+		t.Fatal("a store declaration over an empty seed passed")
+	}
+}
+
 // TestAMoveOfReadsToAStoresNewFormWaitsOnItsBackfill: the item that moves a
 // consumer's reads away from a deprecated element is refused the same way,
 // because every row the copy has not reached would read as absent.
@@ -364,6 +385,7 @@ func TestABackfillItemsChangeIsRunTwiceOverTheSeededStore(t *testing.T) {
 	rerunnable := candidateOf(t, ctx, g, g.producer, []contract.Form{form}, nil, nil)
 	g.checkout.noSchemaChange[rerunnable.ItemID] = true
 	g.checkout.backfills[rerunnable.ItemID] = deploy.Backfill{Contract: theStore, Element: "New", FromElement: "Old"}
+	g.storeState.rows[rerunnable.ItemID+"/"+theStore] = []consumercontract.Document{{"Old": "x", "New": "x"}}
 	checked, err = g.check.Enforce(ctx, rerunnable, g.production)
 	if err != nil {
 		t.Fatalf("the third Enforce: %v", err)
@@ -373,6 +395,18 @@ func TestABackfillItemsChangeIsRunTwiceOverTheSeededStore(t *testing.T) {
 	}
 	if len(checked.Migrations) != 1 || !checked.Migrations[0].Backfill.Any() {
 		t.Fatalf("the migration found is %+v, want the backfill it declares", checked.Migrations)
+	}
+
+	empty := candidateOf(t, ctx, g, g.producer, []contract.Form{form}, nil, nil)
+	g.checkout.noSchemaChange[empty.ItemID] = true
+	g.checkout.backfills[empty.ItemID] = deploy.Backfill{Contract: theStore, Element: "New", FromElement: "Old"}
+	g.storeState.appliedTwice[empty.ItemID] = contractcheck.SecondApplication{Ran: true}
+	checked, err = g.check.Enforce(ctx, empty, g.production)
+	if err != nil {
+		t.Fatalf("Enforce over an empty seed: %v", err)
+	}
+	if len(checked.Migrations) != 1 || !checked.Migrations[0].SecondApplication.Undecided || checked.Passed() {
+		t.Fatalf("empty-seed backfill migration = %+v, want an undecided rejection", checked.Migrations)
 	}
 }
 

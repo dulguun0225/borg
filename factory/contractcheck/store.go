@@ -91,6 +91,9 @@ func (m Migration) Blocked() bool {
 	if (m.Declared || m.Backfill.Any()) && !m.SecondApplication.Ran {
 		return true
 	}
+	if m.SecondApplication.Undecided {
+		return true
+	}
 	if m.SecondApplication.Changed {
 		return true
 	}
@@ -123,6 +126,11 @@ func (m Migration) Why() []string {
 	if m.Backfill.Any() && !m.SecondApplication.Ran {
 		said = append(said, fmt.Sprintf(
 			"%s fills %s from %s and the candidate environment did not run the change twice over the seeded store",
+			m.Contract, m.Backfill.Element, m.Backfill.FromElement))
+	}
+	if m.Backfill.Any() && m.SecondApplication.Undecided {
+		said = append(said, fmt.Sprintf(
+			"%s fills %s from %s, but its second run had no source rows, so the result is undecided",
 			m.Contract, m.Backfill.Element, m.Backfill.FromElement))
 	}
 	if m.SecondApplication.Changed {
@@ -175,6 +183,13 @@ func (c *Check) storeRule(ctx context.Context, candidate Candidate, checked *Che
 			migration.SecondApplication, err = c.store.AppliedTwice(ctx, candidate)
 			if err != nil {
 				return err
+			}
+			if migration.Backfill.Any() && migration.SecondApplication.Ran && !migration.SecondApplication.Changed {
+				rows, err := c.store.Rows(ctx, candidate, broken.Contract.Name)
+				if err != nil {
+					return err
+				}
+				migration.SecondApplication.Undecided = len(rows) == 0
 			}
 		}
 		if migration.Destroys {

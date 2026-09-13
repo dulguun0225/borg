@@ -214,6 +214,15 @@ func (d *Dispatch) put(ctx context.Context, role Role, on On, material []inputma
 	if !found {
 		return d.hold(ctx, run, on, Hold{Condition: HoldNoEntryCoversTheStage})
 	}
+	if stage == item.StageImplementation {
+		provisioned, err := d.c.Provisioning.Provisioned(ctx, on.ServiceID)
+		if err != nil {
+			return run, err
+		}
+		if !provisioned {
+			return d.hold(ctx, run, on, Hold{Condition: HoldServiceNotProvisioned})
+		}
+	}
 	operations, err := role.Narrow(entry.Operations)
 	if err != nil {
 		return run, err

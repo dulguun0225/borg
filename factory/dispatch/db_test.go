@@ -113,6 +113,12 @@ func (f fixedLimit) RoundsOnAnIntent(context.Context) (policy.Effective, error) 
 	return policy.Effective{Number: f.limit}, nil
 }
 
+type fixedProvisioning struct{ provisioned bool }
+
+func (f *fixedProvisioning) Provisioned(context.Context, string) (bool, error) {
+	return f.provisioned, nil
+}
+
 // countingEscalation records what was escalated, standing in for the gate
 // component's own enforcement, which writes the escalated value, abandons the
 // pending rows and pages.
@@ -182,13 +188,14 @@ type composed struct {
 	// token and reader are what a test reads the log with itself: the two
 	// credential rows are not this component's per-item holds, so a test that
 	// asserts one reads the wait rows the way Work would.
-	token      lease.Token
-	reader     *decisionlog.Reader
-	prompts    *shippedPrompts
-	escalation *countingEscalation
-	told       *countingNotifier
-	model      *fakeModel
-	intake     *intent.Intake
+	token        lease.Token
+	reader       *decisionlog.Reader
+	prompts      *shippedPrompts
+	escalation   *countingEscalation
+	told         *countingNotifier
+	model        *fakeModel
+	provisioning *fixedProvisioning
+	intake       *intent.Intake
 	// admissions is what this composition answers dispatch's reading of the
 	// safeguard holding a report-derived intent with. A test that wants the
 	// wait turns it on; every other test leaves it off, which is an install
@@ -242,32 +249,35 @@ func newDispatch(t *testing.T, replies []agent.Reply, errs []error, limit float6
 	}
 
 	model := &fakeModel{replies: replies, errs: errs}
+	provisioning := &fixedProvisioning{provisioned: true}
 	c := composed{
-		ctx:        ctx,
-		pool:       pool,
-		items:      item.NewDispatch(pool, token),
-		entries:    fleetentry.NewWriter(pool, token),
-		lends:      people.NewWriter(pool, token, (*policy.Factory)(nil)),
-		token:      token,
-		reader:     decisionlog.NewReader(pool, token),
-		prompts:    &shippedPrompts{inForce: true, version: artifact.Artifact{ID: "art_role_prompt", Content: "the role prompt in force"}},
-		escalation: &countingEscalation{},
-		told:       &countingNotifier{},
-		model:      model,
-		intake:     intent.NewIntake(pool, token, intent.NoNotifier{}),
-		admissions: &heldIntents{},
+		ctx:          ctx,
+		pool:         pool,
+		items:        item.NewDispatch(pool, token),
+		entries:      fleetentry.NewWriter(pool, token),
+		lends:        people.NewWriter(pool, token, (*policy.Factory)(nil)),
+		token:        token,
+		reader:       decisionlog.NewReader(pool, token),
+		prompts:      &shippedPrompts{inForce: true, version: artifact.Artifact{ID: "art_role_prompt", Content: "the role prompt in force"}},
+		escalation:   &countingEscalation{},
+		told:         &countingNotifier{},
+		model:        model,
+		provisioning: provisioning,
+		intake:       intent.NewIntake(pool, token, intent.NoNotifier{}),
+		admissions:   &heldIntents{},
 	}
 	c.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: pool, Token: token,
 		Models: oneModel{model: model}, Prompts: c.prompts, Items: c.items,
-		Policy:     fixedLimit{limit: limit},
-		Log:        decisionlog.NewWriter(pool, token),
-		Reader:     c.reader,
-		Manifests:  inputmanifest.NewWriter(pool, token),
-		Runs:       agentrun.NewWriter(pool, token),
-		Escalation: c.escalation,
-		Notifier:   c.told,
-		Admissions: c.admissions,
+		Provisioning: c.provisioning,
+		Policy:       fixedLimit{limit: limit},
+		Log:          decisionlog.NewWriter(pool, token),
+		Reader:       c.reader,
+		Manifests:    inputmanifest.NewWriter(pool, token),
+		Runs:         agentrun.NewWriter(pool, token),
+		Escalation:   c.escalation,
+		Notifier:     c.told,
+		Admissions:   c.admissions,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)

@@ -408,7 +408,7 @@ func shipDeployWith(t *testing.T, ctx context.Context, g graph, svc service.Serv
 	// present in the new, so a fixture that wants one complete marks the copy
 	// finished the way the deployer does.
 	if backfill.Any() {
-		if err := g.deploys.MarkBackfillCopied(ctx, dep.ID); err != nil {
+		if err := g.deploys.MarkBackfillCopied(ctx, dep.ID, 1); err != nil {
 			t.Fatalf("marking the backfill of %s copied: %v", dep.ID, err)
 		}
 	}

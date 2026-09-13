@@ -243,7 +243,7 @@ func (e Environment) EveryTargetServesAShare(runsOn ...string) bool {
 const selectEnvironment = `select id, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
 	targets, credential, platform_name, platform_credential, can_compose_on_demand,
 	max_concurrent_candidate_environments, strategy_default,
-	item_id, composed_from, seed_version, value_set_version,
+	item_id, composed_from, seed_version, seed_declaration, value_set_version,
 	torn_down_at, torn_down_reason, withdrawn_at
 	from ` + Table
 
@@ -310,6 +310,30 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Environmen
 		return Environment{}, false, err
 	}
 	return e, true, nil
+}
+
+// CandidateIDs is every candidate environment record, including one already
+// reclaimed or torn down. It lets a reader identify a last check about candidate
+// composition without treating a production environment id as that record.
+func CandidateIDs(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
+	rows, err := pool.Query(ctx, `select id from `+Table+` where kind = $1 order by id`, string(KindCandidate))
+	if err != nil {
+		return nil, fmt.Errorf("environment: reading candidate environment ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("environment: reading a candidate environment id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("environment: reading candidate environment ids: %w", err)
+	}
+	return ids, nil
 }
 
 // CountLiveCandidates is how many candidate environments of one project are
@@ -397,7 +421,7 @@ func scan(row pgx.Row, named string) (Environment, error) {
 	err := row.Scan(&e.ID, &actorKind, &e.Actor.Key, &actorBasis, &e.At, &kind, &e.ProjectID, &e.Name,
 		&targets, &credential, &e.Platform.Name, &platformCredential, &e.Platform.CanComposeOnDemand,
 		&e.MaxConcurrentCandidateEnvironments, &strategyDefault, &e.ItemID, &composed,
-		&e.Composition.SeedVersion, &e.Composition.ValueSetVersion,
+		&e.Composition.SeedVersion, &e.Composition.SeedDeclaration, &e.Composition.ValueSetVersion,
 		&e.TornDownAt, &reason, &e.WithdrawnAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Environment{}, fmt.Errorf("%w: %s", ErrNotFound, named)

@@ -114,6 +114,48 @@ func TestAStageNoEntryCoversAndARoleWithNoPromptAreHolds(t *testing.T) {
 	})
 }
 
+// TestAnUnprovisionedServiceHoldsItsImplementationDispatch: the implementation
+// stage is the first dispatch that reaches for the service's repository or
+// store. The wait is one row naming the service, and provisioning lifts it.
+func TestAnUnprovisionedServiceHoldsItsImplementationDispatch(t *testing.T) {
+	c := newDispatch(t, []agent.Reply{{Text: aSpec}}, nil, 3)
+	c.provisioning.provisioned = false
+	it := c.oneItem(t, intent.StateRefined)
+	on := c.on(it)
+	on.Stage = item.StageImplementation
+
+	_, run, err := c.dispatch.Implementer(c.ctx, on, nil, agent.Implementing{})
+	if !errors.Is(err, dispatch.ErrHeld) || run.Held != dispatch.HoldServiceNotProvisioned {
+		t.Fatalf("Implementer = %v holding %q, want the unprovisioned-service hold", err, run.Held)
+	}
+	if c.model.calls != 0 {
+		t.Error("the implementation agent ran while the service was not provisioned")
+	}
+	held, _, err := c.dispatch.Open(c.ctx)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if len(held) != 1 || held[0].Condition != dispatch.HoldServiceNotProvisioned || held[0].ServiceID != oneService {
+		t.Fatalf("the open holds are %+v, want one naming the service and its missing repository or store", held)
+	}
+
+	c.provisioning.provisioned = true
+	lifted, err := c.dispatch.Rematch(c.ctx)
+	if err != nil {
+		t.Fatalf("Rematch: %v", err)
+	}
+	if len(lifted) != 1 {
+		t.Fatalf("Rematch lifted %d holds, want the provisioning hold", len(lifted))
+	}
+	open, _, err := c.dispatch.Open(c.ctx)
+	if err != nil {
+		t.Fatalf("Open after Rematch: %v", err)
+	}
+	if len(open) != 0 {
+		t.Errorf("%d holds remain after provisioning, want none", len(open))
+	}
+}
+
 // TestTheFourRolesMatchTheFourAuthoringStages: dispatch is a match of the
 // item's stage against the role, so every stage an artifact is authored at has
 // exactly one role and no other stage has any.

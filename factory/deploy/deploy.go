@@ -196,6 +196,9 @@ type Backfill struct {
 	// [Writer.MarkBackfillCopied] is what writes. It is read off the record and
 	// ignored on the way in: a deploy starts with its copy unrun.
 	Copied bool
+	// Undecided is whether the second copy ran over no source rows. It is not a
+	// completed backfill, so [Writer.Complete] refuses the record.
+	Undecided bool
 }
 
 // Any reports whether the deploy is a backfill's. All three fields arrive

@@ -82,6 +82,11 @@
 // address instead, over every last check and every stale one, naming what it
 // found.
 //
+// [LastChecks] reads this detector's last-check store only; it leaves the
+// candidate environment record unchanged, as defined by
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
+// (C1512).
+//
 // The fourth comparison (the instances a rollback would need against the count
 // the deploy record keeps), the fifth (the schema history in each service's
 // store) and the sixth (the configuration digest running on a target) are not

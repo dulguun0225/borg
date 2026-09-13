@@ -77,6 +77,9 @@ var (
 	// new, and that fact is what enforcement reads before it admits the item
 	// that moves reads to that element and the drop after it.
 	ErrBackfillNotCopied = errors.New("deploy: a backfill's record completes once every row the old form holds is present in the new")
+	// ErrBackfillUndecided is returned by [Writer.Complete] for a backfill whose
+	// second copy ran over no source rows.
+	ErrBackfillUndecided = errors.New("deploy: a backfill over no source rows is undecided")
 	// ErrBackfillIncomplete is returned by [Writer.Start] for a backfill naming
 	// some of the three. What a backfill declares is the element it fills and
 	// the element it fills from, on one store contract, and a pair missing a
@@ -126,11 +129,14 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 			return fmt.Errorf("%w: %s is %s", ErrNotStarted, id, status)
 		}
 		var element string
-		var copied bool
-		err = tx.QueryRow(ctx, `select backfill_element, backfill_copied from `+Table+`
-			where id = $1`, id).Scan(&element, &copied)
+		var copied, undecided bool
+		err = tx.QueryRow(ctx, `select backfill_element, backfill_copied, backfill_undecided from `+Table+`
+			where id = $1`, id).Scan(&element, &copied, &undecided)
 		if err != nil {
 			return err
+		}
+		if element != "" && undecided {
+			return fmt.Errorf("%w: %s of %s", ErrBackfillUndecided, element, id)
 		}
 		if element != "" && !copied {
 			return fmt.Errorf("%w: %s of %s", ErrBackfillNotCopied, element, id)
@@ -150,14 +156,20 @@ func (w *Writer) Complete(ctx context.Context, id string) error {
 	})
 }
 
-// MarkBackfillCopied records that every row the old form holds is present in
-// the new, which is what [Writer.Complete] requires of a backfill's record
-// before it completes it. The copy is the release's own change, rerun from
-// where it stopped, so what marks it is a read of the store and never this
-// package: the caller that can see both forms writes it.
-func (w *Writer) MarkBackfillCopied(ctx context.Context, id string) error {
+// MarkBackfillCopied records the result of the copy: a positive row count says
+// every row the old form holds is present in the new, while zero rows records an
+// undecided second run. Only the former lets [Writer.Complete] complete the
+// record. The caller that can see both forms supplies the count.
+func (w *Writer) MarkBackfillCopied(ctx context.Context, id string, rows int) error {
+	if rows < 0 {
+		return fmt.Errorf("%w: the copied row count is negative", ErrBackfillNotCopied)
+	}
 	return w.inTransaction(ctx, "marking the backfill of "+id+" copied", func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `update `+Table+` set backfill_copied = true
+		column := "backfill_copied = true, backfill_undecided = false"
+		if rows == 0 {
+			column = "backfill_copied = false, backfill_undecided = true"
+		}
+		tag, err := tx.Exec(ctx, `update `+Table+` set `+column+`
 			where id = $1 and backfill_element <> ''`, id)
 		if err != nil {
 			return err
@@ -269,7 +281,7 @@ func (w *Writer) inTransaction(ctx context.Context, doing string, write func(pgx
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrNotStarted) || errors.Is(err, ErrTargetNotFound) ||
 			errors.Is(err, ErrTargetsIncomplete) || errors.Is(err, ErrATargetCompleted) ||
 			errors.Is(err, ErrStrategyNotProduction) || errors.Is(err, ErrNoSnapshot) ||
-			errors.Is(err, ErrBackfillNotCopied) {
+			errors.Is(err, ErrBackfillNotCopied) || errors.Is(err, ErrBackfillUndecided) {
 			return err
 		}
 		return fmt.Errorf("deploy: %s: %w", doing, err)

@@ -39,7 +39,7 @@ type Composed struct {
 	// Addresses is the entries of the configuration file whose predicates name
 	// this producer, in the order they were derived. They are what an address is
 	// written for per environment.
-	Addresses []string
+	Addresses []environment.ComposedAddress
 	// Through is empty for a producer the candidate's own build names, and is
 	// the service whose current release's consumer contract named it otherwise.
 	Through string
@@ -130,7 +130,7 @@ type reaching struct {
 }
 
 // producersOf is the producers these predicates name that nothing has reached
-// yet, in service order, each with the addresses that reach it. A predicate
+// yet, in service order, each with the interface addresses that reach it. A predicate
 // whose producer resolved to no service record names a service the factory has
 // never seen publish anything, and there is nothing to put in place for it.
 func producersOf(predicates []consumercontract.Predicate, reached map[string]bool) []Composed {
@@ -146,8 +146,9 @@ func producersOf(predicates []consumercontract.Predicate, reached map[string]boo
 			byService[p.ProducerServiceID] = one
 			ids = append(ids, p.ProducerServiceID)
 		}
-		if !slices.Contains(one.Addresses, p.Address) {
-			one.Addresses = append(one.Addresses, p.Address)
+		address := environment.ComposedAddress{Interface: p.Interface, Address: p.Address}
+		if !slices.Contains(one.Addresses, address) {
+			one.Addresses = append(one.Addresses, address)
 		}
 	}
 	slices.Sort(ids)

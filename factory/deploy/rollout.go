@@ -120,13 +120,11 @@ type Performance struct {
 	// advanced to rolled back target by target as this deploy completes on each.
 	// It is empty on every deploy that undoes nothing.
 	UndoneDeployIDs []string
-
 	// WayInAddress is the entrance the way in inside the deployed service
 	// presents its token at, handed across the seam beside the token. It is
 	// the caller's, this package minting the token and knowing no address,
 	// and it is empty where the factory serves no entrance.
 	WayInAddress string
-
 	// Credential is the environment record's, resolved on the far side of the
 	// seam and never here.
 	Credential secretref.Ref
@@ -139,6 +137,10 @@ type Performance struct {
 	// The record names every one of them, a revert's deploy being the one deploy
 	// that carries more than one.
 	SchemaChanges []targetseam.SchemaChange
+	// Seed is the owner-authored candidate store content selected by the
+	// composition. Empty means the service authored no seed and the store starts
+	// empty.
+	Seed targetseam.Seed
 	// Adoption is whether this is the deploy of the adoption item's release. An
 	// adopted service's store arrives at the schema its head declares, so this
 	// deploy writes one row per declared change into the store's schema history,
@@ -173,9 +175,7 @@ type Performance struct {
 	BakeVolume int64
 	// BakePoll is how often the hold asks. A zero value is [DefaultBakePoll].
 	BakePoll time.Duration
-
-	// Notifier is what the deployer pages through, and may be nil, which pages
-	// nowhere.
+	// Notifier is what the deployer pages through, and may be nil, which pages nowhere.
 	Notifier Notifier
 }
 

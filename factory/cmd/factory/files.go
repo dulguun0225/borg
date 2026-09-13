@@ -170,9 +170,10 @@
 //   - candidateenv.go — candidateEnvironment, the Deploy to candidate
 //     environment row and composing and deploying to it; platformWait and
 //     PlatformWaitKind, the wait a full platform writes into the log; and
-//     decideCriteria, checkEncodings, compositionFor, dependencyHold,
-//     describeComposition, recordCriterionRun, and nextCriterionRun, which two
-//     runs of the encodings are recorded as on a build's criterion results.
+//     checkEncodings and dependencyHold.
+//   - candidatecriteria.go — decideCriteria, recordCriterionRun, and
+//     nextCriterionRun, which two runs of the encodings are recorded as on a
+//     build's criterion results.
 //   - authorstages.go — specStage with submitSpec and screenMachine, planStage
 //     and tasksStage: the three stages above the build, each dispatching its
 //     role, submitting what it authored, firing its own gate row, and

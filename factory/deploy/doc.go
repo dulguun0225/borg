@@ -148,7 +148,8 @@
 // read.
 //
 // A backfill's record completes once its copy has: [Writer.Complete] refuses one
-// whose [Backfill.Copied] is not written, which is what makes a complete record
+// whose [Backfill.Copied] is not written, including one whose second run had no
+// source rows and is [Backfill.Undecided], which is what makes a complete record
 // naming the element the fact enforcement reads.
 //
 // # A rollback is this record and not another
@@ -317,4 +318,19 @@
 // [DeleteSnapshot] deleting the copy and writing the deletion on the record is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md
 // (C2306).
+// candidate.go is the deployer's candidate composition, seed, value-set and
+// schema preparation; candidatewait.go is its unavailable-run wait and
+// candidate teardown.
+//
+// The deployer creates and tears down candidate environments, prepares their
+// selected seed and non-production value set, resolves no production values,
+// and persists the composition addresses. These claims are
+// ../../end-goal/how-the-factory-works/08-operations/09-the-deployer.md
+// (C2181),
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1485, C1496, C1497, C1498),
+// ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md
+// (C1572, C1574, C1575, C1576),
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
+// (C1490).
 package deploy

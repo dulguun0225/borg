@@ -92,10 +92,10 @@
 // [Check.ComposedFrom], in composition.go, is what a candidate's environment is
 // composed from: the producers the candidate build's consumer contract names,
 // and theirs through their current releases' consumer contracts, as a
-// [Composed] each. What is not written is each entry's address for that
-// environment — the composition record names a service and a release and has no
-// field for one — so the addresses the entries reach a producer through are on
-// the value and nothing stores them.
+// [Composed] each. Its address entries are passed to the deployer, which writes
+// them on the candidate environment's [environment.Composed] record beside the
+// producer and release; the record is the per-environment reading rather than
+// this check's derived value.
 //
 // [Check.ConsumerContractsInForce], in inforce.go, is for one service the
 // predicates derived by the items of every release from its
@@ -121,8 +121,14 @@
 // [Migration.Blocked] the rejection; [Waiting] is an element whose backfill no
 // deploy record marks complete, read through deploy.BackfillComplete, which
 // blocks the item that moves reads to it, the drop after it, and a constraint
-// put on it while the form marks something, until one does. The other half of
-// the constraint rule is in check.go: a not-null constraint or a domain check on
+// put on it while the form marks something, until one does. An empty candidate
+// store records a store declaration or backfill predicate
+// as undecided through [Checked.Unsatisfied], and a backfill's second run over
+// no rows is recorded undecided in [Migration].
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1490).
+//
+// The other half of the constraint rule is in check.go: a not-null constraint or a domain check on
 // a store's form is held by a declaration in force the new form rejects and not
 // by the existence of one, which is what makes the design's ordinary path
 // reachable. [contract.Diff] leaves both out of its breaking list for that

@@ -17,8 +17,9 @@ var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: 
 // dependency at the release that was current then, and the versions of the seed
 // and of the non-production value set.
 var composition = environment.Composition{
-	From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one"}},
+	From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one", Addresses: []environment.ComposedAddress{{Interface: "health", Address: "https://dep.example/api,west"}}}},
 	SeedVersion:     "seed_one",
+	SeedDeclaration: "seed rows",
 	ValueSetVersion: "values_one",
 }
 
@@ -65,7 +66,7 @@ func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
 	// Recomposed: the dependencies' current releases have moved since, and so has
 	// the seed the store was built from.
 	moved := environment.Composition{
-		From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two"}},
+		From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two", Addresses: []environment.ComposedAddress{{Interface: "health", Address: "https://dep.example/api,west"}}}},
 		SeedVersion:     "seed_two",
 		ValueSetVersion: "values_one",
 	}
@@ -104,23 +105,25 @@ func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
 	}
 }
 
-// TestTheCompositionComparesAllThree: a seed or a value set replaced between two
+// TestTheCompositionComparesCompositionFields: a seed declaration or a value set replaced between two
 // runs is a composition that differs, which the merge queue reads as it reads a
 // moved release. The comparison is arithmetic over the stored fields and needs no
 // database.
-func TestTheCompositionComparesAllThree(t *testing.T) {
+func TestTheCompositionComparesCompositionFields(t *testing.T) {
 	same := environment.Composition{
 		From:            slices.Clone(composition.From),
 		SeedVersion:     composition.SeedVersion,
+		SeedDeclaration: composition.SeedDeclaration,
 		ValueSetVersion: composition.ValueSetVersion,
 	}
 	if !composition.Equal(same) {
 		t.Error("two compositions naming the same three things are not equal")
 	}
 	for _, differs := range []environment.Composition{
-		{From: []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two"}}, SeedVersion: "seed_one", ValueSetVersion: "values_one"},
-		{From: slices.Clone(composition.From), SeedVersion: "seed_two", ValueSetVersion: "values_one"},
+		{From: []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two", Addresses: []environment.ComposedAddress{{Interface: "health", Address: "https://dep.example/api,west"}}}}, SeedVersion: "seed_one", ValueSetVersion: "values_one"},
+		{From: slices.Clone(composition.From), SeedVersion: "seed_two", SeedDeclaration: composition.SeedDeclaration, ValueSetVersion: "values_one"},
 		{From: slices.Clone(composition.From), SeedVersion: "seed_one", ValueSetVersion: "values_two"},
+		{From: slices.Clone(composition.From), SeedVersion: composition.SeedVersion, SeedDeclaration: "different seed rows", ValueSetVersion: composition.ValueSetVersion},
 	} {
 		if composition.Equal(differs) {
 			t.Errorf("%+v compares equal to %+v", differs, composition)

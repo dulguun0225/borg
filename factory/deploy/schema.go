@@ -238,6 +238,7 @@ var DDL = []string{
 	backfill_element text not null default '',
 	backfill_from_element text not null default '',
 	backfill_copied boolean not null default false,
+	backfill_undecided boolean not null default false,
 	failed_release_id text not null default '',
 	skipped_release_ids text not null default '',
 	source text not null default '',
@@ -256,6 +257,8 @@ var DDL = []string{
 	constraint failed_names_its_step check ((status = 'failed') = (failed_step <> '')),
 	constraint schema_changes_completed_names_one check (schema_changes <> '' or not schema_changes_completed),
 	constraint backfill_copied_names_one check (backfill_element <> '' or not backfill_copied),
+	constraint backfill_undecided_names_one check (backfill_element <> '' or not backfill_undecided),
+	constraint backfill_has_one_outcome check (not (backfill_copied and backfill_undecided)),
 	constraint backfill_names_all_three check (
 		(backfill_contract = '' and backfill_element = '' and backfill_from_element = '')
 		or (backfill_contract <> '' and backfill_element <> '' and backfill_from_element <> '')

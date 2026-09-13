@@ -172,4 +172,8 @@
 // ../../end-goal/how-the-factory-works/07-contracts/06-what-a-consumer-declares.md,
 // and the way-in token handed to a deployed service, beside the entrance it is
 // presented at, is seam 5 of ../../end-goal/deferred.md#security-comes-last.
+// [Local.Seed] prepares the candidate store once from the selected seed; its
+// schema and snapshot behavior implements
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
+// (C1674).
 package localtarget

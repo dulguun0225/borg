@@ -13,9 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 )
 
-// Outcome is what deciding one criterion produced. There are three and the
-// third is not a kind of pass — and the third is never stored: what is written
-// is what was observed, and undecided is computed at the read by [Undecided].
+// Outcome is what deciding one criterion produced.
 type Outcome string
 
 const (
@@ -23,13 +21,8 @@ const (
 	OutcomePassed Outcome = "passed"
 	// OutcomeFailed is an encoding that failed.
 	OutcomeFailed Outcome = "failed"
-	// OutcomeUndecided is an encoding that produced a failure and a pass over
-	// two runs of one build whose compositions match. What a repeated run
-	// measures is the repetition, so the criterion is undecided for that build
-	// rather than passed — recording it as a pass is what would make the merge
-	// verdict rest on nothing, a passing criterion being the whole of what that
-	// gate reads about the item's own behaviour. It is derived by [Undecided]
-	// and refused by the writers, which store observations alone.
+	// OutcomeUndecided is a check the run decided over no row, or two runs of one
+	// build whose compositions match that disagree.
 	OutcomeUndecided Outcome = "undecided"
 )
 
@@ -38,9 +31,9 @@ const (
 var Outcomes = []Outcome{OutcomePassed, OutcomeFailed, OutcomeUndecided}
 
 // Observed is every outcome a run may record. The CHECK constraint in [DDL]
-// lists the same two, and TestDDLListsEveryObservedOutcome fails if the two
+// lists the same three, and TestDDLListsEveryObservedOutcome fails if the two
 // stop agreeing.
-var Observed = []Outcome{OutcomePassed, OutcomeFailed}
+var Observed = []Outcome{OutcomePassed, OutcomeFailed, OutcomeUndecided}
 
 // Place is which of the two places decided a criterion, declared by its
 // encoding and carried onto every result the run wrote.
@@ -80,10 +73,9 @@ var (
 	ErrBuildIDEmpty = errors.New("criterion: the build id is empty")
 	// ErrOutcomeUnknown is returned for an outcome outside [Outcomes].
 	ErrOutcomeUnknown = errors.New("criterion: the outcome is none of passed, failed, undecided")
-	// ErrOutcomeNotObserved is returned for a result recorded as undecided.
-	// Undecided is a disagreement between two runs and no run observes one, so
-	// it is derived by [Undecided] and never written.
-	ErrOutcomeNotObserved = errors.New("criterion: undecided is derived at the read and never recorded")
+	// ErrOutcomeNotObserved is returned when a build's own process tries to
+	// record undecided. Only a candidate run can decide over no row.
+	ErrOutcomeNotObserved = errors.New("criterion: no outcome was recorded")
 	// ErrPlaceUnknown is returned for a run whose place is neither of [Places].
 	ErrPlaceUnknown = errors.New("criterion: the place is neither the build nor the candidate environment")
 	// ErrRunMismatch is returned for a run whose number disagrees with its
@@ -215,11 +207,11 @@ func refuseRun(actor record.Actor, run Run, results map[string]Outcome) error {
 		if criterionID == "" {
 			return fmt.Errorf("%w: a result of build %s", ErrCriterionIDEmpty, run.BuildID)
 		}
-		if outcome == OutcomeUndecided {
-			return fmt.Errorf("%w: %s over build %s", ErrOutcomeNotObserved, criterionID, run.BuildID)
-		}
 		if !contains(Observed, outcome) {
 			return fmt.Errorf("%w: %q", ErrOutcomeUnknown, outcome)
+		}
+		if run.Place == PlaceBuild && outcome == OutcomeUndecided {
+			return fmt.Errorf("%w: the build's own process decided a criterion", ErrOutcomeNotObserved)
 		}
 	}
 	return nil
@@ -264,8 +256,8 @@ func LatestRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, er
 	return highest, nil
 }
 
-// Undecided is every criterion of the build whose runs disagree: two runs over
-// one build whose compositions match and whose outcomes differ. Two runs
+// Undecided is every candidate criterion recorded as undecided, together with
+// every criterion whose repeated runs over one composition disagree. Two runs
 // against compositions that differ are two answers to two questions and make
 // nothing undecided, so the composition copied onto each row is what the
 // grouping is by.
@@ -275,10 +267,10 @@ func LatestRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, er
 // answer shows only as two builds disagreeing.
 func Undecided(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]string, error) {
 	rows, err := pool.Query(ctx, `select distinct criterion_id from `+ResultTable+`
-		where build_id = $1 and place = $2
-		group by criterion_id, composition
-		having count(distinct outcome) > 1
-		order by criterion_id`, buildID, string(PlaceCandidateEnvironment))
+		where build_id = $1 and place = $2 and (outcome = $3 or criterion_id in (
+			select criterion_id from `+ResultTable+` where build_id = $1 and place = $2
+			group by criterion_id, composition having count(distinct outcome) > 1
+		)) order by criterion_id`, buildID, string(PlaceCandidateEnvironment), string(OutcomeUndecided))
 	if err != nil {
 		return nil, fmt.Errorf("criterion: reading what is undecided over build %s: %w", buildID, err)
 	}

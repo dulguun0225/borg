@@ -143,15 +143,15 @@ func insert(ctx context.Context, tx pgx.Tx, e Environment) error {
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, project_id, name,
 		 targets, credential, platform_name, platform_credential, can_compose_on_demand,
 		 max_concurrent_candidate_environments, strategy_default,
-		 item_id, composed_from, seed_version, value_set_version,
-		 torn_down_at, torn_down_reason, withdrawn_at)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)`,
+			item_id, composed_from, seed_version, seed_declaration, value_set_version,
+			torn_down_at, torn_down_reason, withdrawn_at)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)`,
 		e.ID, FormatVersion, string(e.Actor.Kind), e.Actor.Key, string(e.Actor.Basis), e.At,
 		string(e.Kind), e.ProjectID, e.Name, joinTargets(e.Targets), e.Credential.Name(),
 		e.Platform.Name, e.Platform.Credential.Name(), e.Platform.CanComposeOnDemand,
 		e.MaxConcurrentCandidateEnvironments, string(e.StrategyDefault),
 		e.ItemID, joinComposed(e.Composition.From),
-		e.Composition.SeedVersion, e.Composition.ValueSetVersion,
+		e.Composition.SeedVersion, e.Composition.SeedDeclaration, e.Composition.ValueSetVersion,
 		e.TornDownAt, string(e.TornDownReason), e.WithdrawnAt,
 	)
 	if err != nil {

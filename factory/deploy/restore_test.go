@@ -4,12 +4,27 @@
 package deploy_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
+
+type configurationSource struct {
+	digest string
+	values targetseam.ValueSet
+	read   string
+}
+
+func (s *configurationSource) Configuration(_ context.Context, _, digest string) (targetseam.ValueSet, error) {
+	s.read = digest
+	if digest != s.digest {
+		return targetseam.ValueSet{}, errors.New("unexpected configuration digest")
+	}
+	return s.values, nil
+}
 
 // TestARollbackVerifiesTheArtifactsDigestBeforeItRestoresAnything: redeploying
 // by name alone restores a name and not the bytes it was verified under, so a
@@ -254,6 +269,49 @@ func TestTheConfigurationDigestIsStableAndTheFastRollbackCarriesItNamed(t *testi
 	if fastRead.WayInTokenDigest == "" || fastRead.WayInTokenDigest == shippedRead.WayInTokenDigest ||
 		fastRead.WayInTokenDigest == firstRead.WayInTokenDigest {
 		t.Errorf("the fast rollback's way-in token digest reads %q, want a fresh one of its own", fastRead.WayInTokenDigest)
+	}
+}
+
+// TestARollbackRestoresTheReturnedToRecordedConfiguration: the rollback reads
+// the returned-to release's deploy record, not the configuration the caller
+// happened to pass for the rollback.
+func TestARollbackRestoresTheReturnedToRecordedConfiguration(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	returnedTo := mintRelease(t, ctx, pool, token, serviceID)
+	failed := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, target := oneGiven()
+	old := targetseam.ValueSet{Names: []string{"DATABASE_URL"}, Values: []string{"postgres://old"}}
+	newer := targetseam.ValueSet{Names: []string{"DATABASE_URL"}, Values: []string{"postgres://new"}}
+
+	first := performance(serviceID, returnedTo, reaches)
+	first.Configuration = old
+	if _, err := deploy.Perform(ctx, w, first); err != nil {
+		t.Fatalf("the returned-to deploy: %v", err)
+	}
+	failing := performance(serviceID, failed, reaches)
+	failing.Configuration = newer
+	if _, err := deploy.Perform(ctx, w, failing); err != nil {
+		t.Fatalf("the failed deploy: %v", err)
+	}
+
+	source := &configurationSource{digest: deploy.DigestConfiguration(old), values: old}
+	returning := performance(serviceID, returnedTo, reaches)
+	returning.Configuration = newer
+	if _, err := deploy.Restore(ctx, w, deploy.Restoration{
+		Performance:         returning,
+		Undoing:             deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
+		RecordedDigest:      "the digest the build recorded",
+		Artifacts:           artifacts{returnedTo.BuildID: "the digest the build recorded"},
+		ConfigurationSource: source,
+	}); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	if source.read != source.digest {
+		t.Errorf("rollback read configuration digest %q, want %q", source.read, source.digest)
+	}
+	if len(target.deployment.Configuration.Values) < 1 || target.deployment.Configuration.Values[0] != "postgres://old" {
+		t.Errorf("rollback handed %v, want the returned-to deployment's recorded value", target.deployment.Configuration.Values)
 	}
 }
 

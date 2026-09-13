@@ -134,7 +134,17 @@ func TestABackfillsCompletedRecordIsWhatMarksItComplete(t *testing.T) {
 	if err := w.Complete(ctx, d.ID); !errors.Is(err, deploy.ErrBackfillNotCopied) {
 		t.Fatalf("Complete while the copy runs = %v, want ErrBackfillNotCopied", err)
 	}
-	if err := w.MarkBackfillCopied(ctx, d.ID); err != nil {
+	if err := w.MarkBackfillCopied(ctx, d.ID, 0); err != nil {
+		t.Fatalf("MarkBackfillCopied with an empty source: %v", err)
+	}
+	read, err := deploy.Get(ctx, pool, d.ID)
+	if err != nil || !read.Backfill.Undecided || read.Backfill.Copied {
+		t.Fatalf("empty-source backfill = %+v, %v, want undecided and not copied", read.Backfill, err)
+	}
+	if err := w.Complete(ctx, d.ID); !errors.Is(err, deploy.ErrBackfillUndecided) {
+		t.Fatalf("Complete after an empty source = %v, want ErrBackfillUndecided", err)
+	}
+	if err := w.MarkBackfillCopied(ctx, d.ID, 1); err != nil {
 		t.Fatalf("MarkBackfillCopied: %v", err)
 	}
 	if err := w.Complete(ctx, d.ID); err != nil {
@@ -156,7 +166,7 @@ func TestABackfillsCompletedRecordIsWhatMarksItComplete(t *testing.T) {
 		t.Errorf("another service's store reads complete %v (%v)", complete, err)
 	}
 
-	read, err := deploy.Get(ctx, pool, d.ID)
+	read, err = deploy.Get(ctx, pool, d.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}

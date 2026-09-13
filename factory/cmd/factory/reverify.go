@@ -7,7 +7,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/buildrunner"
-	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
@@ -111,14 +111,18 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s already names commit %s\n", it.ID, bl.ID, commit)
 	}
 
-	composed, err := p.compositionFor(ctx, it)
+	composition, err := deploy.CompositionFor(ctx, p, deploy.Candidate{
+		ItemID: it.ID, ServiceID: it.ServiceID, ServiceName: c.svc.Name,
+		ProductionID: p.production.ID, Principal: deployerPrincipal, Credential: p.d.credential,
+	})
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if err := p.candidates.Recompose(ctx, deployActor, c.environmentID, environment.Composition{From: composed}); err != nil {
+	if err := deploy.RecomposeCandidate(ctx, p.candidates, deployActor, c.environmentID, composition); err != nil {
 		return mergequeue.Verified{}, err
 	}
-	c.composedFrom = composed
+	c.composedFrom = composition.From
+	c.composition = composition
 
 	// A re-verification over the same commit reuses the candidate-deploy build:
 	// its artifact is already on the candidate environment, and the additional
@@ -178,8 +182,8 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 				Why:                 fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID),
 				FailedCriteria:      failedCriteria(results),
-				Composition:         environment.Composition{From: c.composedFrom},
-				ApprovedComposition: environment.Composition{From: c.approvedComposition},
+				Composition:         c.composition,
+				ApprovedComposition: c.approvedFullComposition,
 			}, nil
 		}
 	}
@@ -199,14 +203,14 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	if check := checked.Check(); check != "" {
 		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
 			Why:                 check + " with master merged in: " + checked.Why(),
-			Composition:         environment.Composition{From: c.composedFrom},
-			ApprovedComposition: environment.Composition{From: c.approvedComposition},
+			Composition:         c.composition,
+			ApprovedComposition: c.approvedFullComposition,
 		}, nil
 	}
 	return mergequeue.Verified{
 		Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes,
-		Composition:         environment.Composition{From: c.composedFrom},
-		ApprovedComposition: environment.Composition{From: c.approvedComposition},
+		Composition:         c.composition,
+		ApprovedComposition: c.approvedFullComposition,
 	}, nil
 }
 

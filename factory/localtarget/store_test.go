@@ -78,6 +78,26 @@ func writeScript(t *testing.T, dir, service, change, writes string) {
 	}
 }
 
+func TestSeedCreatesTheCandidateStoreOnce(t *testing.T) {
+	local, dir := newTarget(t, "checkout")
+	first := targetseam.Seed{
+		Service: "checkout", Version: "seed_1", Content: "first",
+		Credential: credential,
+	}
+	if err := local.Seed(t.Context(), deployer, first); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	second := first
+	second.Version, second.Content = "seed_2", "second"
+	if err := local.Seed(t.Context(), deployer, second); err != nil {
+		t.Fatalf("Seed again: %v", err)
+	}
+	seed, err := os.ReadFile(localtarget.SeedFile(dir, "checkout"))
+	if err != nil || string(seed) != first.Content {
+		t.Fatalf("seed file = %q, %v, want the first content", seed, err)
+	}
+}
+
 // TestAReplacementWaitsForTheRequestsItHolds: neither rollout row drops a
 // request, so the replacement asks the instance to end and waits for it to
 // finish what it holds however long that takes, and reports the drain. The

@@ -17,7 +17,7 @@ const selectDeploy = `select id, actor_kind, actor_key, actor_key_basis, at, ser
 	release_id, build_id, delivered_release_ids, strategy_picked, strategy_performed, status, failed_step,
 	schema_changes, schema_changes_completed, snapshot_name, snapshot_digest, snapshot_deleted_at,
 	configuration_digest, way_in_token_digest,
-	backfill_contract, backfill_element, backfill_from_element, backfill_copied,
+	backfill_contract, backfill_element, backfill_from_element, backfill_copied, backfill_undecided,
 	failed_release_id, skipped_release_ids, source
 	from ` + Table
 
@@ -398,7 +398,7 @@ func scan(row pgx.Row) (Deploy, error) {
 		&d.ReleaseID, &d.BuildID, &delivered, &picked, &performed, &status, &d.FailedStep,
 		&changes, &d.SchemaChangesCompleted, &d.Snapshot.Name, &d.Snapshot.Digest, &d.Snapshot.DeletedAt,
 		&d.ConfigurationDigest, &d.WayInTokenDigest,
-		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement, &d.Backfill.Copied,
+		&d.Backfill.Contract, &d.Backfill.Element, &d.Backfill.FromElement, &d.Backfill.Copied, &d.Backfill.Undecided,
 		&d.Undoing.FailedReleaseID, &skipped, &d.Undoing.Source); err != nil {
 		return Deploy{}, err
 	}

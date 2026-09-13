@@ -9,8 +9,8 @@ import (
 	"github.com/dulguun0225/borg/factory/secretref"
 )
 
-// Op is one of the operations [Target] declares. It is a name a caller can
-// record and a policy can match on.
+// Op is one of the operations at the target seam. It is a name a caller can
+// record and a policy can match on; [OpSeed] is an optional target capability.
 type Op string
 
 const (
@@ -23,6 +23,8 @@ const (
 	// OpReadRunning asks the target what is running, which is the one
 	// operation that changes nothing. Drift detection is its first caller.
 	OpReadRunning Op = "read_running"
+	// OpSeed prepares a candidate store on a target that supports [Seeder].
+	OpSeed Op = "seed"
 	// OpShiftTraffic decides what share of arriving traffic reaches one build.
 	// It is what a rollout with a control performs and what a mitigation
 	// shifting traffic off a target performs.
@@ -133,6 +135,12 @@ type Target interface {
 	Reconfigure(ctx context.Context, p principal.Principal, r Reconfiguration) (Placement, error)
 }
 
+// Seeder is the optional candidate-store preparation capability. A target that
+// does not host candidate stores need not implement it.
+type Seeder interface {
+	Seed(ctx context.Context, p principal.Principal, s Seed) error
+}
+
 // Deployment is what one deploy names: the service, the build, the credential
 // to reach the target with, the resolved configuration the build runs under,
 // and the entrance the way in presents its token at. The credential is a
@@ -188,6 +196,16 @@ const DeployIDName = "BORG_DEPLOY"
 type ValueSet struct {
 	Names  []string
 	Values []string
+}
+
+// Seed is the candidate store content the owner versioned on the service. The
+// content is opaque at this seam; the platform decides how its store records
+// it and the deployer supplies the version that selected it.
+type Seed struct {
+	Service    string
+	Version    string
+	Content    string
+	Credential secretref.Ref
 }
 
 // Reconfiguration is what [Target.Reconfigure] hands a target's already-

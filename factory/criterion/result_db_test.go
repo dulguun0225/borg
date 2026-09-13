@@ -240,26 +240,38 @@ func TestARunIsRefusedWhereItDisagreesWithItsPlace(t *testing.T) {
 	_, err = pool.Exec(ctx, `insert into `+criterion.ResultTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run, criterion_id, outcome, place, composition)
 		values ($1, $2, 'component', 'buildrunner', 'claimed', $3, 'bl_a', 0, $4, 'passed', 'build', 'seed@1')`,
-		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
+		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id+"b")
 	if err == nil || !strings.Contains(err.Error(), "composition_matches_place") {
 		t.Errorf("inserting a build-decided result carrying a composition = %v, want a violation of composition_matches_place", err)
 	}
 }
 
-// TestUndecidedIsNeverRecorded: what is written is what was observed, and no
-// run observes an undecided — it is the disagreement between two of them,
-// derived at the read.
-func TestUndecidedIsNeverRecorded(t *testing.T) {
+// TestUndecidedIsRecordedAndReadBack: a run that decided over no row records
+// undecided, and the read used by Merge to master returns that outcome.
+func TestUndecidedIsRecordedAndReadBack(t *testing.T) {
 	ctx, pool, token := newSet(t)
 	id := "cr_" + strings.Repeat("a", 32)
 
 	if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment("bl_a", 1, "seed@1"),
+		map[string]criterion.Outcome{id: criterion.OutcomeUndecided}); err != nil {
+		t.Fatalf("RecordResults with an undecided: %v", err)
+	}
+	results, err := criterion.Latest(ctx, pool, "bl_a")
+	if err != nil || len(results) != 1 || results[0].Outcome != criterion.OutcomeUndecided {
+		t.Fatalf("Latest = %+v, %v, want the recorded undecided result", results, err)
+	}
+	undecided, err := criterion.Undecided(ctx, pool, "bl_a")
+	if err != nil || len(undecided) != 1 || undecided[0] != id {
+		t.Fatalf("Undecided = %v, %v, want %s", undecided, err, id)
+	}
+	if err := criterion.RecordResults(ctx, pool, token, buildRunner,
+		criterion.Run{BuildID: "bl_build", Number: 0, Place: criterion.PlaceBuild},
 		map[string]criterion.Outcome{id: criterion.OutcomeUndecided}); !errors.Is(err, criterion.ErrOutcomeNotObserved) {
-		t.Errorf("RecordResults with an undecided = %v, want ErrOutcomeNotObserved", err)
+		t.Errorf("RecordResults with an undecided build result = %v, want ErrOutcomeNotObserved", err)
 	}
 	if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment("bl_a", 1, "seed@1"),
 		map[string]criterion.Outcome{id: criterion.Outcome("flaky")}); !errors.Is(err, criterion.ErrOutcomeUnknown) {
-		t.Errorf("RecordResults with an outcome outside the two = %v, want ErrOutcomeUnknown", err)
+		t.Errorf("RecordResults with an outcome outside the three = %v, want ErrOutcomeUnknown", err)
 	}
 	if err := criterion.RecordResults(ctx, pool, token, deployer, onEnvironment("bl_a", 1, "seed@1"),
 		map[string]criterion.Outcome{"": criterion.OutcomePassed}); !errors.Is(err, criterion.ErrCriterionIDEmpty) {
@@ -270,12 +282,12 @@ func TestUndecidedIsNeverRecorded(t *testing.T) {
 		t.Errorf("RecordResults with no actor = %v, want ErrKindUnknown", err)
 	}
 
-	_, err := pool.Exec(ctx, `insert into `+criterion.ResultTable+`
+	_, err = pool.Exec(ctx, `insert into `+criterion.ResultTable+`
 		(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, run, criterion_id, outcome, place, composition)
 		values ($1, $2, 'component', 'deployer', 'claimed', $3, 'bl_a', 1, $4, 'undecided', 'candidate_environment', 'seed@1')`,
-		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id)
-	if err == nil || !strings.Contains(err.Error(), "outcome_observed") {
-		t.Errorf("inserting an undecided result = %v, want a violation of outcome_observed", err)
+		record.NewID(criterion.ResultIDPrefix), criterion.FormatVersionResult, record.Now(), id+"b")
+	if err != nil {
+		t.Errorf("inserting an undecided result = %v, want it accepted", err)
 	}
 }
 

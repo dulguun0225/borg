@@ -206,17 +206,18 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// client each entry's model version and credential are reached through.
 	p.dispatch, err = dispatch.New(dispatch.Composition{
 		Pool: d.pool, Token: d.token,
-		Models:     models{d: d},
-		Prompts:    p.prompts,
-		Items:      p.items,
-		Policy:     intentLimits{reader: p.policy, pool: d.pool},
-		Log:        p.log,
-		Reader:     decisionlog.NewReader(d.pool, d.token),
-		Manifests:  inputmanifest.NewWriter(d.pool, d.token),
-		Runs:       agentrun.NewWriter(d.pool, d.token),
-		Escalation: gateEscalation{gate: p.gate},
-		Notifier:   p.escalations,
-		Admissions: admissionSafeguards{p: p},
+		Models:       models{d: d},
+		Prompts:      p.prompts,
+		Provisioning: p,
+		Items:        p.items,
+		Policy:       intentLimits{reader: p.policy, pool: d.pool},
+		Log:          p.log,
+		Reader:       decisionlog.NewReader(d.pool, d.token),
+		Manifests:    inputmanifest.NewWriter(d.pool, d.token),
+		Runs:         agentrun.NewWriter(d.pool, d.token),
+		Escalation:   gateEscalation{gate: p.gate},
+		Notifier:     p.escalations,
+		Admissions:   admissionSafeguards{p: p},
 	})
 	if err != nil {
 		return nil, err
@@ -315,10 +316,8 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	return p, nil
 }
 
-// serviceOf is the service record of one id, read once per run. It is what every
-// step that starts from an item uses: an item names one service, and where the work
-// is is that record's own repository field rather than something this interface is
-// told twice.
+// serviceOf is the service record of one id, read once per run. An item's
+// repository is the record's field rather than a second value from the caller.
 func (p *path) serviceOf(ctx context.Context, serviceID string) (service.Service, error) {
 	if svc, found := p.heldService(serviceID); found {
 		return svc, nil

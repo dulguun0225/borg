@@ -80,8 +80,8 @@
 // The identity of a result is the build, the run, and the criterion, and each
 // run copies the composition it ran against onto its rows. [Latest] is what a
 // gate reads, [ResultsForBuild] is every run, and [Undecided] is the
-// disagreement between two runs over one build whose compositions match —
-// derived at the read, never stored, and read at a gate the way a failure is.
+// disagreement between two runs over one build whose compositions match, or a
+// run that decided a criterion over no row; both read at a gate the way a failure is.
 //
 // [Unreliable] reads a criterion's outcome history over builds the caller
 // chose against a bound the caller read off the service record, authored or
@@ -198,6 +198,11 @@
 // the build's mutation, derived and recorded, is
 // ../../end-goal/how-the-factory-works/04-risk-score/01-factors-at-least.md
 // (C1218).
+//
+// A run with no row is undecided; the criterion records that result and the
+// gate treats it as a failure at Merge to master.
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1489).
 //
 // Each result copying the composition it ran against is
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md

@@ -37,12 +37,21 @@ var (
 )
 
 // Composed is one dependency the deployer put in place beside the candidate: the
-// service it is a release of, and the release of it that was current when the
-// environment was composed. It is what was current then and not what is current
-// now, which is the whole point of storing it.
+// service it is a release of, the release of it that was current when the
+// environment was composed, and the interface addresses reached through it.
+// It is what was current then and not what is current now.
 type Composed struct {
 	ServiceID string
 	ReleaseID string
+	Addresses []ComposedAddress
+}
+
+// ComposedAddress is one consumer-contract entry reached through a composed
+// dependency. Both the interface and the address are retained on the candidate
+// environment record.
+type ComposedAddress struct {
+	Interface string
+	Address   string
 }
 
 // Composition is the whole of what a candidate's environment was composed from:
@@ -57,6 +66,7 @@ type Composed struct {
 type Composition struct {
 	From            []Composed
 	SeedVersion     string
+	SeedDeclaration string
 	ValueSetVersion string
 }
 
@@ -65,14 +75,18 @@ type Composition struct {
 // value-set version.
 func (c Composition) Equal(other Composition) bool {
 	return c.SeedVersion == other.SeedVersion &&
+		c.SeedDeclaration == other.SeedDeclaration &&
 		c.ValueSetVersion == other.ValueSetVersion &&
-		slices.Equal(c.From, other.From)
+		slices.EqualFunc(c.From, other.From, func(left, right Composed) bool {
+			return left.ServiceID == right.ServiceID && left.ReleaseID == right.ReleaseID &&
+				slices.Equal(left.Addresses, right.Addresses)
+		})
 }
 
 // Empty is whether nothing was put in place and no version was named, which is
 // what a persistent environment's composition reads as.
 func (c Composition) Empty() bool {
-	return len(c.From) == 0 && c.SeedVersion == "" && c.ValueSetVersion == ""
+	return len(c.From) == 0 && c.SeedVersion == "" && c.SeedDeclaration == "" && c.ValueSetVersion == ""
 }
 
 // NameForItem is the name a candidate's environment carries. It is derived from
@@ -107,11 +121,6 @@ func NewCandidates(pool *pgxpool.Pool, token lease.Token) *Candidates {
 // which is derived from the item: the environment is the item's and persists
 // across a rebuild and across a reclamation, so a rebuild recomposes and a
 // reclaimed environment is composed again through [Candidates.Recompose].
-//
-// The externals the candidate reaches are not stored here. An external is reached
-// from a candidate through the non-production value set alone, so what says which
-// address it reached is that set, and what this record holds about it is the
-// version of the set — which is what a run's results carry.
 func (c *Candidates) Compose(ctx context.Context, actor record.Actor, itemID, projectID string,
 	targets []Target, credential secretref.Ref, composition Composition) (Environment, error) {
 	if err := actor.Validate(); err != nil {
@@ -187,8 +196,8 @@ func (c *Candidates) Recompose(ctx context.Context, actor record.Actor, id strin
 	}
 	return c.write(ctx, id, "recomposing", func(tx pgx.Tx, e Environment) error {
 		if _, err := tx.Exec(ctx, `update `+Table+`
-			set composed_from = $1, seed_version = $2, value_set_version = $3 where id = $4`,
-			joinComposed(composition.From), composition.SeedVersion, composition.ValueSetVersion, id); err != nil {
+			set composed_from = $1, seed_version = $2, seed_declaration = $3, value_set_version = $4 where id = $5`,
+			joinComposed(composition.From), composition.SeedVersion, composition.SeedDeclaration, composition.ValueSetVersion, id); err != nil {
 			return fmt.Errorf("environment: recomposing %s: %w", id, err)
 		}
 		_, err := openCycleOf(ctx, tx, id)
@@ -252,6 +261,11 @@ func validComposition(composition Composition) error {
 	for _, d := range composition.From {
 		if d.ServiceID == "" || d.ReleaseID == "" {
 			return fmt.Errorf("%w, not %q and %q", ErrCompositionIncomplete, d.ServiceID, d.ReleaseID)
+		}
+		for _, address := range d.Addresses {
+			if address.Interface == "" || address.Address == "" {
+				return fmt.Errorf("%w: %s names an incomplete interface address", ErrCompositionIncomplete, d.ServiceID)
+			}
 		}
 	}
 	return nil

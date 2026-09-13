@@ -14,6 +14,8 @@
 // [SetMaxConcurrentCandidateEnvironments] and [SetStrategyDefault]. candidate.go is the candidate kind's
 // writer: [Candidates] and [NewCandidates] with [Candidates.Compose] and
 // [Candidates.Recompose], plus [Composition], [Composed] and [NameForItem].
+// valueset.go is the typed value-set content: [Value], [ValueSet] and
+// [ParseValueSet].
 // cycle.go is the compose-and-reclaim cycle: [Reason] with [Reasons] and
 // [Reason.ForGood], [Rate], [Cycle] with [Cycle.Open] and [Cycle.Hours],
 // [EnvironmentHours], [Candidates.TearDown] and [Candidates.RunCouldStart], and
@@ -77,17 +79,18 @@
 // and a control is a comparison against organic traffic, which no other kind
 // has. [SetStrategyDefault] is the write and the score makes the pick.
 //
-// Three fields are a candidate's alone and empty on a persistent kind. The item
+// Four fields are a candidate's alone and empty on a persistent kind. The item
 // is what the environment belongs to — the item and not the build, because the
 // environment persists across a rebuild. [Composition] is what the deployer put
 // in place beside the candidate: the current release of each dependency as it
-// was when the environment was last composed, plus the version of the seed and
-// of the non-production value set the store and the configuration were built
-// from; [Composition.Equal] compares all three, which is what the merge queue
-// does between a run and the run it re-verifies. The externals a candidate
-// reaches are not stored here: an external is reached through the
-// non-production value set alone, so what this record holds about it is the
-// version of that set. TornDownAt is written by [Candidates.TearDown] at one of
+// was when the environment was last composed, plus the version and declaration
+// of the seed and the version of the non-production value set the store and the
+// configuration were built from; [Composition.Equal] compares them, which is what the merge queue
+// does between a run and the run it re-verifies. The typed non-production value
+// set is parsed and validated by [ParseValueSet]; it names service interfaces,
+// externals, and secrets by name, while the deployer resolves secrets and
+// writes the per-environment addresses into [Composition]. TornDownAt is
+// written by [Candidates.TearDown] at one of
 // the three teardown-for-good events and keeps the row, because the deploy
 // records naming it would otherwise point at nothing; [Environment.Live] is the
 // read of it.
@@ -168,4 +171,22 @@
 // kept, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/02-what-an-item-names.md
 // (C0667, C0668).
+// Candidate composition also records one service-interface address entry per
+// dependency, alongside its release and the selected seed declaration and value
+// versions; the deployer writes each address on this candidate environment
+// record at composition. The production environment's authored candidate ceiling scopes
+// room, and a failed teardown remains eligible for the deployer's next pass.
+// These are the claims in
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1391, C1392, C1402, C1405, C1895),
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1485), and
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
+// (C1505, C1510).
+//
+// The seed and value-set versions in [Composition] are the composition identity
+// the merge queue compares when it re-verifies a candidate and the outcome
+// history groups by, as defined by
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1491).
 package environment

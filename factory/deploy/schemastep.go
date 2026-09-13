@@ -30,10 +30,22 @@ import (
 // The deploy of an adoption item's release applies nothing at all:
 // [writeFoundApplied] is that path.
 func applyToTheStore(ctx context.Context, w *Writer, p Performance, d Deploy) error {
-	if len(p.SchemaChanges) == 0 || len(p.Reaches) == 0 {
+	if len(p.Reaches) == 0 {
 		return nil
 	}
 	through := p.Reaches[0]
+	if p.Seed.Version != "" {
+		seeder, ok := through.Target.(targetseam.Seeder)
+		if !ok {
+			return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: target cannot seed a candidate store", ErrSchemaChangeRefused))
+		}
+		if err := seeder.Seed(ctx, p.Principal, p.Seed); err != nil {
+			return fail(ctx, w, p, d, StepSchemaChange, fmt.Errorf("%w: seeding the candidate store: %w", ErrSchemaChangeRefused, err))
+		}
+	}
+	if len(p.SchemaChanges) == 0 {
+		return nil
+	}
 	if p.Adoption {
 		return writeFoundApplied(ctx, w, p, d, through)
 	}

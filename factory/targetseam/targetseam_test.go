@@ -85,6 +85,21 @@ func TestFakeRecordsEveryNamedOperation(t *testing.T) {
 	}
 }
 
+func TestASeederRecordsTheSelectedVersion(t *testing.T) {
+	fake := NewFake()
+	seed := Seed{
+		Service: "checkout", Version: "seed_7", Content: "opaque",
+		Credential: secretref.MustNew("deploy.staging"),
+	}
+	if err := fake.Seed(context.Background(), deployer, seed); err != nil {
+		t.Fatalf("Seed: %v", err)
+	}
+	calls := fake.Calls()
+	if len(calls) != 1 || calls[0].Op != OpSeed || calls[0].Change != seed.Version {
+		t.Fatalf("the fake recorded %+v, want the selected seed version", calls)
+	}
+}
+
 // TestReconfigureHandsTheRunningInstancesAFreshConfiguration: the fast
 // rollback mints a fresh way-in token for the kept instances rather than
 // leaving them holding the one an earlier deploy minted, and this is the

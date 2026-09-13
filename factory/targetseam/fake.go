@@ -129,6 +129,23 @@ func (f *Fake) ReadRunning(_ context.Context, p principal.Principal, service str
 	return running, nil
 }
 
+// Seed records the candidate-store preparation without interpreting its
+// content. Tests that need a platform store can inspect the call and seed the
+// fake's own state separately.
+func (f *Fake) Seed(_ context.Context, p principal.Principal, s Seed) error {
+	if err := CheckPrincipal(p); err != nil {
+		return err
+	}
+	if err := check(s.Service, s.Credential); err != nil {
+		return err
+	}
+	if s.Version == "" {
+		return fmt.Errorf("targetseam: the seed names no version")
+	}
+	f.calls = append(f.calls, Call{Op: OpSeed, Principal: p, Service: s.Service, Change: s.Version, Credential: s.Credential})
+	return nil
+}
+
 // ShiftTraffic records the call, or answers [Fake.RefuseShift] where the test
 // set one — the platform that declared a share and cannot serve it.
 func (f *Fake) ShiftTraffic(_ context.Context, p principal.Principal, s Shift) error {

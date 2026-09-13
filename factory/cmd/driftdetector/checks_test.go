@@ -16,6 +16,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/driftdetector"
+	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/lastcheck"
 	"github.com/dulguun0225/borg/factory/lease"
 	"github.com/dulguun0225/borg/factory/record"
@@ -92,6 +93,39 @@ func TestAStoppedHealthMonitorStillHoldsItsOwnService(t *testing.T) {
 	if err != nil || !held {
 		t.Errorf("Mismatch = %v, %v; a stopped health monitor holds that service's production deploys:\n%s",
 			held, err, out)
+	}
+}
+
+// TestACandidateCompositionLastCheckRaisesNothing: the candidate-composition
+// record has a candidate environment subject and holds no production service,
+// while a production-target record in the same pass still holds its service.
+func TestACandidateCompositionLastCheckRaisesNothing(t *testing.T) {
+	ctx, s, token := newStores(t)
+	dir := t.TempDir()
+	env, svc, credential := setUp(ctx, t, s.factory, token, dir)
+	candidate, err := environment.NewCandidates(s.factory, token).Compose(ctx, testActor,
+		record.NewID("it"), env.ProjectID,
+		[]environment.Target{{Address: t.TempDir()}}, credential, environment.Composition{})
+	if err != nil {
+		t.Fatalf("creating the candidate environment: %v", err)
+	}
+	writeCheck(ctx, t, s.factory, token, lastcheck.LastCheck{
+		Component: lastcheck.ComponentDeployer, Subject: candidate.ID, Interval: time.Minute,
+	})
+	writeCheck(ctx, t, s.factory, token, lastcheck.LastCheck{
+		Component: lastcheck.ComponentDeployer, Subject: dir, Interval: time.Minute,
+	})
+	backdate(ctx, t, s.factory, lastcheck.ComponentDeployer, time.Now().Add(-time.Hour))
+
+	if err := staleCheck(ctx, s, &strings.Builder{}); err != nil {
+		t.Fatalf("staleCheck: %v", err)
+	}
+	all, err := driftdetector.Uncleared(ctx, s.own, "")
+	if err != nil {
+		t.Fatalf("Uncleared: %v", err)
+	}
+	if len(all) != 1 || all[0].Component != lastcheck.ComponentDeployer || all[0].ServiceID != svc.ID {
+		t.Errorf("Uncleared = %+v, want only the production-target mismatch", all)
 	}
 }
 

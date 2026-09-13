@@ -35,9 +35,7 @@ func TestAnUnreliableCriterionBlocksNothing(t *testing.T) {
 
 // TestDDLListsEveryObservedOutcome keeps the outcome CHECK and [Observed] from
 // disagreeing: the constraint is SQL text rather than built from the slice, so
-// nothing but a test holds the two together. Undecided is in [Outcomes] and not
-// in [Observed], because no run observes one — it is derived by [Undecided] at
-// the read, and the store refuses it.
+// nothing but a test holds the two together.
 func TestDDLListsEveryObservedOutcome(t *testing.T) {
 	const open = "outcome in ("
 	found := false

@@ -18,6 +18,12 @@ type Artifacts interface {
 	Digest(ctx context.Context, buildID string) (string, error)
 }
 
+// ConfigurationSource resolves a recorded configuration digest to the value
+// set the returned-to release ran with.
+type ConfigurationSource interface {
+	Configuration(context.Context, string, string) (targetseam.ValueSet, error)
+}
+
 // ErrDigestDiffers is returned by [Restore] where the artifact the build names
 // no longer digests to what the build recorded. Redeploying by name alone
 // restores a name and not the bytes it was verified under, so the deployer
@@ -59,6 +65,9 @@ type Returning struct {
 	// which is the only fact about the rollback path that exists before the
 	// rollback does.
 	KeptBy string
+	// ConfigurationSource reads the returned-to release's value set by the
+	// configuration digest its deploy record names.
+	ConfigurationSource ConfigurationSource
 }
 
 // ShiftBack is the fast rollback: a rollback is a deploy event and not a
@@ -133,6 +142,13 @@ func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
 	// undoes where the configuration itself has not changed. The way-in token
 	// is minted fresh, this being a deploy in its own right and not a call
 	// that reuses [r.KeptBy]'s.
+	if r.ConfigurationSource != nil {
+		configured, err := rollbackConfiguration(ctx, w, p, r.ConfigurationSource)
+		if err != nil {
+			return Deploy{}, err
+		}
+		p.Configuration = configured
+	}
 	configDigest := DigestConfiguration(p.Configuration)
 	p, wayInDigest, err := p.mintingTheWayInToken()
 	if err != nil {
@@ -207,6 +223,24 @@ type Restoration struct {
 	// Artifacts is what the digest is computed through, and is required: a
 	// rollback that verified nothing would restore a name and not the bytes.
 	Artifacts Artifacts
+	// ConfigurationSource reads the returned-to release's value set by the
+	// configuration digest its deploy record names.
+	ConfigurationSource ConfigurationSource
+}
+
+func rollbackConfiguration(ctx context.Context, w *Writer, p Performance, source ConfigurationSource) (targetseam.ValueSet, error) {
+	deploys, err := ByRelease(ctx, w.pool, p.EnvironmentID, p.What.ReleaseID)
+	if err != nil {
+		return targetseam.ValueSet{}, err
+	}
+	if len(deploys) == 0 {
+		return p.Configuration, nil
+	}
+	digest := deploys[len(deploys)-1].ConfigurationDigest
+	if digest == "" {
+		return p.Configuration, nil
+	}
+	return source.Configuration(ctx, p.ServiceID, digest)
 }
 
 // Restore is the slow rollback: the build of the release being returned to put
@@ -246,8 +280,16 @@ func Restore(ctx context.Context, w *Writer, r Restoration) (Deploy, error) {
 	// appended, the same way [Perform] takes it: over the resolved set alone,
 	// so it digests the same here as it did at the deploy this rollback
 	// undoes where the configuration itself has not changed.
-	configDigest := DigestConfiguration(r.Performance.Configuration)
-	p, wayInDigest, err := r.Performance.mintingTheWayInToken()
+	p := r.Performance
+	if r.ConfigurationSource != nil {
+		configured, err := rollbackConfiguration(ctx, w, p, r.ConfigurationSource)
+		if err != nil {
+			return Deploy{}, err
+		}
+		p.Configuration = configured
+	}
+	configDigest := DigestConfiguration(p.Configuration)
+	p, wayInDigest, err := p.mintingTheWayInToken()
 	if err != nil {
 		return Deploy{}, err
 	}

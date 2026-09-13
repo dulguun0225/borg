@@ -187,11 +187,15 @@ func recordFreshAgain(ctx context.Context, s stores, writer *driftdetector.Write
 // every unretired service, its production environment's id, and the targets
 // it runs on there. What each stopped component's mismatch holds is
 // [driftdetector.Holds]'s decision over this, read off which thing that
-// component keeps a last check per — the deployer's kept per production
-// environment and not per target — and this command only reads what exists
-// and where it runs.
+// component keeps a last check per — the deployer's kept per production target
+// and its candidate-composition record — and this command only reads what
+// exists and where it runs.
 func servicesOnProductionTargets(ctx context.Context, s stores) ([]driftdetector.ServiceOnTargets, error) {
 	services, err := service.All(ctx, s.factory)
+	if err != nil {
+		return nil, err
+	}
+	candidateIDs, err := environment.CandidateIDs(ctx, s.factory)
 	if err != nil {
 		return nil, err
 	}
@@ -206,6 +210,7 @@ func servicesOnProductionTargets(ctx context.Context, s stores) ([]driftdetector
 		}
 		running = append(running, driftdetector.ServiceOnTargets{
 			ServiceID: svc.ID, EnvironmentID: production.ID, Targets: runsOn(production, svc),
+			CandidateEnvironmentIDs: candidateIDs,
 		})
 	}
 	return running, nil

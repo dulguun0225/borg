@@ -288,4 +288,9 @@
 // the mismatch hold paging nobody, with the revert decision paging, is
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
 // (C2179).
+//
+// An undecided criterion is counted as blocking at Merge to master, including
+// the empty-seed and unwritten-store cases in the candidate environment
+// design: ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
+// (C1489, C1490).
 package gate

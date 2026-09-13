@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
@@ -65,12 +66,27 @@ func (p *path) reaches(env environment.Environment, svc service.Service) []deplo
 // to a production deploy and to no other, there being no organic traffic on a
 // candidate to compare two builds against.
 //
-// The value set and the schema changes are empty. Neither is derived anywhere in
-// this interface yet: what a build's resolved value set is and what changes it
-// declares are the component that built's, and nothing here reads either, so the
-// record's configuration digest is over nothing and the store's history is left
-// where it is.
+// The selected seed, value set, and schema changes are resolved before this
+// call, so the candidate store and configuration are ready before the build
+// reaches the target.
 func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) (deploy.Deploy, error) {
+	configuration, unavailable, err := deploy.CandidateConfiguration(ctx, p, c.svc.ID, c.composition.ValueSetVersion, p.d.secrets)
+	c.configurationUnavailable = unavailable
+	c.configuration = configuration
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
+	seed, err := deploy.CandidateSeed(ctx, p, deploy.Candidate{
+		ServiceID: c.svc.ID, ServiceName: c.svc.Name, Credential: p.d.credential,
+	}, c.composition)
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
+	bl, err := build.Get(ctx, p.d.pool, buildID)
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
+	changes := deploy.SchemaChanges(bl.SchemaMarks, c.svc.Name, p.d.credential)
 	return deploy.Perform(ctx, p.deploys, deploy.Performance{
 		Actor:         deployActor,
 		Principal:     deployerPrincipal,
@@ -79,6 +95,9 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 		EnvironmentID: c.environmentID,
 		What:          deploy.OfBuild(buildID),
 		Credential:    p.d.credential,
+		Configuration: configuration,
+		Seed:          seed,
+		SchemaChanges: changes,
 		WayInAddress:  p.d.wayInAddress,
 		Reaches: []deploy.Reach{{
 			Address: c.environmentDir,

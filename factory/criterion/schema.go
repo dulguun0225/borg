@@ -143,8 +143,9 @@ var DDL = []string{
 	` + record.Constraints + `,
 	constraint build_id_present check (build_id <> ''),
 	constraint criterion_id_present check (criterion_id <> ''),
-	constraint outcome_observed check (outcome in ('passed', 'failed')),
+	constraint outcome_observed check (outcome in ('passed', 'failed', 'undecided')),
 	constraint place_known check (place in ('build', 'candidate_environment')),
+	constraint undecided_is_a_candidate_run check (outcome <> 'undecided' or place = 'candidate_environment'),
 	constraint run_matches_place check (
 		(place = 'build' and run = 0) or (place = 'candidate_environment' and run >= 1)
 	),

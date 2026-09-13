@@ -122,3 +122,14 @@ func (s SnapshotRequest) Validate() error {
 	}
 	return nil
 }
+
+// Validate reports whether a candidate seed may be prepared.
+func (s Seed) Validate() error {
+	if err := check(s.Service, s.Credential); err != nil {
+		return err
+	}
+	if s.Version == "" {
+		return fmt.Errorf("%w: service %q names no seed version", ErrIncomplete, s.Service)
+	}
+	return nil
+}

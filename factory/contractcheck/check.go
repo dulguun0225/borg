@@ -180,7 +180,7 @@ func (c *Check) decideConsumers(ctx context.Context, candidate Candidate, checke
 				return err
 			}
 			for _, p := range naming {
-				checked.unsatisfied(p.AgainstExchange(rows))
+				checked.unsatisfied(storePredicate(p, rows))
 			}
 			continue
 		}
@@ -204,6 +204,13 @@ func (c *Check) decideConsumers(ctx context.Context, candidate Candidate, checke
 		}
 	}
 	return nil
+}
+
+func storePredicate(p consumercontract.Predicate, rows []consumercontract.Document) consumercontract.Result {
+	if len(rows) == 0 {
+		return consumercontract.Result{Predicate: p, Why: "the candidate store has no row to decide this against"}
+	}
+	return p.AgainstExchange(rows)
 }
 
 // unsatisfied records one decided predicate that did not hold, and one nothing

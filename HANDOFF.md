@@ -19,6 +19,7 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 
 - Step 1, Build runner and build inputs. No split. Directories changed: `factory/buildrunner` (new), `factory/build`, `factory/exposure`, `factory/wayin`, `factory/cmd/factory`, `factory/cmd/driftdetector`, `factory/contractcheck`, `factory/healthmonitor`, `factory/mergequeue`, `factory/README.md`, `factory/deps.txt`, and the 15 claims flipped to `built` in `end-goal/claims.txt`. Three `drift-reviewer` rounds on `buildrunner`, `build`, `exposure` and `wayin`; the last left **Not implemented** empty except for claims on the pre-existing list. Checks at the commit: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `tools/consistency-commands.sh`, and `go test -count=1 -timeout 30m ./...` all passed.
 - Step 2, Adoption and master branch. No split. Directories changed: `factory/gate` (**doc.go changed**), `factory/buildrunner`, `factory/build`, `factory/score` (**doc.go changed**), and `factory/cmd/factory`. Adoption source resolves at Spec only for the first item on a deployer-recorded service with no factory release; later items weigh it. The build runner records missing digests separately, detects module licence files, and classifies unresolved Go entries as build-time. Checks: focused adoption/master tests passed; focused package tests passed; `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `git diff --check` passed; `graphify update .` passed.
+- Step 3, Candidate environment composition and run outcomes. No split. Directories changed: `factory/cmd/factory`, `factory/contractcheck` (**doc.go changed**), `factory/criterion` (**doc.go changed**), `factory/deploy` (**doc.go changed**), `factory/dispatch` (**doc.go changed**), `factory/driftdetector` (**doc.go changed**), `factory/environment` (**doc.go changed**), `factory/gate` (**doc.go changed**), `factory/localtarget` (**doc.go changed**), `factory/mergequeue` (**doc.go changed**), and `factory/targetseam` (**doc.go changed**), plus `factory/deps.txt`, `HANDOFF.md`, and the 22 claims flipped to `built` in `end-goal/claims.txt`. Candidate composition, candidate-environment creation and teardown, candidate configuration, seed preparation, schema application, rollback configuration restoration, and unavailable-run waits are owned by `factory/deploy` behind command adapters; typed value-set parsing, composition identity, seed declarations, and persisted service-interface addresses are owned by `factory/environment`; dispatch holds an unprovisioned service before implementation and rematches that wait; undecided outcomes are recordable in `criterion` and rejected by `gate`; drift comparison leaves the deployer's candidate-composition record alone by identifying its candidate environment subject, while retaining production-environment and production-target checks; empty-seed store declarations and backfills are recorded undecided, and a zero-row backfill cannot complete. Checks: `go test -count=1 ./criterion ./deploy ./environment ./gate ./targetseam ./localtarget` passed; `go test -count=1 ./dispatch ./contractcheck` passed; `go test -count=1 -timeout 60m ./cmd/factory -run 'Candidate|Environment|Composition|Unavailable|Teardown|Undecided|ValueSet|Seed|Rollback'` passed; `go test -count=1 ./driftdetector ./cmd/driftdetector` passed; `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `git diff --check` passed; final-round `go test -count=1 ./criterion ./deploy ./contractcheck ./driftdetector ./cmd/driftdetector` passed; final-round `go test -count=1 -timeout 60m ./cmd/factory -run 'Candidate|Environment|Composition|Unavailable|Teardown|Undecided|Drift|Stale'` passed; C1490-round `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `go test -count=1 ./contractcheck ./deploy ./criterion`, and `go test -count=1 -timeout 60m ./cmd/factory -run 'Backfill|Undecided|Seed|Store'` passed.
 
 # Pre-existing drift
 
@@ -41,18 +42,42 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 - gate C0883 — set.go:403: the Decomposition firing refuses only `dropped` and `escalated`, so it fires over an `unrefined` or `re-decomposing` intent (same for C0576).
 - gate C0868 — waits.go:126, refuse.go:177: a row waiting on a named human re-fires on a refer to that same human rather than widening to the owner.
 - gate C0898 — verdict.go:154: why it auto-passed is written onto the close event, not the open event beside the selection's mark.
+- environment C1406 — the deployer's last check per platform is neither a field nor a key of the record; only the concurrent-environment count half exists.
+- environment C2253, C1385, C2233 — a gate row's threshold is a row in a separate `environment_gate_threshold` table, not a field of the environment record, and its absence is an absent row.
+- environment C2246 — the threshold upsert always writes, so a re-derivation that agrees still writes the row.
+- environment C1503, C1514 — composition-start and run-could-start are on `environment_cycle` rows, not the environment record, and an open cycle is counted to now rather than to a teardown.
+- service C0616, C0730, C0732 — the deployer writes five fields, `taking_traffic` beside the four, and adoption refuses on a fifth property; `end-goal/open.md` holds the owner's question on this.
+- service C2056 — the default kept fraction of all instances is a comment only; no reader resolves an unauthored value to it.
+- deploy C1722 — a record with a target already complete may still be marked failed.
+- deploy C1923 — the restart has a third outcome, failed at `StepCannotBeCarried`, and for a record that reached nothing deploys the previous release onto every target rather than the ones reached.
+- deploy C1691, C1753 — the restart's rollback keeps the stopped deploy's configuration rather than the one the returned-to release's record named.
+- deploy C2054 — fast versus slow rollback is chosen from whether a kept fleet stands, not whether the rollout kept a control.
+- deploy C0925 — with no bake volume supplied the hold returns at once.
+- criterion C1057 — once unreliable at `EnteredAt`, a criterion stays so until a re-authored encoding, not while its rate is above the bound.
+- targetseam C0096 — `Seeder.Seed` sits outside the `Target` interface and `Ops`, so the named set is two declarations.
+- targetseam C0103 — both mitigation operations are keyed by build, not by the release deployed.
+- contractcheck C1793, C1893 — `Checked.Affected` collects every service with a predicate naming the producer service, not only those naming a contract the candidate publishes.
+- contractcheck C1880 — a newly added uniqueness rule is never decided by whether a write declared inside the range would violate it.
+- dispatch C2541 — the ceiling clear is admitted for any human actor rather than the owner.
+- gate C0897 — the Decomposition row passes `reviewSampled` as false and never reads the review sample rate.
+- deploy C1731 — `SourceOfRestart` is a third rollback source beside the health monitor and the human at Ops.
+- mergequeue C1534 — `refuseIfRepeats` refuses only a repeated environment cycle id and accepts a re-verification naming the build already in force, skipping both comparisons as nothing to compare.
+- environment C1417 — `Compose` refuses a candidate environment naming no project and stores `project_id` on it, where the design gives the candidate's environment to the item and no project; `doc.go` states the opposite of the code.
+- driftdetector C2148 — the detector's store is a second schema on the factory's own PostgreSQL instance under the factory role, so "no factory component may write it" holds only by which Go type a caller is handed.
+- contractcheck C1836 — a nil `checks` writer makes the deprecation pass write no last check, so the pass is not a named row in that composition.
+- contractcheck C1669 — the backfill-complete condition on a drop applies only where the dropped element carried a deprecation mark.
+- contractcheck C1817 — `doc.go` says re-verification is made with this component's actor, where the sentence makes the merge queue the actor.
+- dispatch C0007, C0204 — dispatch writes the input manifest itself rather than calling context assembly, with no selection rule version and only entry-withheld exclusions.
+- dispatch C0810 — rows are written for five of the six conditions; the dispatch-decided constraint condition has no constant, no read, and no row.
+- dispatch C0675 — the stage is the caller's argument rather than read off the item, and nothing re-enters a stage whose agent stopped.
+- dispatch C2381 — one agent run record is written per provider call, so a retried run writes several records.
+- dispatch C2538, C2582 — the credential's ceiling row carries no owner routing; only the per-item hold is routed to the owner.
+
+- contractcheck C1833, C1903 — `partial` marks a consumer partial from any partial derivation in its range without checking that the record names the producer whose list is being built.
+- contractcheck C1817 — `doc.go` says re-verification is made with this package's actor; `check.go` and the design make the merge queue the actor.
+- contractcheck C1836 — composed with a nil intake or a nil last-check writer, the deprecation pass writes no last check, so a stopped pass is not a named row.
 
 # Steps
-
-## 3. Candidate environment composition and run outcomes
-
-Claims: C0728, C1391, C1392, C1402, C1405, C1485, C1489, C1490, C1491, C1496, C1497, C1498, C1505, C1510, C1512, C1572, C1574, C1575, C1576, C1674, C1895, C2181.
-
-Design files to read: `end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md`; `end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md`; `end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md`; `end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md`; `end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md`; `end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/01-the-third-outcome.md`; `end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/README.md`; `end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md`; `end-goal/how-the-factory-works/07-contracts/11-which-producer-a-consumer-reaches.md`; `end-goal/how-the-factory-works/08-operations/09-the-deployer.md`.
-
-Change `factory/environment`, `factory/service`, `factory/deploy`, `factory/targetseam`, `factory/localtarget`, `factory/dispatch`, `factory/criterion`, and the candidate composition in `factory/cmd/factory`. These are existing packages. Wire the deployer as the owner of candidate composition, teardown, deploy records, schema application, configuration resolution, target removal, and target/platform last checks; keep platform composition in the existing environment/deployer seams. The existing dependency direction is sufficient; if a new edge is required, document it in `deps.txt` with the caller's ownership reason before adding it.
-
-Prove candidate creation from the production platform, service-interface addresses, named secrets, seed and value-set versions, schema snapshots, target removal ordering, room holds, failed teardown retry, and the two-attempt unavailable-run wait. Include an end-to-end test where a missing external address or unreachable dependency records no criterion result and eventually opens a Work wait. Checks: focused package tests, `go test -count=1 ./factory/environment ./factory/service ./factory/deploy ./factory/targetseam ./factory/localtarget ./factory/dispatch ./factory/criterion ./cmd/factory -run 'Candidate|Environment|Composition|Unavailable|Teardown'`, `go vet ./...`, `go run ./cmd/depscheck`, and `go run ./cmd/tracecheck`.
 
 ## 4. Encoding and mutation at the candidate run
 
@@ -143,7 +168,8 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 - The exact seed/value-set storage format, migration runner, snapshot backend, and per-environment address encoding are left to implementation; preserve the record fields and version comparisons in the named designs.
 - Step names, file splits, and line counts are planning inferences based on the current package shape; keep each step at about 1,000 changed lines or fewer and split a step if the estimate fails before committing.
 - The design's "network reach to the sources the set names and to nothing else" has two readings: an OS-enforced source allow-list and the available Go boundary, which can clear the environment and build with an offline module cache but cannot enforce host filesystem or egress isolation. The conservative implementation is the latter; the OS-level restriction remains a host requirement.
+- Candidate interface addresses have two readings: infer them again from the value set at each run, or persist the addresses selected by the consumer-contract composition with the dependency release. The conservative implementation persists the selected addresses in the candidate composition, so re-verification compares the exact reached set rather than reconstructing it from mutable configuration.
 
 # Summary
 
-Read `CLAUDE.md`, this handoff, the six Step 1 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Step 1 is implemented and its full test suite and final checks pass. Unresolved design choices and inferences are listed above.
+Read `CLAUDE.md`, this handoff, the named M10 step-3 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Steps 1–3 are implemented; step 3 was not split, and its focused tests and final checks pass. Unresolved design choices and inferences are listed above.

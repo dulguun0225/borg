@@ -72,7 +72,7 @@ const (
 // constraint saying so rather than a comment. The item is the candidate's own,
 // which is what item_id_matches_kind enforces in both directions: a persistent
 // environment naming an item and a candidate's naming none are both refused.
-// composed_from, seed_version and value_set_version are what the deployer put in
+// composed_from, seed_version, seed_declaration and value_set_version are what the deployer put in
 // place beside the candidate. torn_down_at and torn_down_reason are written
 // together when the item merges, is dropped, or is superseded, and only a
 // candidate is ever torn down for good; a reclamation closes a cycle and leaves
@@ -110,6 +110,7 @@ var DDL = []string{
 	item_id text not null,
 	composed_from text not null,
 	seed_version text not null,
+	seed_declaration text not null default '',
 	value_set_version text not null,
 	torn_down_at text not null,
 	torn_down_reason text not null,
@@ -131,7 +132,7 @@ var DDL = []string{
 	constraint ceiling_not_negative check (max_concurrent_candidate_environments >= 0),
 	constraint item_id_matches_kind check ((kind = 'candidate') = (item_id <> '')),
 	constraint composed_from_is_a_candidates check (kind = 'candidate' or composed_from = ''),
-	constraint versions_are_a_candidates check (kind = 'candidate' or (seed_version = '' and value_set_version = '')),
+	constraint versions_are_a_candidates check (kind = 'candidate' or (seed_version = '' and seed_declaration = '' and value_set_version = '')),
 	constraint torn_down_is_a_candidates check (kind = 'candidate' or (torn_down_at = '' and torn_down_reason = '')),
 	constraint torn_down_at_is_time_layout check (torn_down_at = '' or torn_down_at ~ '` + record.TimePattern + `'),
 	constraint torn_down_reason_matches_time check ((torn_down_at <> '') = (torn_down_reason in ('merged', 'dropped', 'superseded'))),

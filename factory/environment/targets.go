@@ -2,6 +2,7 @@ package environment
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -53,11 +54,8 @@ func splitTargets(stored string) ([]Target, error) {
 	return targets, nil
 }
 
-// What a candidate's environment was composed from is stored the same way: one
-// dependency per line, the service id and the release id separated by a space.
-// Neither id holds a space or a line ending — both are [record.NewID]'s
-// alphabet — so the two separators need no escaping, and a stored line that does
-// not split into two is an error rather than a silently short entry.
+// What a candidate's environment was composed from is stored one entry per line:
+// service id, release id, interface and encoded address.
 //
 // The seed version and the value-set version are columns of their own rather than
 // lines here, being one each rather than a list.
@@ -65,7 +63,12 @@ func splitTargets(stored string) ([]Target, error) {
 func joinComposed(composedFrom []Composed) string {
 	lines := make([]string, 0, len(composedFrom))
 	for _, d := range composedFrom {
-		lines = append(lines, d.ServiceID+" "+d.ReleaseID)
+		for _, address := range d.Addresses {
+			lines = append(lines, d.ServiceID+" "+d.ReleaseID+" "+url.QueryEscape(address.Interface)+" "+url.QueryEscape(address.Address))
+		}
+		if len(d.Addresses) == 0 {
+			lines = append(lines, d.ServiceID+" "+d.ReleaseID)
+		}
 	}
 	return strings.Join(lines, "\n")
 }
@@ -76,11 +79,28 @@ func splitComposed(stored string) ([]Composed, error) {
 	}
 	var composedFrom []Composed
 	for _, line := range strings.Split(stored, "\n") {
-		serviceID, releaseID, ok := strings.Cut(line, " ")
-		if !ok || serviceID == "" || releaseID == "" {
+		serviceID, rest, ok := strings.Cut(line, " ")
+		releaseID, rest, hasRelease := strings.Cut(rest, " ")
+		if !ok || !hasRelease || serviceID == "" || releaseID == "" {
 			return nil, fmt.Errorf("environment: %q is not a service id and a release id", line)
 		}
-		composedFrom = append(composedFrom, Composed{ServiceID: serviceID, ReleaseID: releaseID})
+		var addresses []ComposedAddress
+		if rest != "" {
+			interfaceName, storedAddress, hasAddress := strings.Cut(rest, " ")
+			if !hasAddress || interfaceName == "" || storedAddress == "" {
+				return nil, fmt.Errorf("environment: %q has an invalid composed address", line)
+			}
+			interfaceName, err := url.QueryUnescape(interfaceName)
+			if err != nil || interfaceName == "" {
+				return nil, fmt.Errorf("environment: %q has an invalid composed interface", line)
+			}
+			address, err := url.QueryUnescape(storedAddress)
+			if err != nil || address == "" {
+				return nil, fmt.Errorf("environment: %q has an invalid composed address", line)
+			}
+			addresses = append(addresses, ComposedAddress{Interface: interfaceName, Address: address})
+		}
+		composedFrom = append(composedFrom, Composed{ServiceID: serviceID, ReleaseID: releaseID, Addresses: addresses})
 	}
 	return composedFrom, nil
 }

@@ -103,28 +103,6 @@ type Admissions interface {
 	HoldsReportDerivedIntents(ctx context.Context) (bool, error)
 }
 
-// NoAdmissionSafeguard is what a dispatch composed with no reading uses:
-// nothing waits, which is an install where an owner placed no such safeguard.
-type NoAdmissionSafeguard struct{}
-
-// HoldsReportDerivedIntents reports that nothing waits.
-func (NoAdmissionSafeguard) HoldsReportDerivedIntents(context.Context) (bool, error) {
-	return false, nil
-}
-
-// NoNotifier is what a dispatch composed with no notifier uses: nothing is
-// delivered, and an escalation reaches Work through the item's stage alone.
-type NoNotifier struct{}
-
-// Escalated delivers nothing.
-func (NoNotifier) Escalated(context.Context, string, item.Stage, string) error { return nil }
-
-// NearingASpendCeiling delivers nothing. The ceiling still holds: what is
-// missing is the notice before it, not the comparison.
-func (NoNotifier) NearingASpendCeiling(context.Context, string, string, float64, float64, string) error {
-	return nil
-}
-
 // Composition is what a dispatch is built from. Every field is required.
 type Composition struct {
 	Pool  *pgxpool.Pool
@@ -157,6 +135,9 @@ type Composition struct {
 	// admission before an agent is put on it. A nil value is
 	// [NoAdmissionSafeguard].
 	Admissions Admissions
+	// Provisioning is whether the service's repository and store exist before
+	// implementation reaches for them.
+	Provisioning Provisioning
 }
 
 // Dispatch is the component: the match of an item's stage against a role and
@@ -188,6 +169,7 @@ func New(c Composition) (*Dispatch, error) {
 		{"the input manifests", c.Manifests == nil},
 		{"the agent run records", c.Runs == nil},
 		{"an escalation", c.Escalation == nil},
+		{"the service provisioning reader", c.Provisioning == nil},
 	}
 	for _, one := range missing {
 		if one.absent {

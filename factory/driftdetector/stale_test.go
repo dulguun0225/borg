@@ -12,9 +12,9 @@ import (
 
 func TestHolds(t *testing.T) {
 	running := []driftdetector.ServiceOnTargets{
-		{ServiceID: "sv_a", EnvironmentID: "en_1", Targets: []string{"t1", "t2"}},
-		{ServiceID: "sv_b", EnvironmentID: "en_1", Targets: []string{"t2"}},
-		{ServiceID: "sv_c", EnvironmentID: "en_2", Targets: []string{"t3"}},
+		{ServiceID: "sv_a", EnvironmentID: "en_1", Targets: []string{"t1", "t2"}, CandidateEnvironmentIDs: []string{"candidate_1"}},
+		{ServiceID: "sv_b", EnvironmentID: "en_1", Targets: []string{"t2"}, CandidateEnvironmentIDs: []string{"candidate_1"}},
+		{ServiceID: "sv_c", EnvironmentID: "en_2", Targets: []string{"t3"}, CandidateEnvironmentIDs: []string{"candidate_1"}},
 	}
 
 	tests := []struct {
@@ -45,6 +45,16 @@ func TestHolds(t *testing.T) {
 		{
 			name: "the deployer over a target no service runs on holds nothing, one row naming no service",
 			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "t9"},
+			want: []driftdetector.StaleHold{{}},
+		},
+		{
+			name: "the deployer's candidate composition check has no production target to hold",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "candidate_1"},
+			want: nil,
+		},
+		{
+			name: "the deployer's production environment check still has no target to hold",
+			c:    lastcheck.LastCheck{Component: lastcheck.ComponentDeployer, Subject: "en_1"},
 			want: []driftdetector.StaleHold{{}},
 		},
 		{

@@ -66,7 +66,7 @@ func TestACandidatesEnvironmentIsComposedFromWhatItsConsumerContractNames(t *tes
 	if first.ServiceID != g.producer.ID || first.Through != "" || first.ReleaseID == "" {
 		t.Errorf("the first entry is %+v, want the producer at its current release named by the candidate itself", first)
 	}
-	if len(first.Addresses) != 1 || first.Addresses[0] != theInterface {
+	if len(first.Addresses) != 1 || first.Addresses[0].Interface != theInterface || first.Addresses[0].Address != theInterface {
 		t.Errorf("the first entry's addresses are %v, want the entry the call site reads its address from", first.Addresses)
 	}
 	if second.ServiceID != beneath.ID || second.Through != g.producer.ID || second.ReleaseID == "" {

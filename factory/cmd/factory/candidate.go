@@ -9,6 +9,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/score"
 	"github.com/dulguun0225/borg/factory/service"
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // asked is one intent a run is given: the statement, and the services it changes
@@ -164,20 +165,25 @@ type candidate struct {
 	environmentID  string
 	environmentDir string
 	composedFrom   []environment.Composed
+	composition    environment.Composition
 	// approvedComposition is what the environment was composed from at the run
 	// that passed at Merge to master, kept beside composedFrom because the
 	// re-verification recomposes and overwrites that one. Comparing the two is
 	// the whole of how the queue tells its second reading of a failure from its
 	// third: what changed between them is a release the author's work never saw.
-	approvedComposition []environment.Composed
-	candidateDeployID   string
+	approvedComposition     []environment.Composed
+	approvedFullComposition environment.Composition
+	candidateDeployID       string
 	// candidateDeployBuild is the build the candidate's environment is running,
 	// read off that deploy record. It is a field beside the deploy's id because
 	// what says the approval at the candidate deploy row has been performed for
 	// the build the item holds now is which build runs there, and a rebuild puts
 	// a second one on the same environment.
-	candidateDeployBuild string
-	criteria             []gate.CriterionResult
+	candidateDeployBuild     string
+	criteria                 []gate.CriterionResult
+	configuration            targetseam.ValueSet
+	runWaitRow               string
+	configurationUnavailable string
 	// encodingDefect is what [path.checkEncodings] found wrong with the build's
 	// encodings against the criteria in force — a criterion with no encoding
 	// naming it, an encoding naming a criterion not in force or withdrawn, or

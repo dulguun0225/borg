@@ -551,7 +551,7 @@ artifact -> consumercontract criterion erasurelist screenstatemachine lease reco
 build -> criterion exposure lease record
 buildrunner -> build criterion exposure wayin
 release -> lease record artifact
-deploy -> record secretref targetseam lease principal release lastcheck service
+deploy -> record secretref targetseam lease principal release lastcheck service environment
 area -> record gatepolicy lease
 environment -> record gatepolicy secretref lease
 factorysettings -> record gatepolicy item lease

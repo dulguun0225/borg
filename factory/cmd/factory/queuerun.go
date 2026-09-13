@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
@@ -172,6 +173,12 @@ func (p *path) candidateFor(ctx context.Context, itemID string) (*candidate, err
 		c.environmentID = env.ID
 		c.environmentDir = env.Targets[0].Address
 		c.tornDown = !env.Live()
+		c.composition = env.Composition
+		c.composedFrom = env.Composition.From
+	}
+	c.runWaitRow, err = deploy.CandidateRunWait(ctx, candidateWaitLog{p}, itemID)
+	if err != nil {
+		return nil, err
 	}
 	return p.refreshCandidate(itemID, c), nil
 }
@@ -187,10 +194,12 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 	// What the stop left on the target is read and discarded: a candidate
 	// environment is torn down whole, so the placement of a process that is
 	// being ended with its environment says nothing a later reader needs.
-	if _, err := p.d.targets.at(c.environmentDir).Stop(ctx, deployerPrincipal, c.svc.Name, p.d.credential); err != nil {
-		return err
-	}
-	if err := p.candidates.TearDown(ctx, deployActor, c.environmentID, environment.ReasonMerged, environment.Rate{}); err != nil {
+	if err := deploy.TearDownCandidate(ctx, deploy.CandidateTeardown{
+		Target: p.d.targets.at(c.environmentDir), Environments: p.candidates,
+		EnvironmentID: c.environmentID, Address: c.environmentDir, ServiceName: c.svc.Name,
+		Principal: deployerPrincipal, Credential: p.d.credential, Actor: deployActor,
+		Reason: environment.ReasonMerged,
+	}); err != nil {
 		return err
 	}
 	c.tornDown = true

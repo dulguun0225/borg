@@ -7,15 +7,14 @@ import (
 )
 
 // ServiceOnTargets is one unretired service, the production environment it
-// runs in, and the targets of that environment it runs on, as [Holds] reads
-// it. The caller assembles the whole set — every unretired service, its
-// production environment's id, and the targets it runs on there — because
-// which services exist and where they run is the factory's own record and
-// not this package's.
+// runs in, its production targets, and the candidate environment records, as
+// [Holds] reads it. The caller assembles the set because which environments and
+// services exist is the factory's own record and not this package's.
 type ServiceOnTargets struct {
-	ServiceID     string
-	EnvironmentID string
-	Targets       []string
+	ServiceID               string
+	EnvironmentID           string
+	Targets                 []string
+	CandidateEnvironmentIDs []string
 }
 
 // StaleHold is one service a stopped component's mismatch holds. A StaleHold
@@ -42,6 +41,13 @@ func Holds(c lastcheck.LastCheck, running []ServiceOnTargets) []StaleHold {
 	}
 	if c.Component != lastcheck.ComponentDeployer {
 		return []StaleHold{{}}
+	}
+	for _, s := range running {
+		if slices.Contains(s.CandidateEnvironmentIDs, c.Subject) {
+			// The deployer's candidate-composition check is about a candidate
+			// environment, which has no production target to hold.
+			return nil
+		}
 	}
 	var environmentID string
 	for _, s := range running {

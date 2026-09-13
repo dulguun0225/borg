@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/factorysettings"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
@@ -61,10 +62,12 @@ func (p *path) dropItem(ctx context.Context, actor record.Actor, id string) erro
 	}
 	// Stopping comes first, so a record saying torn down never stands over a
 	// process still running — the order the merge's teardown keeps.
-	if _, err := p.d.targets.at(env.Targets[0].Address).Stop(ctx, deployerPrincipal, svc.Name, p.d.credential); err != nil {
-		return err
-	}
-	if err := p.candidates.TearDown(ctx, deployActor, env.ID, environment.ReasonDropped, environment.Rate{}); err != nil {
+	if err := deploy.TearDownCandidate(ctx, deploy.CandidateTeardown{
+		Target: p.d.targets.at(env.Targets[0].Address), Environments: p.candidates,
+		EnvironmentID: env.ID, Address: env.Targets[0].Address, ServiceName: svc.Name,
+		Principal: deployerPrincipal, Credential: p.d.credential, Actor: deployActor,
+		Reason: environment.ReasonDropped,
+	}); err != nil {
 		return err
 	}
 	fmt.Fprintf(p.d.out, "Candidate environment %s torn down as dropped; the record is kept\n", env.ID)

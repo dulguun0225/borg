@@ -130,7 +130,10 @@ type SecondApplication struct {
 	// Changed is whether the second application changed anything, and What says
 	// what it changed for the words a rejection is read in.
 	Changed bool
-	What    string
+	// Undecided is whether a backfill's second run had no source rows to copy.
+	// It is not a successful application over an empty store.
+	Undecided bool
+	What      string
 }
 
 // Snapshot is the snapshot taken before a destructive change.

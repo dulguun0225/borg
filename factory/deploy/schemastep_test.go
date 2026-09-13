@@ -142,6 +142,33 @@ func TestADeployOwingNothingIsCompletedAndNotLeftLookingLikeAFailure(t *testing.
 	}
 }
 
+// TestAChangeOnAnEmptySeedIsAppliedOnceAcrossTwoDeploys: an empty candidate
+// store and a store already carrying the change take the same schema path.
+func TestAChangeOnAnEmptySeedIsAppliedOnceAcrossTwoDeploys(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	r := mintRelease(t, ctx, pool, token, serviceID)
+	reaches, fakes := twoFakes(false)
+	p := performance(serviceID, r, reaches)
+	p.Seed = targetseam.Seed{}
+	p.SchemaChanges = []targetseam.SchemaChange{{Service: "checkout", Change: "0001-add", Credential: credential}}
+	if _, err := deploy.Perform(ctx, w, p); err != nil {
+		t.Fatalf("first deploy over the empty seed: %v", err)
+	}
+	if _, err := deploy.Perform(ctx, w, p); err != nil {
+		t.Fatalf("second deploy over the now-full store: %v", err)
+	}
+	var applied int
+	for _, call := range fakes[0].Calls() {
+		if call.Op == targetseam.OpApplySchemaChange {
+			applied++
+		}
+	}
+	if applied != 1 {
+		t.Errorf("the schema change was applied %d times, want once across empty and full stores", applied)
+	}
+}
+
 // TestARevertsDeployNamesEveryChangeItApplied: the revert's deploy is the one
 // deploy that can carry more than one change — it delivers releases that never
 // deployed on their own and applies each of their changes that no deploy applied

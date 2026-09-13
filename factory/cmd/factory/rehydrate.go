@@ -219,6 +219,7 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 		c.environmentDir = env.Targets[0].Address
 		c.tornDown = !env.Live()
 		c.composedFrom = env.Composition.From
+		c.composition = env.Composition
 		// The deploys into this environment and not the release running on it:
 		// a deploy onto a candidate environment names a build and no release,
 		// the number being minted one gate below that row.
@@ -269,9 +270,12 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 		// composed-from field is rewritten at every recomposition, so what a run
 		// ran against survives on the build: the composition is copied onto each
 		// criterion result row at the run.
-		if c.approvedComposition, err = ranAgainst(ctx, p, c.buildID); err != nil {
+		var approved environment.Composition
+		if approved, err = ranAgainst(ctx, p, c.buildID); err != nil {
 			return nil, err
 		}
+		c.approvedFullComposition = approved
+		c.approvedComposition = approved.From
 	}
 
 	// Where the pass enters, what a rejection it has not yet acted on carries
@@ -443,10 +447,10 @@ func (p *path) criteriaOf(ctx context.Context, c *candidate) ([]gate.CriterionRe
 // copied onto them at the run for exactly this reason: the environment record's
 // own field is rewritten at every recomposition, and what a run ran against has
 // to outlive the next one.
-func ranAgainst(ctx context.Context, p *path, buildID string) ([]environment.Composed, error) {
+func ranAgainst(ctx context.Context, p *path, buildID string) (environment.Composition, error) {
 	results, err := criterion.ResultsForBuild(ctx, p.d.pool, buildID)
 	if err != nil {
-		return nil, err
+		return environment.Composition{}, err
 	}
 	highest, of := 0, ""
 	for _, r := range results {
@@ -455,16 +459,16 @@ func ranAgainst(ctx context.Context, p *path, buildID string) ([]environment.Com
 		}
 	}
 	if of == "" {
-		return nil, nil
+		return environment.Composition{}, nil
 	}
 	var composition environment.Composition
 	if err := json.Unmarshal([]byte(of), &composition); err != nil {
 		// A composition this pass cannot read is no composition: the queue
 		// compares it against what it recomposes and a difference is what it
 		// reads as a release the author's work never saw.
-		return nil, nil
+		return environment.Composition{}, nil
 	}
-	return composition.From, nil
+	return composition, nil
 }
 
 // requirementTold is one requirement as an authoring role is told it: the id a

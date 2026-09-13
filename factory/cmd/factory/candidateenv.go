@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -69,7 +67,7 @@ func (p *path) platformWaitRow(ctx context.Context, itemID string) (string, erro
 // as a wait, being neither a record nor a parameter of an owner's.
 func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	d := p.d
-	if c.candidateDeployID != "" && c.candidateDeployBuild == c.buildID {
+	if c.candidateDeployID != "" && c.candidateDeployBuild == c.buildID && c.runWaitRow == "" {
 		return nil
 	}
 	it, err := item.Get(ctx, d.pool, c.itemID)
@@ -98,7 +96,12 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	if live >= d.candidateCeiling {
+	ceiling := d.candidateCeiling
+	if p.production.MaxConcurrentCandidateEnvironments > 0 &&
+		(ceiling <= 0 || p.production.MaxConcurrentCandidateEnvironments < ceiling) {
+		ceiling = p.production.MaxConcurrentCandidateEnvironments
+	}
+	if ceiling > 0 && live >= ceiling {
 		// The condition is recomputed at every firing, so a pass that meets it
 		// again writes no second row about one wait: what a reader of the log
 		// needs is one row per wait, and the row already there is that one.
@@ -113,7 +116,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 				Gate:      gate.DeployToCandidateEnvironment.String(),
 				Condition: gate.HoldNoRoomOnThePlatform,
 				Live:      live,
-				Ceiling:   d.candidateCeiling,
+				Ceiling:   ceiling,
 			})
 			if err != nil {
 				return fmt.Errorf("factory: marshalling the platform's wait for %s: %w", c.itemID, err)
@@ -127,7 +130,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		c.factoryHold = gate.HoldNoRoomOnThePlatform
 		c.holdWaitRow = waitRow
 		fmt.Fprintf(d.out, "Item %s waits at %s: %s (%d live, ceiling %d); wait row %s\n",
-			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform, live, d.candidateCeiling, waitRow)
+			c.itemID, gate.DeployToCandidateEnvironment, gate.HoldNoRoomOnThePlatform, live, ceiling, waitRow)
 		return nil
 	}
 
@@ -178,29 +181,27 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		return nil
 	}
 
-	// The environment: composed from the producers the candidate build's
-	// consumer contract names, and theirs, which is none where the build
-	// declares against nothing. Its target is a directory of its own under the
-	// install's, which is what makes two candidates of one service not read
-	// each other's.
-	//
-	// A candidate that already has one — a rebuild [path.mergeUntilQueued] sent
-	// back to Implementation and is now returning with — recomposes it rather
-	// than composing a second one: the environment stays the item's until it
-	// merges, is dropped, or is superseded, per
-	// ../../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md, and
-	// [environment.Candidates.Compose] refuses a second call for one item on the
-	// name's unique constraint.
-	composed, err := p.compositionFor(ctx, it)
+	// Compose a new candidate environment or recompose the item's existing one.
+	composition, err := deploy.CompositionForCandidateRun(ctx, p, deploy.Candidate{
+		ItemID: it.ID, ServiceID: it.ServiceID, ServiceName: c.svc.Name,
+		ProductionID: p.production.ID, Principal: deployerPrincipal, Credential: p.d.credential,
+	}, c.runWaitRow != "")
 	if err != nil {
+		if errors.Is(err, deploy.ErrCandidateCompositionUnavailable) {
+			return p.candidateCompositionUnavailable(ctx, c, err)
+		}
 		return err
 	}
+
+	composed := composition.From
 	if c.environmentID != "" {
-		if err := p.candidates.Recompose(ctx, deployActor, c.environmentID, environment.Composition{From: composed}); err != nil {
-			return err
+		if err := deploy.RecomposeCandidateForRun(ctx, p.candidates, deployActor, c.environmentID, composition, c.runWaitRow != ""); err != nil {
+			return p.candidateCompositionUnavailable(ctx, c, err)
 		}
 		c.composedFrom = composed
+		c.composition = composition
 		c.approvedComposition = composed
+		c.approvedFullComposition = composition
 		fmt.Fprintf(d.out, "Candidate environment %s recomposed for item %s at %s, from %s\n",
 			c.environmentID, c.itemID, c.environmentDir, describeComposition(composed))
 	} else {
@@ -208,27 +209,85 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 		if err := os.MkdirAll(c.environmentDir, 0o755); err != nil {
 			return fmt.Errorf("factory: making the candidate environment's directory: %w", err)
 		}
-		env, err := p.candidates.Compose(ctx, deployActor, c.itemID, p.projectID,
-			[]environment.Target{{Address: c.environmentDir}}, d.credential, environment.Composition{From: composed})
+		env, err := deploy.ComposeCandidateForRun(ctx, p.candidates, deployActor, c.itemID, p.projectID,
+			[]environment.Target{{Address: c.environmentDir}}, d.credential, composition, c.runWaitRow != "")
 		if err != nil {
-			return err
+			return p.candidateCompositionUnavailable(ctx, c, err)
 		}
 		c.environmentID = env.ID
 		c.composedFrom = composed
+		c.composition = composition
 		c.approvedComposition = composed
+		c.approvedFullComposition = composition
 		fmt.Fprintf(d.out, "Candidate environment %s composed for item %s at %s, from %s\n",
 			env.ID, c.itemID, c.environmentDir, describeComposition(composed))
 	}
 
-	dep, err := p.putOnCandidateEnvironment(ctx, c, c.buildID)
-	if err != nil {
+	if c.candidateDeployID == "" || c.candidateDeployBuild != c.buildID {
+		dep, err := p.putOnCandidateEnvironment(ctx, c, c.buildID)
+		if err != nil {
+			return err
+		}
+		c.candidateDeployID = dep.ID
+		fmt.Fprintf(d.out, "Deploy %s complete: build %s runs on candidate environment %s\n", dep.ID, c.buildID, c.environmentID)
+	} else if c.runWaitRow != "" {
+		configuration, unavailable, err := deploy.CandidateConfiguration(ctx, p, c.svc.ID, c.composition.ValueSetVersion, p.d.secrets)
+		c.configuration = configuration
+		c.configurationUnavailable = unavailable
+		if err != nil {
+			return err
+		}
+	}
+
+	if c.configurationUnavailable != "" {
+		if c.runWaitRow == "" {
+			configuration, unavailable, err := deploy.CandidateConfiguration(ctx, p, c.svc.ID, c.composition.ValueSetVersion, p.d.secrets)
+			c.configuration = configuration
+			if err != nil {
+				return err
+			}
+			c.configurationUnavailable = unavailable
+			if c.configurationUnavailable == "" {
+				goto criteria
+			}
+		}
+		row, err := deploy.OpenCandidateRunWait(ctx, candidateWaitLog{p}, deployActor, c.itemID, c.configurationUnavailable)
+		if err == nil {
+			c.runWaitRow = row
+			c.factoryHold = c.configurationUnavailable
+			c.waiting = gate.DeployToCandidateEnvironment
+		}
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(d.out, "Candidate run for item %s was unavailable twice: %s; wait row %s\n",
+			c.itemID, c.configurationUnavailable, c.runWaitRow)
+		return nil
+	}
+
+criteria:
+	c.criteria, err = p.decideCriteria(ctx, c, c.buildID, inForce)
+	if err == nil {
+		err = deploy.CloseCandidateRunWait(ctx, candidateWaitLog{p}, deployActor, c.runWaitRow)
+		if err == nil {
+			c.runWaitRow = ""
+		}
+	}
+	return err
+}
+
+func (p *path) candidateCompositionUnavailable(ctx context.Context, c *candidate, err error) error {
+	if !errors.Is(err, deploy.ErrCandidateCompositionUnavailable) {
 		return err
 	}
-	c.candidateDeployID = dep.ID
-	fmt.Fprintf(d.out, "Deploy %s complete: build %s runs on candidate environment %s\n", dep.ID, c.buildID, c.environmentID)
-
-	c.criteria, err = p.decideCriteria(ctx, c, c.buildID, inForce)
-	return err
+	row, waitErr := deploy.OpenCandidateRunWait(ctx, candidateWaitLog{p}, deployActor, c.itemID, err.Error())
+	if waitErr != nil {
+		return waitErr
+	}
+	c.runWaitRow = row
+	c.factoryHold = err.Error()
+	c.waiting = gate.DeployToCandidateEnvironment
+	return nil
 }
 
 // putOnCandidateEnvironment builds the binary into the environment's directory
@@ -242,130 +301,6 @@ func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buil
 	c.buildID = rebuilt.ID
 	c.candidateDeployBuild = rebuilt.ID
 	return p.intoCandidate(ctx, c, rebuilt.ID)
-}
-
-// decideCriteria runs the encodings on the candidate environment and records what
-// each criterion's encoding produced against this build.
-//
-// It runs them twice. An encoding that produced a failure and a pass over the same
-// build decided nothing, so that criterion is undecided for the build — and a
-// second run is the only thing that can produce that verdict. What it costs is
-// double the time a verification takes, to catch a class of defect a deterministic
-// suite does not have.
-//
-// The run's result is one exit status for the whole suite, so every criterion in
-// force takes the same outcome from one run. What that costs is that a suite where
-// one encoding fails reads as every criterion failing, which is the coarseness of
-// running the suite rather than each encoding — the encoding is code picked out by
-// the criterion id it names, and nothing here runs one of them alone.
-func (p *path) decideCriteria(ctx context.Context, c *candidate, buildID string,
-	inForce []criterion.Criterion) ([]gate.CriterionResult, error) {
-	if err := p.checkEncodings(ctx, c, c.svc.Repository, c.svc.ID, []string{c.itemID}, inForce); err != nil {
-		return nil, err
-	}
-
-	// The composition is copied onto each run's rows, which is what
-	// [criterion.Undecided] groups two runs by: two runs against compositions
-	// that differ are two answers to two questions and not a disagreement.
-	composition, err := json.Marshal(environment.Composition{From: c.composedFrom})
-	if err != nil {
-		return nil, fmt.Errorf("factory: marshalling the composition for the criterion run: %w", err)
-	}
-
-	// The run number continues from whatever this build already has, rather
-	// than restarting at 1: a re-verification that changed nothing reuses the
-	// build the implementation stage made, per doc.go, and a second decision
-	// over that same build is the deployer's next run on it and not its first.
-	nextRun, err := nextCriterionRun(ctx, p.d.pool, buildID)
-	if err != nil {
-		return nil, err
-	}
-
-	first, firstOutput := runEncodings(c.svc.Repository)
-	if err := p.recordCriterionRun(ctx, buildID, nextRun, string(composition), inForce, first); err != nil {
-		return nil, err
-	}
-	second, secondOutput := runEncodings(c.svc.Repository)
-	if err := p.recordCriterionRun(ctx, buildID, nextRun+1, string(composition), inForce, second); err != nil {
-		return nil, err
-	}
-	switch {
-	case first && second:
-		fmt.Fprintln(p.d.out, "The encodings ran twice on the candidate environment and passed both times")
-	case !first && !second:
-		fmt.Fprintf(p.d.out, "The encodings ran twice on the candidate environment and failed both times:\n%s\n", firstOutput)
-	default:
-		fmt.Fprintf(p.d.out, "The encodings disagreed between two runs, so every criterion is undecided for build %s:\n%s\n%s\n",
-			buildID, firstOutput, secondOutput)
-	}
-
-	undecided, err := criterion.Undecided(ctx, p.d.pool, buildID)
-	if err != nil {
-		return nil, err
-	}
-	isUndecided := make(map[string]bool, len(undecided))
-	for _, id := range undecided {
-		isUndecided[id] = true
-	}
-	latest, err := criterion.Latest(ctx, p.d.pool, buildID)
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]criterion.Outcome, len(latest))
-	for _, r := range latest {
-		byID[r.CriterionID] = r.Outcome
-	}
-	results := make([]gate.CriterionResult, 0, len(inForce))
-	for _, cr := range inForce {
-		outcome := byID[cr.ID]
-		if isUndecided[cr.ID] {
-			outcome = criterion.OutcomeUndecided
-		}
-		results = append(results, gate.CriterionResult{
-			CriterionID: cr.ID, Outcome: outcome, Place: criterion.PlaceCandidateEnvironment,
-		})
-	}
-	if err := p.markUnreliable(ctx, c, buildID, results); err != nil {
-		return nil, err
-	}
-	return results, nil
-}
-
-// nextCriterionRun is 1 for a build with no result recorded on the candidate
-// environment yet, and one past the highest run number already recorded
-// otherwise — [criterion.Run.Number] being "given by the deployer in the
-// order it performed them" and not reset by which call made it.
-func nextCriterionRun(ctx context.Context, pool *pgxpool.Pool, buildID string) (int, error) {
-	results, err := criterion.ResultsForBuild(ctx, pool, buildID)
-	if err != nil {
-		return 0, err
-	}
-	highest := 0
-	for _, r := range results {
-		if r.Run > highest {
-			highest = r.Run
-		}
-	}
-	return highest + 1, nil
-}
-
-// recordCriterionRun writes what one run of the encodings on the candidate
-// environment decided, one row per criterion in force, at the run number the
-// deployer assigns — 1, 2, and so on across a build's runs on that
-// environment.
-func (p *path) recordCriterionRun(ctx context.Context, buildID string, run int, composition string,
-	inForce []criterion.Criterion, passed bool) error {
-	outcome := criterion.OutcomeFailed
-	if passed {
-		outcome = criterion.OutcomePassed
-	}
-	outcomes := make(map[string]criterion.Outcome, len(inForce))
-	for _, cr := range inForce {
-		outcomes[cr.ID] = outcome
-	}
-	return criterion.RecordResults(ctx, p.d.pool, p.d.token, deployActor,
-		criterion.Run{BuildID: buildID, Number: run, Place: criterion.PlaceCandidateEnvironment, Composition: composition},
-		outcomes)
 }
 
 // checkEncodings rejects in both directions — a criterion in force with no
@@ -428,49 +363,4 @@ func (p *path) checkEncodings(ctx context.Context, c *candidate, repo, serviceID
 	}
 	c.encodingDefect = strings.Join(lines(defect.Error()), "; ")
 	return nil
-}
-
-// compositionFor is what the candidate's environment is composed from: the
-// producers the candidate build's consumer contract names, and theirs through
-// their current releases' consumer contracts, which package contractcheck walks
-// over the one field that holds the edge between two services.
-//
-// A producer with nothing running is an error here and not a composition with a
-// hole in it: the hold above is what stops a candidate whose dependency is not
-// live, so reaching this with one means the two disagree.
-//
-// Each entry's address for this environment is not written yet: the composition
-// record names a service and a release and has no field for one, which package
-// contractcheck's doc.go states.
-func (p *path) compositionFor(ctx context.Context, it item.Item) ([]environment.Composed, error) {
-	reaches, err := p.contracts.ComposedFrom(ctx, it.ID, it.ServiceID, p.production.ID)
-	if err != nil {
-		return nil, err
-	}
-	composed := make([]environment.Composed, 0, len(reaches))
-	for _, producer := range reaches {
-		if producer.ReleaseID == "" {
-			return nil, fmt.Errorf("factory: item %s reaches %s through %v and %s is running nothing, which the hold at %s should have caught",
-				it.ID, producer.ServiceID, producer.Addresses, producer.ServiceID, gate.DeployToCandidateEnvironment)
-		}
-		composed = append(composed, environment.Composed{
-			ServiceID: producer.ServiceID,
-			ReleaseID: producer.ReleaseID,
-		})
-	}
-	return composed, nil
-}
-
-// describeComposition is what an environment was composed from, for a human
-// reading the run. Nothing is the honest word for a candidate whose build
-// declares against no producer.
-func describeComposition(composed []environment.Composed) string {
-	if len(composed) == 0 {
-		return "nothing, its build's consumer contract naming no producer"
-	}
-	named := make([]string, 0, len(composed))
-	for _, dependency := range composed {
-		named = append(named, dependency.ServiceID+" at "+dependency.ReleaseID)
-	}
-	return strings.Join(named, ", ")
 }
