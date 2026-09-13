@@ -11,6 +11,7 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/criterion"
 	"github.com/dulguun0225/borg/factory/decisionlog"
@@ -87,10 +88,15 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		serviceByID:   map[string]service.Service{},
 		servicesOf:    map[string][]string{},
 	}
+	p.runner = buildrunner.New(buildrunner.Config{
+		Clone: buildrunner.GitClone{}, RepositorySecrets: factorySecrets{resolver: d.secrets},
+		Resolver: buildrunner.GoResolver{},
+		Process:  buildrunner.GoProcess{}, Schema: buildrunner.GoSchema{},
+		Builds:        buildRecordWriter{writer: p.builds, actor: buildActor},
+		ShippedBundle: factoryVersion,
+	})
 	p.candidates = environment.NewCandidates(d.pool, d.token)
 	// Decomposition reads every rollback hold standing itself, at each write,
-	// from the same reading the production deploy gate makes, rather than a
-	// caller passing what stands.
 	p.decomposition.Holds = rollbackHoldsSeam{p: p}
 	// Retiring a service is an owner's write that calls the deployer, and the
 	// deployer is composed here: package policy writes retired and reaches no
@@ -380,11 +386,10 @@ func atLeastASecond(every time.Duration) time.Duration {
 	return every
 }
 
-// subjectsFor is what a policy read about one candidate is performed against: the item's
-// service and the area of this run. The service is empty on a first item of a service —
-// the spec is authored before decomposition writes the record — so a safeguard on a
-// service the factory has not seen does not bound that run's spec stage, and does bound
-// every run after it.
+// subjectsFor is what a policy read about one candidate is performed against: the item's service
+// and area of this run. The service is empty on a first item of a service — the spec is authored before
+// decomposition writes the record — so a safeguard on a service the factory has not seen does not
+// bound that run's spec stage, and does bound every run after it.
 func (p *path) subjectsFor(c *candidate) policy.Subjects {
 	return policy.Subjects{ServiceID: c.svc.ID, AreaID: p.areaID}
 }

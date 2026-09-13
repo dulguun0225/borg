@@ -1,37 +1,34 @@
 // Package build owns the build record: one per commit built, naming the
 // service it was built for, the item where it has one, the commit, the
-// artifact digest, the shipped-bundle identity of the release of the product
+// artifact digest when it ran, a run state and reason when it did not, the shipped-bundle identity of the release of the product
 // that made it, the resolved set of third-party packages, the notice file
 // derived from that set, the design system constraint in force where the
 // project has screens, the exposure list the build runner derived from its own
 // checkout, whether that checkout declares a schema change, and what the
 // build's own process decided about the criteria whose encodings declare it.
-// Written once, when the build is performed, and never written again.
+// The record is written before the process runs and completed on that same
+// record after it returns.
 //
 // The record exists to be pointed at — the encoding of each criterion runs
 // against a checkout of it, the gate's open event names it, and the release
 // made from it points back at it. What happened to the build beyond what it
 // produced is written where it happened, by the component it happened at.
-// The record does not name where the build was made: the commit is enough to
-// make the same build again.
+// A rebuild of the same commit is another record. Search builds name the
+// release build they came from, including its design-system constraint.
 //
-// writer.go is [ResolvedEntry], [Draft], [Build], [Writer] and [NewWriter]
+// writer.go is [ResolvedEntry], [Coverage], [Draft], [Build], [Writer] and [NewWriter]
 // with [Writer.Create], the one write, and the reads [Get], [ForCommit],
-// [ForServiceCommit], [Newest], [Resolved] and [Exposure]; schema.go is [Table], [ResolvedTable], the two id prefixes, the
-// two format versions, and [DDL]. The tests are db_test.go, every one of them
+// [ForServiceCommit], [Newest], [Resolved] and [Exposure]; coverage.go reads
+// resolver coverage; schema.go is [Table], [ResolvedTable], [CoverageTable],
+// the three id prefixes, the three format versions, and [DDL]. The tests are db_test.go, every one of them
 // against the database.
 //
 // # Item and service
 //
 // item_id is empty on a search build, which names a service and no item —
 // the search's builds are of commits on no branch and decided by no gate.
-// service_id is required on every build, item-bound or not. One row per
-// commit built is the store's unique constraint on (item_id, service_id,
-// commit_hash). What it costs: a rebuild of the same commit gets no second
-// record, so how many times a commit was built is not a fact this table
-// holds, and a rebuild is always a new build record rather than a second
-// write to the first — there is no update method, so a re-verification or a
-// candidate redeploy that needs a fresh build calls [Writer.Create] again.
+// service_id is required on every build, item-bound or not. A rebuild of the
+// same commit is another row, so the record holds every attempt.
 // item_id and design_system_constraint_id are id fields and not foreign
 // keys — a cross-package link is a field the link walk reads, and the store
 // does not check either for pointing at anything.
@@ -43,9 +40,9 @@
 // digest of the content, the declared licence, and what required it. An entry
 // whose resolver could not produce a digest, a licence, or the requiring edge
 // carries that field empty, which is that entry's own coverage and not an
-// error to fill in later. [Draft.ResolvedSetCoverage] is what the resolver
-// read, per ecosystem, on the build itself, and
-// [Resolved] reads that table back, which is what the merge queue compares the
+// error to fill in later. [Draft.Coverage] is typed evidence of resolver
+// coverage, including whether fetching can be separated from running, and
+// [Resolved] reads the package table back, which is what the merge queue compares the
 // re-resolved set's digests against. [Draft.ResolvedSetCouldNotDerive] is the
 // reason where resolution could not be performed at all — a record and not an empty set, because "nothing
 // vulnerable was resolved" and "nothing resolved was visible" call for
@@ -73,27 +70,22 @@
 //
 // # Callers
 //
-// Four: the implementation stage when it finishes, so that the Implementation
-// gate decides over a build that exists and the score has a diff to compute
-// the change factors from; the candidate deploy, where a rebuild is needed;
-// the merge queue at re-verification, which builds the candidate branch onto
-// the master it will actually merge into; and the search, whose builds are of
-// commits on no branch and name no item. The first is built — the
-// command-line interface calls [Writer.Create] when the implementation stage
-// finishes — and the other three are not; this package is written for all four
-// callers to reach.
+// Four: the implementation stage when it finishes, the candidate deploy where
+// a rebuild is needed, the merge queue at re-verification when it builds the
+// candidate branch onto the master it will actually merge into, and the search
+// whose builds are of commits on no branch and name no item. The first caller
+// is the command-line interface, which calls [Writer.Create] and then
+// [Writer.Complete].
 //
 // Who may write what: [Writer.Create] inserts into [Table] and
-// [ResolvedTable], and updates and deletes nothing. The record has no update
-// method, so written once is a property of the API and not a discipline of
-// the callers.
+// [ResolvedTable], and [Writer.Complete] updates only the run result on the
+// started row. A rebuild is another record, while completing a build is not.
 //
-// What defines it: the build record, the
-// resolved set, its coverage, the notice file, and the design system
-// constraint field in
+// What defines it: the build record, the resolved set, its coverage, the notice
+// file, and the design system constraint field in
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1433, C1437, C1439, C1440, C1441, C1443, C1444, C1448, C1449, C1450,
-// C1460, C1465, C1466, C1467, C1478);
+// (C1433, C1435, C1437, C1439, C1440, C1441, C1443, C1444, C1448, C1449,
+// C1450, C1459, C1460, C1464, C1466, C1467, C1469, C1478);
 //
 // what a build is called and the search's builds are
 // ../../end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md

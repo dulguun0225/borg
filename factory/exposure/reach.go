@@ -207,19 +207,26 @@ func authorizationCheck(c change) (string, bool) {
 func dependencyChanges(resolved, currentRelease []Package, changes []change) []string {
 	was := map[string]string{}
 	for _, p := range currentRelease {
-		was[p.Package] = p.Version
+		was[p.Package] = p.Version + "\x00" + p.Digest
 	}
 	var found []string
 	seen := map[string]bool{}
 	for _, p := range resolved {
 		before, ran := was[p.Package]
-		if (ran && before == p.Version) || seen[p.Package] {
+		identity := p.Version + "\x00" + p.Digest
+		if (ran && before == identity) || seen[p.Package] {
 			continue
 		}
 		seen[p.Package] = true
 		what := fmt.Sprintf("%s %s, %s", p.Package, p.Version, licenceOf(p))
 		if ran {
-			what = fmt.Sprintf("%s moved from %s to %s, %s", p.Package, before, p.Version, licenceOf(p))
+			beforeParts := strings.SplitN(before, "\x00", 2)
+			beforeVersion, beforeDigest := beforeParts[0], ""
+			if len(beforeParts) == 2 {
+				beforeDigest = beforeParts[1]
+			}
+			what = fmt.Sprintf("%s moved from %s (digest %q) to %s (digest %q), %s",
+				p.Package, beforeVersion, beforeDigest, p.Version, p.Digest, licenceOf(p))
 		}
 		found = append(found, manifestLine(p.Package, changes)+" — "+what)
 	}

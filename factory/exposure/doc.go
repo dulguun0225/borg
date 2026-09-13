@@ -62,5 +62,5 @@
 // (C1239, C1240, C1241, C1242, C1246, C1247, C1249, C1263); the resolved set
 // the dependency change is read against is
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1442).
+// (C1442, C1446, C1464).
 package exposure

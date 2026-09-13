@@ -99,6 +99,7 @@ func draftOf(itemID, serviceID, commit string) build.Draft {
 	return build.Draft{
 		ItemID: itemID, ServiceID: serviceID, CommitHash: commit,
 		ArtifactDigest: "sha256:" + commit, ShippedBundleIdentity: "bundle-2026.1",
+		Coverage: []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	}
 }
 
@@ -119,9 +120,31 @@ func TestEveryBuildNamesTheShippedBundleIdentity(t *testing.T) {
 	}
 
 	// A search build names a service and no item, and names one too.
+	origin := draftOf(record.NewID("it"), serviceID, "origin")
+	origin.DesignSystemConstraintID = "constraint-origin"
+	originBuild, err := w.Create(ctx, dispatch, origin)
+	if err != nil {
+		t.Fatalf("origin Create: %v", err)
+	}
 	search := draftOf("", serviceID, "bbbb")
-	if made, err := w.Create(ctx, dispatch, search); err != nil || made.ShippedBundleIdentity == "" {
+	search.SearchBuild = true
+	search.SearchOriginBuildID = originBuild.ID
+	search.DesignSystemConstraintID = "constraint-origin"
+	if made, err := w.Create(ctx, dispatch, search); err != nil || made.ShippedBundleIdentity == "" || made.DesignSystemConstraintID != "constraint-origin" {
 		t.Errorf("a search build = %+v, %v", made, err)
+	}
+	fromOrigin := draftOf("", serviceID, "bbbb-origin")
+	fromOrigin.SearchBuild = true
+	fromOrigin.SearchOriginBuildID = originBuild.ID
+	if made, err := w.Create(ctx, dispatch, fromOrigin); err != nil || made.DesignSystemConstraintID != "constraint-origin" {
+		t.Errorf("a search build did not take its constraint from the origin = %+v, %v", made, err)
+	}
+	mismatch := draftOf("", serviceID, "bbbb-2")
+	mismatch.SearchBuild = true
+	mismatch.SearchOriginBuildID = originBuild.ID
+	mismatch.DesignSystemConstraintID = "caller-value"
+	if _, err := w.Create(ctx, dispatch, mismatch); !errors.Is(err, build.ErrDesignSystemConstraintMismatch) {
+		t.Errorf("a search constraint from the caller = %v, want %v", err, build.ErrDesignSystemConstraintMismatch)
 	}
 
 	nameless := draftOf(itemID, serviceID, "cccc")
@@ -130,8 +153,8 @@ func TestEveryBuildNamesTheShippedBundleIdentity(t *testing.T) {
 		t.Errorf("Create = %v, want %v", err, build.ErrShippedBundleIdentityEmpty)
 	}
 
-	_, err = pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, 'dddd', 'sha256:x', '', '', '', '', '', false)`,
+	_, err = pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, run_state, run_reason, artifact_digest, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, search_origin_build_id, search_build, schema_marks, exposure, declares_schema_change)
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, 'dddd', 'ran', '', 'sha256:x', '', '', '', '', '', false, 'null', null, false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), itemID, serviceID)
 	if err == nil || !strings.Contains(err.Error(), "shipped_bundle_identity_present") {
 		t.Errorf("inserting a build naming no bundle = %v, want a violation of shipped_bundle_identity_present", err)
@@ -162,15 +185,51 @@ func TestCreateWritesTheRecordOnce(t *testing.T) {
 	}
 }
 
-func TestASecondBuildOfOneCommitIsRefused(t *testing.T) {
+func TestCreateRefusesAnUncoveredEmptyResolvedSet(t *testing.T) {
+	ctx, _, w := newTable(t)
+	draft := draftOf("it_empty", "svc_empty", "empty")
+	draft.Coverage = nil
+	if _, err := w.Create(ctx, dispatch, draft); !errors.Is(err, build.ErrResolvedSetEmpty) {
+		t.Fatalf("Create = %v, want %v", err, build.ErrResolvedSetEmpty)
+	}
+}
+
+func TestCreateChecksTheCouldNotDeriveNotice(t *testing.T) {
+	ctx, _, w := newTable(t)
+	draft := draftOf("it_notice", "svc_notice", "notice")
+	draft.ResolvedSetCouldNotDerive = "resolver unavailable"
+	draft.NoticeFile = "ordinary notice"
+	if _, err := w.Create(ctx, dispatch, draft); !errors.Is(err, build.ErrNoticeFileMismatch) {
+		t.Fatalf("ordinary notice with unavailable set = %v, want %v", err, build.ErrNoticeFileMismatch)
+	}
+	draft = draftOf("it_notice", "svc_notice", "notice-2")
+	draft.NoticeFile = build.CouldNotDeriveNotice
+	draft.Resolved = []build.ResolvedEntry{{Ecosystem: "go", Package: "example.test"}}
+	if _, err := w.Create(ctx, dispatch, draft); err != nil {
+		t.Fatalf("could-not-derive notice with incomplete entry: %v", err)
+	}
+	draft = draftOf("it_notice", "svc_notice", "notice-3")
+	draft.NoticeFile = build.CouldNotDeriveNotice
+	draft.Resolved = []build.ResolvedEntry{{Ecosystem: "go", Source: "proxy", Package: "example.test", Version: "v1", Licence: "MIT"}}
+	if _, err := w.Create(ctx, dispatch, draft); !errors.Is(err, build.ErrNoticeFileMismatch) {
+		t.Fatalf("could-not-derive notice with complete set = %v, want %v", err, build.ErrNoticeFileMismatch)
+	}
+}
+
+func TestASecondBuildOfOneCommitIsRecorded(t *testing.T) {
 	ctx, _, w := newTable(t)
 	itemID, serviceID := record.NewID("it"), record.NewID("svc")
 
 	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa")); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa")); err == nil {
-		t.Error("a second record of the same item and commit was accepted")
+	first, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa"))
+	if err != nil {
+		t.Fatalf("first Create: %v", err)
+	}
+	second, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "aaaa"))
+	if err != nil || second.ID == first.ID {
+		t.Errorf("second record = %+v, %v; want a distinct build", second, err)
 	}
 	if _, err := w.Create(ctx, dispatch, draftOf(itemID, serviceID, "bbbb")); err != nil {
 		t.Errorf("a second commit of the same item was refused: %v", err)
@@ -188,8 +247,8 @@ func TestAnEmptyCommitHashIsRefusedTwice(t *testing.T) {
 	}
 
 	// Around the writer, the CHECK constraint is what refuses it.
-	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, '', 'sha256:x', '', '', '', '', 'bundle-2026.1')`,
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, run_state, run_reason, artifact_digest, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, search_origin_build_id, search_build, schema_marks, exposure, declares_schema_change)
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, $5, '', 'ran', '', 'sha256:x', '', '', '', 'bundle-2026.1', '', false, 'null', null, false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"), record.NewID("svc"))
 	if err == nil {
 		t.Error("the store accepted a build with no commit hash")
@@ -208,8 +267,8 @@ func TestAnEmptyServiceIDIsRefusedTwice(t *testing.T) {
 		t.Errorf("Create = %v, want %v", err, build.ErrServiceIDEmpty)
 	}
 
-	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, declares_schema_change)
-		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, '', 'aaaa', 'sha256:x', '', '', '', '', 'bundle-2026.1', false)`,
+	_, err := pool.Exec(ctx, `insert into build (id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash, run_state, run_reason, artifact_digest, resolved_set_could_not_derive, notice_file, design_system_constraint_id, shipped_bundle_identity, search_origin_build_id, search_build, schema_marks, exposure, declares_schema_change)
+		values ($1, $2, 'component', 'dispatch', 'claimed', $3, $4, '', 'aaaa', 'ran', '', 'sha256:x', '', '', '', 'bundle-2026.1', '', false, 'null', null, false)`,
 		record.NewID(build.IDPrefix), build.FormatVersion, record.Now(), record.NewID("it"))
 	if err == nil || !strings.Contains(err.Error(), "service_id_present") {
 		t.Errorf("inserting a build naming no service = %v, want a violation of service_id_present", err)

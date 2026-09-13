@@ -121,10 +121,11 @@
 // which the composition implements — the notice in force for the service the
 // token resolves to, and what one submission did.
 //
-// What is not built here: the two build sites that call [Overlay] and the
-// mount that serves [Entrance] are the composition's. The three environment
-// names are this package's, because the shipped source is what reads them,
-// and putting them on a started process is the deploy target's own.
+// The build runner calls [Overlay] at each build site, and the composition
+// supplies the runner. The mount that serves [Entrance] remains the
+// composition's. The three environment names are this package's, because the
+// shipped source is what reads them, and putting them on a started process is
+// the deploy target's own.
 //
 // What defines it: the way in, the notice at the open, the submit result and
 // the source key are

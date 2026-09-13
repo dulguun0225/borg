@@ -34,7 +34,8 @@ type serviceRepo struct {
 // drives the same code the run subcommand does — a fake model, scripted
 // input, temp directories — with nothing swapped anywhere but here.
 type deps struct {
-	pool *pgxpool.Pool
+	pool    *pgxpool.Pool
+	secrets *secretref.Resolver
 	// token is the fencing token this process holds the lease with, per
 	// ../../../end-goal/one-process.md: every writer the composition constructs, and
 	// every reader that appends a read event, carries it.

@@ -91,7 +91,9 @@
 // [screens.Calls] because what crosses is a view of a record, never the record.
 // [contractcheck.Checkout] also answers the build's own reading of whether its
 // checkout declares a schema change and of whether it is a backfill — the first
-// off the build record the run wrote it on.
+// off the build record the run wrote it on. [buildrunner.Runner] is composed
+// beside the build writer for checkout selection, dependency resolution,
+// compilation, exposure, and build creation.
 //
 // Every subcommand takes the lease before it touches the store, whether it
 // writes or only reads: a read appends a read event, itself a write of the log,

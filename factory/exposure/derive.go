@@ -14,6 +14,8 @@ import (
 // then unavailable rather than nothing.
 const Toolchain = "go"
 
+const EmptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee490c"
+
 // ErrCheckoutIncomplete is returned by [Derive] for a checkout naming no
 // directory or a call naming no head commit. Both are the caller's, so a blank
 // is a defect and not a reading to report as unavailable.
@@ -25,6 +27,7 @@ var ErrCheckoutIncomplete = errors.New("exposure: the derivation needs a directo
 type Package struct {
 	Package string
 	Version string
+	Digest  string
 	Licence string
 }
 
@@ -42,6 +45,9 @@ type Checkout struct {
 	Dir            string
 	Resolved       []Package
 	CurrentRelease []Package
+	// ResolvedSetUnavailable is explicit evidence that the set was absent or
+	// could not be derived; it must not be treated as an empty dependency diff.
+	ResolvedSetUnavailable string
 }
 
 // Evidence is the exposure list: what the change reaches that the service did
@@ -97,8 +103,15 @@ func Derive(ctx context.Context, c Checkout, base, head string) (Evidence, Cover
 	if c.Dir == "" || head == "" || base == "" {
 		return Evidence{}, Coverage{Toolchain: Toolchain}, ErrCheckoutIncomplete
 	}
+	if c.ResolvedSetUnavailable != "" {
+		return Evidence{Unavailable: c.ResolvedSetUnavailable}, Coverage{Toolchain: Toolchain, Unavailable: c.ResolvedSetUnavailable}, nil
+	}
 
-	cmd := exec.CommandContext(ctx, "git", "diff", "--unified=0", "--no-color", base, head)
+	args := []string{"diff", "--unified=0", "--no-color", base, head}
+	if base == EmptyTree {
+		args = []string{"diff", "--root", "--unified=0", "--no-color", head}
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = c.Dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {

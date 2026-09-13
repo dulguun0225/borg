@@ -145,6 +145,7 @@ func serveCommand(args []string) error {
 
 	p, err := compose(ctx, deps{
 		pool:                pool,
+		secrets:             resolver,
 		token:               token,
 		modelName:           *model,
 		modelCredentialName: modelCredentialNameFor(*provider),

@@ -270,30 +270,6 @@ func (p *path) tasksStage(ctx context.Context, c *candidate, returned agent.Retu
 	}
 }
 
-// criteriaTheBuildDecided is every result the build's own process wrote for one
-// build, which is what the Implementation row rejects over. A result from the
-// candidate environment is left out: that run has not happened when this row
-// fires, and what it decides is read at Merge to master.
-func (p *path) criteriaTheBuildDecided(ctx context.Context, buildID string) ([]gate.CriterionResult, error) {
-	if buildID == "" {
-		return nil, nil
-	}
-	latest, err := criterion.Latest(ctx, p.d.pool, buildID)
-	if err != nil {
-		return nil, err
-	}
-	var decided []gate.CriterionResult
-	for _, r := range latest {
-		if r.Place != criterion.PlaceBuild {
-			continue
-		}
-		decided = append(decided, gate.CriterionResult{
-			CriterionID: r.CriterionID, Outcome: r.Outcome, Place: r.Place,
-		})
-	}
-	return decided, nil
-}
-
 // itemGate fires one of the four rows an item's own artifact is decided at and
 // settles it, recording the firing on the candidate. The three rows above the
 // build name no build; the Implementation row names the build the stage made
@@ -328,6 +304,7 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 		firing.Measurement = c.measurement
 		firing.Exposure = reached
 		firing.CriteriaInForce = len(inForce)
+		firing.CouldNotDerive = append(firing.CouldNotDerive, c.coverageCouldNotDerive...)
 
 		// The transition check and the drivers, derived from the checkout the
 		// build was made from — still on the item's branch at the commit

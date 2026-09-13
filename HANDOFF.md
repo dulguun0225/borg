@@ -10,27 +10,28 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 
 - Read `CLAUDE.md`, then this file, then only the design files and packages the step names.
 - Before coding, estimate the step's size. Over about 1,000 changed lines, split it here into `Na`, `Nb`, … with their own claim lists, and do `Na` alone.
-- Do not commit and do not push. The coordinator runs `drift-reviewer` on every directory whose `doc.go` changed, then commits.
+- Do not commit and do not push. Run `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, and the step's focused tests; do not run the whole suite, the coordinator does. The coordinator runs `drift-reviewer` on every directory whose `doc.go` changed, then commits.
 - Before returning, record under **Completed** the step, the directories changed, and every check run with its result, and move the step's entry from **Steps** to **Completed**. Keep **Unresolved** current.
 - A doubt about what the design means is recorded under **Unresolved** with the two readings, and the more conservative one is built.
 
 # Completed
 
-(none)
+- Step 1, Build runner and build inputs. No split. Directories changed: `factory/buildrunner` (new), `factory/build`, `factory/exposure`, `factory/wayin`, `factory/cmd/factory`, `factory/cmd/driftdetector`, `factory/contractcheck`, `factory/healthmonitor`, `factory/mergequeue`, `factory/README.md`, `factory/deps.txt`, and the 15 claims flipped to `built` in `end-goal/claims.txt`. Three `drift-reviewer` rounds on `buildrunner`, `build`, `exposure` and `wayin`; the last left **Not implemented** empty except for claims on the pre-existing list. Checks at the commit: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `tools/consistency-commands.sh`, and `go test -count=1 -timeout 30m ./...` all passed.
+
+# Pre-existing drift
+
+- build C1449 — the rule that an entry with missing coverage resolves a human to the gate, and that an advisory match over it is unassessed rather than clear, exists nowhere in this code.
+- build C1644 — no link from the build's could-not-derive set to what the release reads.
+- build C1650 — the build carries no name, and nothing here holds the two-name vocabulary or its invariance under environment count.
+- build C1450 — `required_by` is free text with no link to another entry's id, and `Resolved` returns a flat list, not a graph from the manifests down.
+- wayin C0433 — shipped.go:211 and :226 write `notice_id` as a non-pointer string with no `omitempty`, so the entrance's absent-key check at entrance.go:185 never fires for traffic through the shipped way in, and a submission that opened no notice is forwarded whenever no notice is in force rather than refused.
+- exposure C1263 — the credential readers are Go-syntax-bound, so a credential name in a configuration file written without double quotes is not read at all.
+- exposure C1247 — both readers return on the first match in a line, so a line naming two credentials or adding two outbound calls contributes one evidence entry rather than each.
+- exposure C1442 — the licence policy decided against the resolved set as a build-kind constraint, and the "which services ship a package at a version" query over current release, build, and set, exist nowhere in this directory; only the diff of the two sets does.
+- wayin C0436 — entrance.go:194-198: the render has a third outcome besides accepted or refused-with-the-rate, and at entrance.go:191,219 an unreachable store renders a plain-text 503 rather than a submit result.
+- build C1443 — schema.go:105-108: `source`, `version`, `digest` and `licence` carry no presence or naming rule, so an entry recording a source is not distinguished from one the resolver produced no source for except by an untyped empty string.
 
 # Steps
-
-## 1. Build runner and build inputs
-
-Claims: C0092, C0620, C1434, C1435, C1446, C1454, C1456, C1458, C1459, C1464, C1469, C1480, C1482, C1831, C2184.
-
-Design files to read: `end-goal/deferred.md`; `end-goal/how-the-factory-works/01-one-pipeline.md`; `end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md`; `end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md`; `end-goal/how-the-factory-works/06-releases/03-what-a-build-is-called-and-when.md`; `end-goal/how-the-factory-works/07-contracts/08-deprecation.md`.
-
-Change `factory/buildrunner` (new), `factory/build`, `factory/exposure`, `factory/wayin`, and the build and repository callers in `factory/cmd/factory`. The new package is named for the design phrase “build runner”. Use the component shape `doc.go`, `runner.go`, and `runner_test.go`; it owns no table, so it has no `schema.go` or `db_test.go`. Its `doc.go` must cite the claims above. Add `buildrunner -> build criterion exposure wayin` to `factory/deps.txt` and add `buildrunner` to `cmd/factory`'s dependency line; the new edges let the runner write build records, run the existing derivations, and inject the shipped way-in without reaching a target or the store. Update the affected package documentation claim citations.
-
-The runner must own clone/branch selection, resolver coverage, source constraints, schema-mark extraction, artifact compilation, exposure, search-build handling, and build-record creation. Keep repository credentials and registry credentials behind resolver interfaces; the runner process receives only its checkout, source/registry access, and output.
-
-Prove it with runner unit tests using fake clone, resolver, and process seams; a database test that records a normal, could-not-derive, and search build; and an adopted-repository branch test. Checks: `go test -count=1 ./factory/buildrunner ./factory/build ./factory/exposure ./factory/wayin`, `go vet ./factory/buildrunner ./factory/build ./factory/exposure ./factory/wayin`, `go run ./cmd/depscheck`, and `go run ./cmd/tracecheck`.
 
 ## 2. Adoption and master branch
 
@@ -41,6 +42,12 @@ Design files to read: `end-goal/how-the-factory-works/01-one-pipeline.md`; `end-
 Change `factory/service`, `factory/item`, `factory/gate`, `factory/buildrunner`, and the adoption path and tests in `factory/cmd/factory`. This is an existing-package change; preserve each package's documented shape and add the M10 citations to its `doc.go`.
 
 Prove an adoption intent keeps the source decision at Spec, builds the repository once on its trunk through the build runner, fast-forwards master only through the queue, and makes a later item weigh the admitted repository instead of repeating adoption. Test the human Spec decision and the post-adoption master/rebuild path end to end. Checks: focused package tests and `go test -count=1 ./factory/service ./factory/item ./factory/gate ./factory/buildrunner ./cmd/factory -run 'Adopt|Master'`, `go vet ./...`, `go run ./cmd/depscheck`, and `go run ./cmd/tracecheck`.
+
+Carried from step 1's last drift review, to fix here because this step changes `buildrunner`:
+- C1456 — runner.go: a set without content digests is recorded in `FetchWithoutRunningReason`, conflating two conditions the sentence keeps distinct; record the missing digests in their own field.
+- C1458 — runner.go: `ResolverToolchains` is a bare exported slice; publish it where `cmd/factory` publishes the factory version's facts.
+- C1465 — toolchain.go: every Go entry's licence is the literal `"unknown"`; read the module's licence file from the module cache where one exists, and leave could-not-derive only where none does.
+- C1459 — toolchain.go: an entry in neither the run-time nor the test dependency list is recorded as neither; decide which it is.
 
 ## 3. Candidate environment composition and run outcomes
 
@@ -132,13 +139,16 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 
 # Unresolved
 
+- `go test ./cmd/factory` ran in 1765s after step 1 against `-timeout 30m`; one earlier run hit the timeout. A step that adds an end-to-end test raises the timeout in `factory/README.md`, `.github/workflows/factory.yml` and the handoff's check lines, or shortens a run.
+
 - The exact resolver and registry APIs, host capability check for branch-restricted credentials, and process isolation mechanism are not specified. Inference: keep them behind interfaces in `buildrunner` and supply them from `cmd/factory`.
 - The named design does not enumerate the initial Go security-predicate kinds or their predicates. Inference: implement the existing list/decision seam first and require an explicit authored or shipped list before treating a predicate as decided.
 - The named design does not choose a platform package. Inference: keep platform composition and room reads in `environment`, `deploy`, and `cmd/factory` until a separate component boundary is required.
 - The existing `localtarget` refuses traffic shifting. Inference: use a traffic-shifting target fake/adapter for the required rollout demonstration and leave local process deployment as its own target behavior unless the implementation proves a local traffic mechanism.
 - The exact seed/value-set storage format, migration runner, snapshot backend, and per-environment address encoding are left to implementation; preserve the record fields and version comparisons in the named designs.
 - Step names, file splits, and line counts are planning inferences based on the current package shape; keep each step at about 1,000 changed lines or fewer and split a step if the estimate fails before committing.
+- The design's "network reach to the sources the set names and to nothing else" has two readings: an OS-enforced source allow-list and the available Go boundary, which can clear the environment and build with an offline module cache but cannot enforce host filesystem or egress isolation. The conservative implementation is the latter; the OS-level restriction remains a host requirement.
 
 # Summary
 
-Read `CLAUDE.md`, the M9 and M10 roadmap entries, all 75 `unbuilt M10` claim lines, all 29 named design files, `end-goal/CLAUDE.md`, `factory/README.md`, `factory/deps.txt`, the affected package `doc.go` files, and the recent log plus two M9 commit stats. No required source was unavailable. Unresolved design choices and inferences are listed above. `HANDOFF.md` is 132 lines.
+Read `CLAUDE.md`, this handoff, the six Step 1 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Step 1 is implemented and its full test suite and final checks pass. Unresolved design choices and inferences are listed above.

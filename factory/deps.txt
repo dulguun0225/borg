@@ -523,6 +523,11 @@ record
 gatepolicy
 boundary
 exposure
+#
+# buildrunner -> build is the runner writing build records; criterion is the
+# outcome shape a build process may return; exposure is the checkout derivation;
+# and wayin is the shipped source injected into the process. The runner reaches
+# no target or store.
 securitypredicate
 lease -> record
 erasurelist -> record
@@ -544,6 +549,7 @@ consumercontract -> contract gatepolicy record
 screenstatemachine -> lease record
 artifact -> consumercontract criterion erasurelist screenstatemachine lease record redaction
 build -> criterion exposure lease record
+buildrunner -> build criterion exposure wayin
 release -> lease record artifact
 deploy -> record secretref targetseam lease principal release lastcheck service
 area -> record gatepolicy lease
@@ -576,7 +582,7 @@ clientdist
 postgres -> agentrun area artifact build consumercontract constraint contract criterion decisionlog deploy environment factorysettings fleetentry halt incident inputmanifest intent item lastcheck legalhold lease notifier people project record redaction release safeguard screenstatemachine service window
 cmd/depscheck
 cmd/tracecheck
-cmd/factory -> agent agentrun area artifact boundary build clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment erasurelist exposure factorysettings fleetentry gate gatepolicy grouper halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record redaction release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
+cmd/factory -> agent agentrun area artifact boundary build buildrunner clientdist driftdetector constraint consumercontract contract contractcheck criterion decisionlog deploy dispatch environment erasurelist exposure factorysettings fleetentry gate gatepolicy grouper halt healthmonitor incident inputmanifest intent item lastcheck lease legalhold localtarget mergequeue notifier people policy postgres principal project record redaction release reportstore safeguard score screens screenstatemachine secretref securitypredicate service targetseam wayin window
 cmd/driftdetector -> build driftdetector deploy environment lastcheck localtarget postgres principal release secretref service targetseam window
 
 test dispatch -> postgres
@@ -593,6 +599,7 @@ test contract -> postgres
 test consumercontract -> postgres artifact contract gatepolicy lease record
 test artifact -> postgres lease legalhold service
 test build -> postgres exposure lease
+test buildrunner -> build lease postgres record
 test screenstatemachine -> postgres lease record
 test release -> postgres lease
 test deploy -> postgres lease wayin

@@ -9,6 +9,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/contractcheck"
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
@@ -100,6 +101,7 @@ type path struct {
 	// start entered.
 	prompts    *rolePrompts
 	builds     *build.Writer
+	runner     *buildrunner.Runner
 	deploys    *deploy.Writer
 	checks     *lastcheck.Writer
 	candidates *environment.Candidates

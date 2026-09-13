@@ -205,6 +205,7 @@ func startRelease(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token l
 		CommitHash:            commitHash,
 		ArtifactDigest:        "sha256:" + commitHash,
 		ShippedBundleIdentity: "bundle-test",
+		Coverage:              []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("creating the build: %v", err)

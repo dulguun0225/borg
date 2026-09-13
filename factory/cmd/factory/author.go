@@ -12,6 +12,7 @@ import (
 	"github.com/dulguun0225/borg/factory/area"
 	"github.com/dulguun0225/borg/factory/artifact"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/consumercontract"
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/contractcheck"
@@ -35,8 +36,9 @@ import (
 // package criterion states about the mutation tool — the five
 // [_What the derivation records_] treats as the extractor's to state,
 // composed here because consumercontract cannot import every one of them.
-const publishedGoConvention = consumercontract.GoConvention + "; " +
-	contract.Convention + "; " + screenstatemachine.Convention + "; " + criterion.MutationConvention
+var publishedGoConvention = consumercontract.GoConvention + "; " +
+	contract.Convention + "; " + screenstatemachine.Convention + "; " + criterion.MutationConvention +
+	"; dependency resolvers: " + strings.Join(buildrunner.ResolverToolchains, ", ")
 
 // implementationStage is one item's implementation version, the consumer
 // contract derived from the same build, the build record, and the measurement.
@@ -145,26 +147,15 @@ func (p *path) implementationStage(ctx context.Context, c *candidate) error {
 // the encodings the check on the candidate environment rejects a build
 // without.
 func (p *path) startBranch(ctx context.Context, c *candidate) error {
-	repo := c.svc.Repository
-	if err := os.MkdirAll(repo, 0o755); err != nil {
-		return fmt.Errorf("factory: creating the repository directory: %w", err)
-	}
-	if _, err := git(repo, "init"); err != nil {
-		return err
-	}
 	head, err := p.masterHead(ctx, c.svc)
 	if err != nil {
 		return err
 	}
 	c.basedOnMaster = head != ""
-	if _, err := git(repo, "switch", c.branch); err == nil {
-		return nil
-	}
-	if head != "" {
-		_, err = git(repo, "switch", "-c", c.branch, "master")
-		return err
-	}
-	_, err = git(repo, "switch", "--orphan", c.branch)
+	_, err = p.runner.Select(ctx, buildrunner.SelectionRequest{
+		Directory: c.svc.Repository, Branch: c.branch, Base: head,
+		Mode: buildrunner.CandidateBranch, CredentialName: c.svc.Provisioned.BranchCredential.Name(),
+	})
 	return err
 }
 
@@ -236,7 +227,7 @@ func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Ch
 	// compile is caught here, where nothing has been written for it and before a
 	// candidate environment would already have been composed for it, and carried
 	// to the row as the mechanical rejection rather than stopping the run.
-	bl, err := p.createBuild(ctx, repo, c.itemID, c.svc.ID, commit)
+	bl, err := p.createBuild(ctx, repo, c.branch, c.itemID, c.svc.ID, commit)
 	if err != nil {
 		if errors.Is(err, ErrDoesNotCompile) {
 			c.compileFailure = firstLines(err.Error())
@@ -251,7 +242,14 @@ func (p *path) commitAndBuild(ctx context.Context, c *candidate, change agent.Ch
 		return err
 	}
 	c.buildID = bl.ID
+	c.coverageCouldNotDerive = buildCoverageGaps(bl)
 	fmt.Fprintf(d.out, "Build %s made from commit %s\n", bl.ID, commit)
+	if bl.RunState == build.RunDidNotRun {
+		c.compileFailure = bl.RunReason
+		c.measurement = score.Measurement{Unavailable: "the build did not run: " + bl.RunReason}
+		fmt.Fprintf(d.out, "The build did not run: %s\n", bl.RunReason)
+		return nil
+	}
 
 	// The measurement is taken here, where the repository is, and against the
 	// master this build was made from — before any fast-forward moves it. A

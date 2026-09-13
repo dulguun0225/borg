@@ -186,6 +186,7 @@ func TestShippedIsAReleaseDeployedAndNotJustMinted(t *testing.T) {
 	bl, err := g.builds.Create(ctx, theActor, build.Draft{
 		ItemID: it.ID, ServiceID: g.serviceID, CommitHash: "commit-working", ArtifactDigest: "digest-working",
 		ShippedBundleIdentity: "bundle-test",
+		Coverage:              []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)

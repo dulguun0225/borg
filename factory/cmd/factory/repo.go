@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -14,10 +12,13 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/criterion"
+	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
-	"github.com/dulguun0225/borg/factory/wayin"
 )
 
 // inDir runs one command in dir and returns its combined output. On an error
@@ -109,93 +110,115 @@ func masterCommit(repo string) (string, error) {
 	return "", err
 }
 
-// wayInOverlay writes the way in into a directory of its own and returns the
-// overlay "go build" is handed and what removes that directory. Every build of
-// a service's checkout goes through it: the way in is content the factory
-// ships and versions with itself, and a service's build is where it is
-// injected, so the two build sites below make the same call and neither
-// writes anything into the checkout.
-//
-// The identity is factoryVersion, which is what createBuild writes on the
-// build record as the shipped-bundle identity — one name for that value, so
-// the record and the way in shipped inside the binary cannot disagree about
-// which release built it.
-//
-// The overlay two builds of one commit are handed differs in the directory it
-// was written in and in nothing else. That directory does not reach the
-// binary: the go command reads the overlaid file under the path it replaces,
-// so the two builds this milestone relies on being byte-identical still are.
-func wayInOverlay(repo string) (overlay string, remove func(), err error) {
-	dir, err := os.MkdirTemp("", "borg-way-in-")
-	if err != nil {
-		return "", func() {}, fmt.Errorf("factory: making a directory to write the way in in: %w", err)
-	}
-	remove = func() { _ = os.RemoveAll(dir) }
-	overlay, err = wayin.Overlay(repo, dir, factoryVersion)
-	if err != nil {
-		remove()
-		return "", func() {}, err
-	}
-	return overlay, remove, nil
+var ErrDoesNotCompile = buildrunner.ErrDoesNotCompile
+
+type buildRecordWriter struct {
+	writer *build.Writer
+	actor  record.Actor
 }
 
-// ErrDoesNotCompile marks a failure of "go build" as the candidate's own code
-// failing to compile rather than an infrastructure failure, which is what lets
-// a caller that treats a repository's own compile failure as a soft outcome —
-// not an error — tell the two apart.
-var ErrDoesNotCompile = errors.New("factory: the build does not compile")
+type factorySecrets struct{ resolver *secretref.Resolver }
 
-// compiles is what produces the build record's own artifact digest: it builds
-// the repository into a directory that is thrown away right after, and returns
-// the sha256 of the binary "go build" produced, in the "sha256:" form the
-// record and a target's own reading share. It is also what the Implementation
-// gate would reject a build for, and that row rejects over the screens and over
-// nothing else: a build that does not compile returns [ErrDoesNotCompile]
-// wrapping go build's own words, before the record it would have been written
-// to and before a candidate environment would already have been composed for
-// it.
-func compiles(repo string) (string, error) {
-	dir, err := os.MkdirTemp("", "borg-compile-")
-	if err != nil {
-		return "", fmt.Errorf("factory: making a directory to compile into: %w", err)
+func (s factorySecrets) Resolve(ctx context.Context, name string) (string, error) {
+	if s.resolver == nil {
+		return "", fmt.Errorf("factory: no secrets resolver for repository credential %q", name)
 	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	overlay, remove, err := wayInOverlay(repo)
+	ref, err := secretref.New(name)
 	if err != nil {
 		return "", err
 	}
-	defer remove()
-	compiled := filepath.Join(dir, "compiled")
-	if _, err := inDir(repo, "go", "build", "-overlay", overlay, "-o", compiled, "."); err != nil {
-		return "", fmt.Errorf("%w: %w", ErrDoesNotCompile, err)
-	}
-	content, err := os.ReadFile(compiled)
-	if err != nil {
-		return "", fmt.Errorf("factory: reading the binary it just compiled: %w", err)
-	}
-	sum := sha256.Sum256(content)
-	return "sha256:" + hex.EncodeToString(sum[:]), nil
+	return s.resolver.Resolve(principal.OfComponent("buildrunner"), ref)
 }
 
-// buildInto puts the build's binary in an environment's directory, named exactly
-// by the build id, which is what the local target starts. A build is what runs:
-// the release is the name that build has on master, and the target has no idea
-// which.
-func buildInto(repo, dir, buildID string) error {
+func (w buildRecordWriter) Create(ctx context.Context, draft build.Draft) (build.Build, error) {
+	return w.writer.Create(ctx, w.actor, draft)
+}
+
+func (w buildRecordWriter) Complete(ctx context.Context, id string, completion build.Completion) (build.Build, error) {
+	completion.BuildID = id
+	completion.Actor = w.actor
+	return w.writer.Complete(ctx, completion)
+}
+
+func criterionIDs(inForce []criterion.Criterion) []string {
+	ids := make([]string, 0, len(inForce))
+	for _, c := range inForce {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+func (p *path) buildInto(ctx context.Context, repo, dir, buildID, serviceID string) (build.Build, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("factory: making %s: %w", dir, err)
+		return build.Build{}, fmt.Errorf("factory: making %s: %w", dir, err)
 	}
-	absolute, err := filepath.Abs(filepath.Join(dir, buildID))
+	absolute, err := filepath.Abs(filepath.Join(dir, ".borg-artifact"))
 	if err != nil {
-		return fmt.Errorf("factory: resolving where to build %s: %w", buildID, err)
+		return build.Build{}, fmt.Errorf("factory: resolving where to build %s: %w", buildID, err)
 	}
-	overlay, remove, err := wayInOverlay(repo)
+	commit, err := git(repo, "rev-parse", "HEAD")
 	if err != nil {
-		return err
+		return build.Build{}, err
 	}
-	defer remove()
-	_, err = inDir(repo, "go", "build", "-overlay", overlay, "-o", absolute, ".")
-	return err
+	prior, err := build.Get(ctx, p.d.pool, buildID)
+	if err != nil {
+		return build.Build{}, err
+	}
+	result, err := p.createBuildResult(ctx, repo, "", prior.ItemID, serviceID, commit, absolute)
+	if err != nil {
+		return build.Build{}, err
+	}
+	if err := os.Rename(result.ArtifactPath, filepath.Join(dir, result.Build.ID)); err != nil {
+		return build.Build{}, fmt.Errorf("factory: naming artifact %s: %w", result.Build.ID, err)
+	}
+	return result.Build, nil
+}
+
+func (p *path) createBuild(ctx context.Context, repo, branch, itemID, serviceID, commit string) (build.Build, error) {
+	result, err := p.createBuildResult(ctx, repo, branch, itemID, serviceID, commit, "")
+	if err != nil {
+		return build.Build{}, err
+	}
+	return result.Build, nil
+}
+
+func (p *path) createBuildResult(ctx context.Context, repo, branch, itemID, serviceID, commit, output string) (buildrunner.Result, error) {
+	base, err := masterCommit(repo)
+	if err != nil {
+		return buildrunner.Result{}, err
+	}
+	mode := buildrunner.CandidateBranch
+	if branch == "" {
+		mode = buildrunner.DetachedCommit
+	}
+	request := buildrunner.Request{
+		Selection: buildrunner.SelectionRequest{
+			Directory: repo, Branch: branch, Commit: commit, Base: base, Mode: mode,
+			CredentialName: serviceCredentialName(p, serviceID),
+		},
+		ItemID: itemID, ServiceID: serviceID,
+		CurrentRelease: p.currentReleaseResolved(ctx, serviceID),
+		Output:         output,
+	}
+	if itemID == "" {
+		if origin, found := p.currentReleaseBuild(ctx, serviceID); found {
+			request.SearchOrigin = &buildrunner.SearchOrigin{BuildID: origin.ID, DesignSystemConstraintID: origin.DesignSystemConstraintID}
+		}
+	}
+	result, err := p.runner.Build(ctx, request)
+	if err != nil {
+		return buildrunner.Result{}, err
+	}
+	return result, nil
+}
+
+func serviceCredentialName(p *path, serviceID string) string {
+	for _, svc := range p.serviceByID {
+		if svc.ID == serviceID {
+			return svc.Provisioned.BranchCredential.Name()
+		}
+	}
+	return ""
 }
 
 // runEncodings runs the encodings once and says whether they passed, with the
@@ -214,16 +237,6 @@ func firstLines(output string) string {
 		kept = kept[:4]
 	}
 	return strings.Join(kept, "; ")
-}
-
-// criterionIDs is the ids of a criterion set, for a message that names which
-// ones the build was required to encode.
-func criterionIDs(inForce []criterion.Criterion) []string {
-	ids := make([]string, 0, len(inForce))
-	for _, c := range inForce {
-		ids = append(ids, c.ID)
-	}
-	return ids
 }
 
 // repoFiles is the repository's current files, whole, for the implementer's
@@ -257,102 +270,6 @@ func repoFiles(repo string) ([]agent.File, error) {
 		return nil, fmt.Errorf("factory: reading the repository's files: %w", err)
 	}
 	return files, nil
-}
-
-// createBuild writes the build record for one commit: the artifact digest —
-// "sha256:" and the sha256 of the binary "go build" produces for the commit,
-// which is [compiles], the same artifact [buildInto] later produces for an
-// environment — two builds of one commit in this repository having been
-// measured byte-identical, which is what makes the drift detector's comparison
-// of it against a running target's own digest real — the shipped-bundle
-// identity, which is factoryVersion, this binary being the release of the
-// product that made the build — and, for a Go module, its go.sum
-// resolved into entries with licence "unknown", this milestone having no
-// licence resolver. Criterion results of the build's own process are none:
-// nothing in this command-line interface decides a criterion at that place yet.
-//
-// The repository must already be checked out at commit: compiles builds
-// whatever is on disk, and reads nothing from commit itself.
-func (p *path) createBuild(ctx context.Context, repo, itemID, serviceID, commit string) (build.Build, error) {
-	digest, err := compiles(repo)
-	if err != nil {
-		return build.Build{}, err
-	}
-	draft := build.Draft{
-		ItemID:                itemID,
-		ServiceID:             serviceID,
-		CommitHash:            commit,
-		ArtifactDigest:        digest,
-		ShippedBundleIdentity: factoryVersion,
-	}
-	resolved, coverage, couldNotDerive := resolvedGoModules(repo)
-	draft.Resolved = resolved
-	switch {
-	case couldNotDerive != "":
-		draft.ResolvedSetCouldNotDerive = couldNotDerive
-	case coverage != "":
-		draft.ResolvedSetCoverage = map[string]string{"go": coverage}
-	}
-	// What the change reaches and whether it ships a schema change: two readings
-	// of this checkout, taken where the repository is and recorded on the record
-	// the gate rows and enforcement read them off. measure.go says why each is
-	// derived here and nowhere else.
-	reached, declares := reaches(ctx, repo, commit, resolved, p.currentReleaseResolved(ctx, serviceID))
-	draft.Exposure, draft.DeclaresSchemaChange = &reached, declares
-	return p.builds.Create(ctx, buildActor, draft)
-}
-
-// resolvedGoModules reads go.sum in repo and returns one entry per module
-// version it names — the ecosystem, the source, the package, the version, the
-// digest go.sum itself carries, licence "unknown", and required_by the
-// module go.mod names. Where go.mod cannot be read, resolution could not be
-// performed at all and the reason is returned; where go.mod exists and go.sum
-// does not, the module has no third-party dependency and coverage is "go"
-// with no entries.
-func resolvedGoModules(repo string) (entries []build.ResolvedEntry, coverage, couldNotDerive string) {
-	module, err := readGoModule(repo)
-	if err != nil {
-		return nil, "", err.Error()
-	}
-	content, err := os.ReadFile(filepath.Join(repo, "go.sum"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, "go", ""
-	}
-	if err != nil {
-		return nil, "", err.Error()
-	}
-	seen := map[string]bool{}
-	for _, line := range lines(string(content)) {
-		fields := strings.Fields(line)
-		if len(fields) != 3 || strings.HasSuffix(fields[1], "/go.mod") {
-			continue
-		}
-		key := fields[0] + "@" + fields[1]
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		entries = append(entries, build.ResolvedEntry{
-			Ecosystem: "go", Source: "go.sum", Package: fields[0], Version: fields[1],
-			Digest: fields[2], Licence: "unknown", RequiredBy: module,
-		})
-	}
-	return entries, "go", ""
-}
-
-// readGoModule is the module path go.mod names, and an error where the file
-// cannot be read or names none.
-func readGoModule(repo string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(repo, "go.mod"))
-	if err != nil {
-		return "", fmt.Errorf("factory: reading go.mod to resolve the build's dependencies: %w", err)
-	}
-	for _, line := range lines(string(content)) {
-		if after, ok := strings.CutPrefix(line, "module "); ok {
-			return strings.TrimSpace(after), nil
-		}
-	}
-	return "", errors.New("factory: go.mod names no module")
 }
 
 // copyFile copies a built binary from one environment's directory to another's,

@@ -189,6 +189,7 @@ func TestTheTwoBaselinesAreDifferent(t *testing.T) {
 	bl, err := g.builds.Create(ctx, theActor, build.Draft{
 		ItemID: merged.ID, ServiceID: g.producer.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
 		ShippedBundleIdentity: "bundle-test",
+		Coverage:              []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)

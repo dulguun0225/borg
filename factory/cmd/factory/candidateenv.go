@@ -69,6 +69,9 @@ func (p *path) platformWaitRow(ctx context.Context, itemID string) (string, erro
 // as a wait, being neither a record nor a parameter of an owner's.
 func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	d := p.d
+	if c.candidateDeployID != "" && c.candidateDeployBuild == c.buildID {
+		return nil
+	}
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		return err
@@ -232,10 +235,13 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 // and deploys it there. The deploy record names the build and no release: the
 // number is minted one gate below this one.
 func (p *path) putOnCandidateEnvironment(ctx context.Context, c *candidate, buildID string) (deploy.Deploy, error) {
-	if err := buildInto(c.svc.Repository, c.environmentDir, buildID); err != nil {
+	rebuilt, err := p.buildInto(ctx, c.svc.Repository, c.environmentDir, buildID, c.svc.ID)
+	if err != nil {
 		return deploy.Deploy{}, err
 	}
-	return p.intoCandidate(ctx, c, buildID)
+	c.buildID = rebuilt.ID
+	c.candidateDeployBuild = rebuilt.ID
+	return p.intoCandidate(ctx, c, rebuilt.ID)
 }
 
 // decideCriteria runs the encodings on the candidate environment and records what

@@ -235,7 +235,7 @@ func TestADependencyChangeIsTwoResolvedSetsDiffed(t *testing.T) {
 		t.Fatalf("the dependency changes are %v, want the one package that moved", moved.DependencyChanges)
 	}
 	entry := moved.DependencyChanges[0]
-	if !strings.Contains(entry, "example.com/y moved from v0.4.0 to v0.5.0") ||
+	if !strings.Contains(entry, "example.com/y moved from v0.4.0 (digest \"\") to v0.5.0 (digest \"\")") ||
 		!strings.Contains(entry, "licence Apache-2.0") {
 		t.Errorf("the entry is %q, want the package, both versions and the licence", entry)
 	}

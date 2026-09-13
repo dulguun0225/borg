@@ -118,7 +118,8 @@ type candidate struct {
 	// and leaves buildID empty rather than stopping the run, and the stage
 	// resets it at the top of every attempt so a later, compiling build does not
 	// carry a stale reading into the gate.
-	compileFailure string
+	compileFailure         string
+	coverageCouldNotDerive []string
 	// consumerContractArtifactID is the consumer contract version derived from the
 	// same build, and is empty where the build declares nothing about another
 	// service.

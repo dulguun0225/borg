@@ -135,52 +135,6 @@ func lines(output string) []string {
 	return kept
 }
 
-// reaches is what the build runner derives about what a change reaches: the
-// exposure list out of the diff between the base and this build's commit, and
-// whether the checkout ships a schema change. Both are readings of the checkout,
-// so both are taken here, where the repository is, and recorded on the build
-// record — which is where the gate rows over a build read them off, the design
-// putting the exposure factor's inputs in a diff and a build record.
-//
-// The base is master where the service has one and git's empty tree where it
-// does not, which is the rule [measure] takes for the same reason: a candidate
-// with no master is diffed against nothing, which is every line of it added and
-// is the reading the design gives a first release — the widest reach and nothing
-// to return to.
-//
-// A git that will not answer leaves the exposure unavailable with git's own
-// words on it, which the published formula turns into a human at the row: the
-// gate a failure would remove is the gate that failure is evidence for needing.
-// The schema reading answers false there, which decides nothing on its own — the
-// row it would have been read at already has a human at it.
-func reaches(ctx context.Context, repo, commit string, resolved, currentRelease []build.ResolvedEntry) (exposure.Evidence, bool) {
-	base := emptyTree
-	if head, err := masterCommit(repo); err == nil && head != "" {
-		base = "master"
-	}
-	evidence, _, err := exposure.Derive(ctx, exposure.Checkout{
-		Dir: repo, Resolved: packagesOf(resolved), CurrentRelease: packagesOf(currentRelease),
-	}, base, commit)
-	if err != nil {
-		return exposure.Evidence{Unavailable: fmt.Sprintf("the exposure list could not be derived: %v", err)}, false
-	}
-	return evidence, declaresSchemaChange(repo, base, commit)
-}
-
-// packagesOf is a build record's resolved set in the shape the extractor reads
-// it, which is the repetition this module pays for locality: the extractor reads
-// a repository and decides nothing, the record stores what a build resolved, and
-// this is the one place that holds both.
-func packagesOf(entries []build.ResolvedEntry) []exposure.Package {
-	packages := make([]exposure.Package, 0, len(entries))
-	for _, entry := range entries {
-		packages = append(packages, exposure.Package{
-			Package: entry.Package, Version: entry.Version, Licence: entry.Licence,
-		})
-	}
-	return packages
-}
-
 // currentReleaseResolved is the resolved set of the build the service's current
 // release put on production, which is the set a dependency change is diffed
 // against. A service running nothing has none, and every package this build
@@ -192,44 +146,31 @@ func packagesOf(entries []build.ResolvedEntry) []exposure.Package {
 // which the rows over the build read as a wider exposure and never as a
 // narrower one.
 func (p *path) currentReleaseResolved(ctx context.Context, serviceID string) []build.ResolvedEntry {
-	addresses, err := p.addressesOf(ctx, serviceID)
-	if err != nil {
+	current, found := p.currentReleaseBuild(ctx, serviceID)
+	if !found {
 		return nil
 	}
-	current, running, err := deploy.Current(ctx, p.d.pool, serviceID, p.production.ID, addresses)
-	if err != nil || !running || current.BuildID == "" {
-		return nil
-	}
-	entries, err := build.Resolved(ctx, p.d.pool, current.BuildID)
+	entries, err := build.Resolved(ctx, p.d.pool, current.ID)
 	if err != nil {
 		return nil
 	}
 	return entries
 }
 
-// declaresSchemaChange is the build's own reading of whether its checkout ships
-// a schema change: a path under a migrations or schema directory changed between
-// the base and this build's commit. It is the reading enforcement's store rule
-// asks about before it requires the candidate environment to have applied the
-// change twice — a store contract's form moves whenever the code deriving it
-// moves, and a build can move it and ship nothing for a deploy to apply.
-//
-// It is a convention about where a change lives, per toolchain the way every
-// other derivation from a checkout is, and a git that will not answer reads as
-// no change declared.
-func declaresSchemaChange(repo, base, head string) bool {
-	names, err := git(repo, "diff", "--name-only", base, head)
+func (p *path) currentReleaseBuild(ctx context.Context, serviceID string) (build.Build, bool) {
+	addresses, err := p.addressesOf(ctx, serviceID)
 	if err != nil {
-		return false
+		return build.Build{}, false
 	}
-	for _, name := range lines(names) {
-		for _, part := range strings.Split(strings.TrimSpace(name), "/") {
-			if part == "migrations" || part == "schema" {
-				return true
-			}
-		}
+	current, running, err := deploy.Current(ctx, p.d.pool, serviceID, p.production.ID, addresses)
+	if err != nil || !running || current.BuildID == "" {
+		return build.Build{}, false
 	}
-	return false
+	result, err := build.Get(ctx, p.d.pool, current.BuildID)
+	if err != nil {
+		return build.Build{}, false
+	}
+	return result, true
 }
 
 // factorExposure is the exposure list as the score's own input. The two shapes

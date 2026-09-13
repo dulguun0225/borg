@@ -144,7 +144,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	}
 
 	secrets := filepath.Join(t.TempDir(), "secrets")
-	if err := os.WriteFile(secrets, []byte("deploy.local=unused\n"), 0o600); err != nil {
+	if err := os.WriteFile(secrets, []byte("deploy.local=unused\nrepository.local=unused\n"), 0o600); err != nil {
 		t.Fatalf("writing the secrets file: %v", err)
 	}
 	resolver, err := secretref.Load(secrets)
@@ -187,6 +187,7 @@ func newPathIn(t *testing.T, input string, known []serviceRepo) (context.Context
 	out := &bytes.Buffer{}
 	d := deps{
 		pool:                pool,
+		secrets:             resolver,
 		token:               token,
 		model:               &fakeModel{},
 		modelName:           theModel,
@@ -480,27 +481,4 @@ func theServiceRecord(t *testing.T, ctx context.Context, p *path) service.Servic
 		t.Fatalf("no service is named %q", p.d.services[0].name)
 	}
 	return svc
-}
-
-// authorOne is one intent decomposed into one item on the install's one service, for a
-// test that drives the steps rather than calling run. Decomposition yields one item, so no
-// Decomposition row fires — the row fires where there is a set to ratify.
-func authorOne(t *testing.T, ctx context.Context, p *path, statement string, out *bytes.Buffer) *candidate {
-	t.Helper()
-	set, candidates, err := p.authorIntent(ctx,
-		asked{statement: statement, services: []string{theService}}, statement)
-	if err != nil {
-		t.Fatalf("authoring %q: %v\noutput so far:\n%s", statement, err, out)
-	}
-	if len(candidates) != 1 {
-		t.Fatalf("authoring %q yielded %d candidates, want one", statement, len(candidates))
-	}
-	if set.decided {
-		t.Fatalf("a decomposition of one item fired Decomposition, and that row fires where there is a set to ratify")
-	}
-	c := candidates[0]
-	p.byItem[c.itemID] = c
-	p.authored[c.itemID] = true
-	authorStages(t, ctx, p, c, out)
-	return c
 }

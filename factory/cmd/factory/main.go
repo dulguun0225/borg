@@ -316,8 +316,9 @@ func runCommand(args []string) error {
 	}
 
 	_, err = run(ctx, deps{
-		pool:  pool,
-		token: token,
+		pool:    pool,
+		secrets: resolver,
+		token:   token,
 		// The model's id is the author every version this run writes names, the
 		// per-author prior being kept per model version.
 		modelName:           *model,

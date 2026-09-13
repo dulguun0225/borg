@@ -167,24 +167,23 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 	}
 
 	// The builds: every one of them, oldest first, which is what a criterion's
-	// own outcome history is read over. The one the rows below the implementation
-	// stage decide is the newest the release does not name, because the release
-	// names the build the merge queue verified and every other build of the item
-	// is one the implementation stage made — and where the re-verification reused
-	// that build the two are one, which the same reading gives.
+	// own outcome history is read over. The first candidate-deploy build is the
+	// build the candidate rows refer to; before a candidate deploy, the newest
+	// build is the implementation stage's.
 	builds, err := build.ForItem(ctx, p.d.pool, itemID)
 	if err != nil {
 		return nil, err
 	}
 	for _, one := range builds {
 		c.buildHistory = append(c.buildHistory, one.ID)
-		if one.ID != c.reverifiedBuildID || len(builds) == 1 {
-			c.buildID, c.commit = one.ID, one.CommitHash
+		if one.ID == c.buildID {
+			c.coverageCouldNotDerive = buildCoverageGaps(one)
 		}
 	}
-	if c.buildID == "" && len(builds) > 0 {
+	if len(builds) > 0 && c.buildID == "" {
 		newest := builds[len(builds)-1]
 		c.buildID, c.commit = newest.ID, newest.CommitHash
+		c.coverageCouldNotDerive = buildCoverageGaps(newest)
 	}
 	if c.buildID != "" {
 		// The build's diff, taken again where the repository is rather than
@@ -223,12 +222,38 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 		if err != nil {
 			return nil, err
 		}
+		firstCandidateAt, firstCandidateBuild := "", ""
+		latestCandidateAt, latestCandidateBuild := "", ""
 		for _, one := range onto {
 			if one.Status != deploy.StatusComplete {
 				continue
 			}
-			c.candidateDeployID = one.ID
-			c.candidateDeployBuild = one.BuildID
+			if firstCandidateAt == "" || one.At < firstCandidateAt {
+				firstCandidateAt, firstCandidateBuild = one.At, one.BuildID
+			}
+			if latestCandidateAt == "" || one.At > latestCandidateAt {
+				latestCandidateAt = one.At
+				latestCandidateBuild = one.BuildID
+				c.candidateDeployID = one.ID
+				c.candidateDeployBuild = one.BuildID
+			}
+		}
+		candidateBuild := firstCandidateBuild
+		if !minted {
+			if len(builds) > 0 {
+				candidateBuild = builds[len(builds)-1].ID
+			} else {
+				candidateBuild = latestCandidateBuild
+			}
+		}
+		if candidateBuild != "" {
+			c.buildID = candidateBuild
+			for _, one := range builds {
+				if one.ID == candidateBuild {
+					c.commit = one.CommitHash
+					break
+				}
+			}
 		}
 	}
 	if c.buildID != "" {

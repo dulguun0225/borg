@@ -322,6 +322,7 @@ func shipOnIntent(t *testing.T, ctx context.Context, g graph, svc service.Servic
 	bl, err := g.builds.Create(ctx, theActor, build.Draft{
 		ItemID: it.ID, ServiceID: svc.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
 		ShippedBundleIdentity: "bundle-test",
+		Coverage:              []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("writing the build: %v", err)
@@ -433,6 +434,7 @@ func candidateOf(t *testing.T, ctx context.Context, g graph, svc service.Service
 	bl, err := g.builds.Create(ctx, theActor, build.Draft{
 		ItemID: it.ID, ServiceID: svc.ID, CommitHash: record.NewID("commit"), ArtifactDigest: record.NewID("digest"),
 		ShippedBundleIdentity: "bundle-test",
+		Coverage:              []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("writing the candidate's build: %v", err)

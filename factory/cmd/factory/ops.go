@@ -132,7 +132,8 @@ type pathFlags struct {
 // exist and is authored on no record here, none of these composing a candidate
 // environment.
 func withPath(f pathFlags, command func(context.Context, *path) error) error {
-	if _, err := secretsResolver(f.secrets); err != nil {
+	resolver, err := secretsResolver(f.secrets)
+	if err != nil {
 		return err
 	}
 	projectName := f.project
@@ -160,6 +161,7 @@ func withPath(f pathFlags, command func(context.Context, *path) error) error {
 
 		p, err := compose(ctx, deps{
 			pool:             pool,
+			secrets:          resolver,
 			token:            token,
 			targets:          newTargetSet(localTargetAt),
 			dir:              f.targets,

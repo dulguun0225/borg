@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/build"
+	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
@@ -38,16 +39,18 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	}
 
 	repo := c.svc.Repository
-	if _, err := git(repo, "switch", it.Branch); err != nil {
-		return mergequeue.Verified{}, err
-	}
-
 	// Master as the repository has it, not as the records say: the queue read the
 	// two against each other before it asked for this and stopped the service
 	// where they disagreed, so a second comparison here would refuse a
 	// re-verification the queue has already admitted.
 	head, err := masterCommit(c.svc.Repository)
 	if err != nil {
+		return mergequeue.Verified{}, err
+	}
+	if _, err := p.runner.Select(ctx, buildrunner.SelectionRequest{
+		Directory: repo, Branch: it.Branch, Base: head, Mode: buildrunner.CandidateBranch,
+		CredentialName: c.svc.Provisioned.BranchCredential.Name(),
+	}); err != nil {
 		return mergequeue.Verified{}, err
 	}
 	if head != "" {
@@ -92,21 +95,20 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		return mergequeue.Verified{}, err
 	}
 
-	// A rebuild is a new build, and a re-verification that changed nothing rebuilt
-	// nothing: where the commit is the one already built for this item, that build
-	// is the one the release will name.
+	// Re-verification reuses the build already made for this item and commit;
+	// the candidate-deploy path is the separate caller that records a rebuild.
 	bl, found, err := build.ForCommit(ctx, p.d.pool, it.ID, c.svc.ID, commit)
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
 	if !found {
-		bl, err = p.createBuild(ctx, repo, it.ID, c.svc.ID, commit)
+		bl, err = p.createBuild(ctx, repo, c.branch, it.ID, c.svc.ID, commit)
 		if err != nil {
 			return mergequeue.Verified{}, err
 		}
 		fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s made from commit %s\n", it.ID, bl.ID, commit)
 	} else {
-		fmt.Fprintf(p.d.out, "Re-verification of item %s: master was already in the branch, so build %s stands\n", it.ID, bl.ID)
+		fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s already names commit %s\n", it.ID, bl.ID, commit)
 	}
 
 	composed, err := p.compositionFor(ctx, it)
@@ -118,10 +120,20 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	}
 	c.composedFrom = composed
 
-	if err := buildInto(repo, c.environmentDir, bl.ID); err != nil {
-		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-			Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
+	// A re-verification over the same commit reuses the candidate-deploy build:
+	// its artifact is already on the candidate environment, and the additional
+	// criterion run is the next reading over that same build. A moved master has
+	// a new commit, so the candidate-deploy rebuild path makes a new record and
+	// artifact for it.
+	if !found {
+		rebuilt, err := p.buildInto(ctx, repo, c.environmentDir, bl.ID, c.svc.ID)
+		if err != nil {
+			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+				Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
+		}
+		bl = rebuilt
 	}
+	c.candidateDeployBuild = bl.ID
 	dep, err := p.intoCandidate(ctx, c, bl.ID)
 	if err != nil {
 		return mergequeue.Verified{}, err
@@ -324,10 +336,13 @@ func (p *path) VerifyCommit(ctx context.Context, serviceID, commit string) (merg
 	if err != nil {
 		return mergequeue.Verified{}, err
 	}
-	if _, err := git(svc.Repository, "switch", "--detach", commit); err != nil {
+	if _, err := p.runner.Select(ctx, buildrunner.SelectionRequest{
+		Directory: svc.Repository, Commit: commit, Mode: buildrunner.DetachedCommit,
+		CredentialName: svc.Provisioned.BranchCredential.Name(),
+	}); err != nil {
 		return mergequeue.Verified{}, err
 	}
-	bl, err := p.createBuild(ctx, svc.Repository, "", svc.ID, commit)
+	bl, err := p.createBuild(ctx, svc.Repository, "", "", svc.ID, commit)
 	if err != nil {
 		if errors.Is(err, ErrDoesNotCompile) {
 			return mergequeue.Verified{Commit: commit,

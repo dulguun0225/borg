@@ -22,16 +22,34 @@ var (
 	// ErrServiceIDEmpty is returned by [Writer.Create] for a build naming no
 	// service. record's doc.go states what a link is checked for.
 	ErrServiceIDEmpty = errors.New("build: the service id is empty")
-	// ErrArtifactDigestEmpty is returned by [Writer.Create] for a build
-	// naming no artifact digest.
+	// ErrArtifactDigestEmpty is returned by [Writer.Create] for a build that ran
+	// but names no artifact digest.
 	ErrArtifactDigestEmpty = errors.New("build: the artifact digest is empty")
+	// ErrRunReasonEmpty is returned by [Writer.Create] for a build marked as not
+	// run without explaining why it stopped.
+	ErrRunReasonEmpty = errors.New("build: the run reason is empty")
 	// ErrShippedBundleIdentityEmpty is returned by [Writer.Create] for a build
 	// naming no release of the product. Every build names one, which is what
 	// says which way in the build carries.
 	ErrShippedBundleIdentityEmpty = errors.New("build: the shipped bundle identity is empty")
+	// ErrSearchOriginEmpty is returned when a search build names no release build.
+	ErrSearchOriginEmpty = errors.New("build: the search build origin is empty")
+	// ErrResolvedSetEmpty is returned when a build names neither a resolved set
+	// nor coverage nor the reason no set could be derived.
+	ErrResolvedSetEmpty = errors.New("build: the resolved set has no entries or coverage")
+	// ErrNoticeFileMismatch is returned when the notice does not describe the
+	// resolved-set state the record names.
+	ErrNoticeFileMismatch = errors.New("build: the notice file does not match the resolved set")
+	// ErrDesignSystemConstraintMismatch is returned when a search build tries to
+	// name a constraint different from its origin build.
+	ErrDesignSystemConstraintMismatch = errors.New("build: the search build constraint differs from its origin")
 	// ErrNotFound is returned where the named build does not exist.
 	ErrNotFound = errors.New("build: no build has that id")
 )
+
+// CouldNotDeriveNotice is the notice stored beside a set that could not be
+// derived.
+const CouldNotDeriveNotice = "could not derive"
 
 // ResolvedEntry is one package a build resolved: the ecosystem, the source it
 // was resolved from, the package and version, the digest of the content
@@ -46,6 +64,33 @@ type ResolvedEntry struct {
 	Digest     string
 	Licence    string
 	RequiredBy string
+	RunTime    bool
+	BuildTime  bool
+}
+
+// RunState says whether the build process ran. A did-not-run record is still a
+// build record: it names the resolved set and the reason Implementation must
+// reject it, but it has no artifact.
+type RunState string
+
+const (
+	// RunStarted is the state between writing the resolved set and completing
+	// the build process.
+	RunStarted   RunState = "started"
+	RunCompleted RunState = "ran"
+	RunDidNotRun RunState = "did_not_run"
+)
+
+// Coverage is typed evidence of what a toolchain's resolver covered.
+type Coverage struct {
+	Ecosystem                 string
+	Source                    string
+	BaseImagePackages         bool
+	VendoredSource            bool
+	StaticallyLinkedCode      bool
+	Digests                   bool
+	FetchWithoutRunning       bool
+	FetchWithoutRunningReason string
 }
 
 // Draft is one build as a caller of [Writer.Create] hands it in.
@@ -54,13 +99,11 @@ type Draft struct {
 	ItemID     string
 	ServiceID  string
 	CommitHash string
-	// ArtifactDigest is the digest of the artifact the build runner
-	// produced.
+	// ArtifactDigest is the digest of the artifact the build runner produced;
+	// it is empty on a build that did not run.
 	ArtifactDigest string
 	Resolved       []ResolvedEntry
-	// ResolvedSetCoverage is what the resolver read, keyed by ecosystem, and
-	// is ignored where ResolvedSetCouldNotDerive is set.
-	ResolvedSetCoverage map[string]string
+	Coverage       []Coverage
 	// ResolvedSetCouldNotDerive is the reason where resolution could not be
 	// performed at all, and empty otherwise.
 	ResolvedSetCouldNotDerive string
@@ -73,6 +116,11 @@ type Draft struct {
 	// ShippedBundleIdentity names the release of the product that made this
 	// build, on every build and never empty.
 	ShippedBundleIdentity string
+	RunState              RunState
+	RunReason             string
+	SearchBuild           bool
+	SearchOriginBuildID   string
+	SchemaMarks           []string
 	// Exposure is the exposure list the build runner derived from the diff
 	// between the base and this build's commit, and nil where no extractor ran
 	// for the toolchain. Nil and an empty list are different readings: nil is a
@@ -100,11 +148,16 @@ type Build struct {
 	ServiceID                 string
 	CommitHash                string
 	ArtifactDigest            string
-	ResolvedSetCoverage       map[string]string
+	Coverage                  []Coverage
 	ResolvedSetCouldNotDerive string
 	NoticeFile                string
 	DesignSystemConstraintID  string
 	ShippedBundleIdentity     string
+	RunState                  RunState
+	RunReason                 string
+	SearchBuild               bool
+	SearchOriginBuildID       string
+	SchemaMarks               []string
 	DeclaresSchemaChange      bool
 }
 
@@ -121,22 +174,26 @@ func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
 
 const insertBuild = `insert into ` + Table + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
-	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
-	design_system_constraint_id, shipped_bundle_identity, exposure, declares_schema_change)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`
+	run_state, run_reason, artifact_digest, resolved_set_could_not_derive, notice_file,
+	design_system_constraint_id, shipped_bundle_identity, search_origin_build_id, search_build,
+	schema_marks, exposure, declares_schema_change)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`
 
 const insertResolvedEntry = `insert into ` + ResolvedTable + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, ecosystem, source, package,
-	version, digest, licence, required_by)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`
+	version, digest, licence, required_by, run_time, build_time)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
 
-// Create writes the build record, its resolved entries, and — through
-// [criterion.InsertResults] — what the build's own process decided, all in
-// one transaction. The record is never written again — there is no update
-// method — and a rebuild of the same commit for the same item and service is
-// refused by the store's unique constraint rather than given a second record:
-// a rebuild is a new build, and the caller asks [ForCommit] first if it wants
-// to know which record is already there.
+const insertCoverage = `insert into ` + CoverageTable + `
+	(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, ecosystem, source,
+	base_image_packages, vendored_source, statically_linked_code, digests, fetch_without_running,
+	fetch_without_running_reason)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+
+// Create writes the build record, its coverage, resolved entries, and — through
+// [criterion.InsertResults] — what the build's own process decided, all in one
+// transaction. A [RunStarted] record has no artifact or results yet and is
+// completed by [Writer.Complete], without creating a second build row.
 func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (Build, error) {
 	if err := actor.Validate(); err != nil {
 		return Build{}, err
@@ -147,14 +204,45 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 	if draft.CommitHash == "" {
 		return Build{}, ErrCommitHashEmpty
 	}
-	if draft.ArtifactDigest == "" {
+	if draft.RunState == "" {
+		draft.RunState = RunCompleted
+	}
+	if draft.RunState != RunStarted && draft.RunState != RunCompleted && draft.RunState != RunDidNotRun {
+		return Build{}, fmt.Errorf("build: unknown run state %q", draft.RunState)
+	}
+	if draft.RunState == RunCompleted && draft.ArtifactDigest == "" {
 		return Build{}, ErrArtifactDigestEmpty
+	}
+	if draft.RunState == RunDidNotRun && draft.RunReason == "" {
+		return Build{}, ErrRunReasonEmpty
+	}
+	if draft.RunState == RunStarted && (draft.ArtifactDigest != "" || draft.RunReason != "") {
+		return Build{}, fmt.Errorf("build: a started record has an artifact or run reason")
 	}
 	if draft.ShippedBundleIdentity == "" {
 		return Build{}, ErrShippedBundleIdentityEmpty
 	}
+	if draft.ItemID == "" && (!draft.SearchBuild || draft.SearchOriginBuildID == "") {
+		return Build{}, ErrSearchOriginEmpty
+	}
+	if len(draft.Resolved) == 0 && len(draft.Coverage) == 0 && draft.ResolvedSetCouldNotDerive == "" {
+		return Build{}, ErrResolvedSetEmpty
+	}
+	if (draft.NoticeFile == CouldNotDeriveNotice) != noticeNeedsDerivation(draft) {
+		return Build{}, ErrNoticeFileMismatch
+	}
+	if draft.SearchBuild {
+		origin, err := Get(ctx, w.pool, draft.SearchOriginBuildID)
+		if err != nil {
+			return Build{}, fmt.Errorf("build: reading search origin %s: %w", draft.SearchOriginBuildID, err)
+		}
+		if draft.DesignSystemConstraintID != "" && draft.DesignSystemConstraintID != origin.DesignSystemConstraintID {
+			return Build{}, ErrDesignSystemConstraintMismatch
+		}
+		draft.DesignSystemConstraintID = origin.DesignSystemConstraintID
+	}
 
-	coverage, err := json.Marshal(draft.ResolvedSetCoverage)
+	marks, err := json.Marshal(draft.SchemaMarks)
 	if err != nil {
 		return Build{}, fmt.Errorf("build: encoding the resolved set coverage: %w", err)
 	}
@@ -176,11 +264,16 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 		ServiceID:                 draft.ServiceID,
 		CommitHash:                draft.CommitHash,
 		ArtifactDigest:            draft.ArtifactDigest,
-		ResolvedSetCoverage:       draft.ResolvedSetCoverage,
+		Coverage:                  draft.Coverage,
 		ResolvedSetCouldNotDerive: draft.ResolvedSetCouldNotDerive,
 		NoticeFile:                draft.NoticeFile,
 		DesignSystemConstraintID:  draft.DesignSystemConstraintID,
 		ShippedBundleIdentity:     draft.ShippedBundleIdentity,
+		RunState:                  draft.RunState,
+		RunReason:                 draft.RunReason,
+		SearchBuild:               draft.SearchBuild,
+		SearchOriginBuildID:       draft.SearchOriginBuildID,
+		SchemaMarks:               draft.SchemaMarks,
 		DeclaresSchemaChange:      draft.DeclaresSchemaChange,
 	}
 
@@ -195,9 +288,9 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 
 	if _, err := tx.Exec(ctx, insertBuild,
 		b.ID, FormatVersion, string(b.Actor.Kind), b.Actor.Key, string(b.Actor.Basis), b.At,
-		b.ItemID, b.ServiceID, b.CommitHash, b.ArtifactDigest, string(coverage),
+		b.ItemID, b.ServiceID, b.CommitHash, b.RunState, b.RunReason, b.ArtifactDigest,
 		b.ResolvedSetCouldNotDerive, b.NoticeFile, b.DesignSystemConstraintID, b.ShippedBundleIdentity,
-		reached, b.DeclaresSchemaChange,
+		b.SearchOriginBuildID, b.SearchBuild, string(marks), reached, b.DeclaresSchemaChange,
 	); err != nil {
 		return Build{}, fmt.Errorf("build: creating %s: %w", b.ID, err)
 	}
@@ -207,9 +300,20 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 			record.NewID(ResolvedIDPrefix), FormatVersionResolved,
 			string(actor.Kind), actor.Key, string(actor.Basis), record.Now(),
 			b.ID, entry.Ecosystem, entry.Source, entry.Package, entry.Version,
-			entry.Digest, entry.Licence, entry.RequiredBy,
+			entry.Digest, entry.Licence, entry.RequiredBy, entry.RunTime, entry.BuildTime,
 		); err != nil {
 			return Build{}, fmt.Errorf("build: recording what %s resolved: %w", b.ID, err)
+		}
+	}
+	for _, coverage := range draft.Coverage {
+		if _, err := tx.Exec(ctx, insertCoverage,
+			record.NewID(CoverageIDPrefix), FormatVersionCoverage,
+			string(actor.Kind), actor.Key, string(actor.Basis), record.Now(), b.ID,
+			coverage.Ecosystem, coverage.Source, coverage.BaseImagePackages,
+			coverage.VendoredSource, coverage.StaticallyLinkedCode,
+			coverage.Digests, coverage.FetchWithoutRunning, coverage.FetchWithoutRunningReason,
+		); err != nil {
+			return Build{}, fmt.Errorf("build: recording coverage of %s: %w", b.ID, err)
 		}
 	}
 
@@ -226,15 +330,28 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 	return b, nil
 }
 
+func noticeNeedsDerivation(draft Draft) bool {
+	if draft.ResolvedSetCouldNotDerive != "" {
+		return true
+	}
+	for _, entry := range draft.Resolved {
+		if entry.Source == "" || entry.Version == "" || entry.Licence == "" {
+			return true
+		}
+	}
+	return false
+}
+
 const selectBuild = `select id, actor_kind, actor_key, actor_key_basis, at, item_id, service_id, commit_hash,
-	artifact_digest, resolved_set_coverage, resolved_set_could_not_derive, notice_file,
-	design_system_constraint_id, shipped_bundle_identity, declares_schema_change
+	run_state, run_reason, artifact_digest, resolved_set_could_not_derive, notice_file,
+	design_system_constraint_id, shipped_bundle_identity, search_origin_build_id, search_build,
+	schema_marks, declares_schema_change
 	from ` + Table
 
 // Get is one build by id. It takes the pool and not a [Writer], because
 // reading a build is not a reason to be handed the thing that writes them.
 func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Build, error) {
-	b, err := scan(pool.QueryRow(ctx, selectBuild+` where id = $1`, id))
+	b, err := scanBuild(ctx, pool, pool.QueryRow(ctx, selectBuild+` where id = $1`, id))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Build{}, fmt.Errorf("%w: %s", ErrNotFound, id)
 	} else if err != nil {
@@ -243,13 +360,11 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Build, error) {
 	return b, nil
 }
 
-// ForCommit is the build of one item at one commit, and false where there is
-// none. It is what a caller asks before writing one: a rebuild is a new
-// build, so a re-verification that produced the commit already built
-// produced no build, and [Writer.Create] would be refused by the unique
-// constraint rather than answer which record is already there.
+// ForCommit is the newest build of one item at one commit, and false where
+// there is none. Multiple records may name that commit because each build is a
+// separate attempt.
 func ForCommit(ctx context.Context, pool *pgxpool.Pool, itemID, serviceID, commitHash string) (Build, bool, error) {
-	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 and service_id = $2 and commit_hash = $3`,
+	b, err := scanBuild(ctx, pool, pool.QueryRow(ctx, selectBuild+` where item_id = $1 and service_id = $2 and commit_hash = $3 order by at desc, id desc limit 1`,
 		itemID, serviceID, commitHash))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Build{}, false, nil
@@ -275,7 +390,7 @@ func ForServiceCommit(ctx context.Context, pool *pgxpool.Pool, serviceID, commit
 
 	var all []Build
 	for rows.Next() {
-		b, err := scan(rows)
+		b, err := scanBuild(ctx, pool, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -294,17 +409,18 @@ type scanner interface {
 
 func scan(row scanner) (Build, error) {
 	var b Build
-	var kind, basis, coverage string
+	var kind, basis, marks string
 	if err := row.Scan(&b.ID, &kind, &b.Actor.Key, &basis, &b.At, &b.ItemID, &b.ServiceID, &b.CommitHash,
-		&b.ArtifactDigest, &coverage, &b.ResolvedSetCouldNotDerive, &b.NoticeFile,
-		&b.DesignSystemConstraintID, &b.ShippedBundleIdentity, &b.DeclaresSchemaChange); err != nil {
+		&b.RunState, &b.RunReason, &b.ArtifactDigest, &b.ResolvedSetCouldNotDerive, &b.NoticeFile,
+		&b.DesignSystemConstraintID, &b.ShippedBundleIdentity, &b.SearchOriginBuildID,
+		&b.SearchBuild, &marks, &b.DeclaresSchemaChange); err != nil {
 		return Build{}, err
 	}
 	b.Actor.Kind = record.Kind(kind)
 	b.Actor.Basis = record.Basis(basis)
-	if coverage != "" {
-		if err := json.Unmarshal([]byte(coverage), &b.ResolvedSetCoverage); err != nil {
-			return Build{}, fmt.Errorf("build: decoding the resolved set coverage of %s: %w", b.ID, err)
+	if marks != "" {
+		if err := json.Unmarshal([]byte(marks), &b.SchemaMarks); err != nil {
+			return Build{}, fmt.Errorf("build: decoding the schema marks of %s: %w", b.ID, err)
 		}
 	}
 	return b, nil
@@ -320,7 +436,7 @@ func Newest(ctx context.Context, pool *pgxpool.Pool, itemID string) (Build, bool
 	if itemID == "" {
 		return Build{}, false, nil
 	}
-	b, err := scan(pool.QueryRow(ctx, selectBuild+` where item_id = $1 order by at desc, id desc limit 1`, itemID))
+	b, err := scanBuild(ctx, pool, pool.QueryRow(ctx, selectBuild+` where item_id = $1 order by at desc, id desc limit 1`, itemID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Build{}, false, nil
 	} else if err != nil {
@@ -345,7 +461,7 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]Build, e
 
 	var all []Build
 	for rows.Next() {
-		b, err := scan(rows)
+		b, err := scanBuild(ctx, pool, rows)
 		if err != nil {
 			return nil, err
 		}
@@ -357,18 +473,9 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]Build, e
 	return all, nil
 }
 
-// Resolved is what one build resolved, in the order the entries were written.
-// It is a read of the table this package owns and takes the pool for the reason
-// [Get] does.
-//
-// The merge queue is what asks: at a re-verification the re-resolved set's
-// digests are compared to the approved build's, and a difference rejects the
-// candidate there. A version is not an identity for bytes, so the comparison is
-// of the digests and not of the versions, and an entry whose resolver produced
-// no digest carries the field empty — which the comparison reads as it stands,
-// this package deciding nothing about it.
+// Resolved reads the entries a build resolved, in insertion order.
 func Resolved(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]ResolvedEntry, error) {
-	rows, err := pool.Query(ctx, `select ecosystem, source, package, version, digest, licence, required_by
+	rows, err := pool.Query(ctx, `select ecosystem, source, package, version, digest, licence, required_by, run_time, build_time
 		from `+ResolvedTable+` where build_id = $1 order by at, id`, buildID)
 	if err != nil {
 		return nil, fmt.Errorf("build: reading what %s resolved: %w", buildID, err)
@@ -379,7 +486,7 @@ func Resolved(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]Resolv
 	for rows.Next() {
 		var e ResolvedEntry
 		if err := rows.Scan(&e.Ecosystem, &e.Source, &e.Package, &e.Version, &e.Digest,
-			&e.Licence, &e.RequiredBy); err != nil {
+			&e.Licence, &e.RequiredBy, &e.RunTime, &e.BuildTime); err != nil {
 			return nil, fmt.Errorf("build: reading an entry of what %s resolved: %w", buildID, err)
 		}
 		read = append(read, e)
@@ -388,31 +495,4 @@ func Resolved(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]Resolv
 		return nil, fmt.Errorf("build: reading what %s resolved: %w", buildID, err)
 	}
 	return read, nil
-}
-
-// Exposure is the exposure list one build's runner derived, and false where the
-// record holds none — a build no extractor ran for, whose factor is resolved
-// rather than read as nothing. An empty list is a reading and answers true: the
-// diff reached nothing new.
-//
-// It is a read of its own and not a field of [Build], because it is the one
-// column here a reader either wants whole or not at all: what a human at
-// Implementation argues with is the list beside the diff, and every other reader
-// of a build record wants none of it.
-func Exposure(ctx context.Context, pool *pgxpool.Pool, buildID string) (exposure.Evidence, bool, error) {
-	var stored *string
-	err := pool.QueryRow(ctx, `select exposure from `+Table+` where id = $1`, buildID).Scan(&stored)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return exposure.Evidence{}, false, fmt.Errorf("%w: %s", ErrNotFound, buildID)
-	} else if err != nil {
-		return exposure.Evidence{}, false, fmt.Errorf("build: reading what %s reached: %w", buildID, err)
-	}
-	if stored == nil {
-		return exposure.Evidence{}, false, nil
-	}
-	var read exposure.Evidence
-	if err := json.Unmarshal([]byte(*stored), &read); err != nil {
-		return exposure.Evidence{}, false, fmt.Errorf("build: decoding what %s reached: %w", buildID, err)
-	}
-	return read, true, nil
 }

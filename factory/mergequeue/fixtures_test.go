@@ -357,6 +357,7 @@ func built(ctx context.Context, t *testing.T, pool *pgxpool.Pool, token lease.To
 		DesignSystemConstraintID: designSystemRecord,
 		ShippedBundleIdentity:    "bundle-test",
 		Resolved:                 resolved,
+		Coverage:                 []build.Coverage{{Ecosystem: "test", Source: "fixture"}},
 	})
 	if err != nil {
 		t.Fatalf("writing the build of %s at %s: %v", it.ID, commit, err)
