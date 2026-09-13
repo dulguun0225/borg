@@ -152,7 +152,7 @@ type SearchOrigin struct {
 
 // ResolverToolchains is the factory version fact: these are the toolchains
 // for which this package has a resolver.
-var ResolverToolchains = []string{"go"}
+func ResolverToolchains() []string { return []string{"go"} }
 
 type Result struct {
 	Build        build.Build
@@ -291,7 +291,11 @@ func coverageWithReason(coverage []build.Coverage, reason string) []build.Covera
 	withReason := make([]build.Coverage, len(coverage))
 	copy(withReason, coverage)
 	for i := range withReason {
-		withReason[i].FetchWithoutRunningReason = reason
+		if strings.Contains(reason, "content digests") {
+			withReason[i].MissingDigests = reason
+		} else {
+			withReason[i].FetchWithoutRunningReason = reason
+		}
 	}
 	return withReason
 }

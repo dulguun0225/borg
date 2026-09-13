@@ -91,6 +91,7 @@ type Coverage struct {
 	Digests                   bool
 	FetchWithoutRunning       bool
 	FetchWithoutRunningReason string
+	MissingDigests            string
 }
 
 // Draft is one build as a caller of [Writer.Create] hands it in.
@@ -187,8 +188,8 @@ const insertResolvedEntry = `insert into ` + ResolvedTable + `
 const insertCoverage = `insert into ` + CoverageTable + `
 	(id, format_version, actor_kind, actor_key, actor_key_basis, at, build_id, ecosystem, source,
 	base_image_packages, vendored_source, statically_linked_code, digests, fetch_without_running,
-	fetch_without_running_reason)
-	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`
+	fetch_without_running_reason, missing_digests)
+	values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
 
 // Create writes the build record, its coverage, resolved entries, and — through
 // [criterion.InsertResults] — what the build's own process decided, all in one
@@ -312,6 +313,7 @@ func (w *Writer) Create(ctx context.Context, actor record.Actor, draft Draft) (B
 			coverage.Ecosystem, coverage.Source, coverage.BaseImagePackages,
 			coverage.VendoredSource, coverage.StaticallyLinkedCode,
 			coverage.Digests, coverage.FetchWithoutRunning, coverage.FetchWithoutRunningReason,
+			coverage.MissingDigests,
 		); err != nil {
 			return Build{}, fmt.Errorf("build: recording coverage of %s: %w", b.ID, err)
 		}
@@ -473,7 +475,6 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) ([]Build, e
 	return all, nil
 }
 
-// Resolved reads the entries a build resolved, in insertion order.
 func Resolved(ctx context.Context, pool *pgxpool.Pool, buildID string) ([]ResolvedEntry, error) {
 	rows, err := pool.Query(ctx, `select ecosystem, source, package, version, digest, licence, required_by, run_time, build_time
 		from `+ResolvedTable+` where build_id = $1 order by at, id`, buildID)

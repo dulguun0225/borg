@@ -63,6 +63,10 @@ func (p *path) rehydrate(ctx context.Context, itemID string) (*candidate, error)
 		queued: it.Stage == item.StageQueued || it.Stage == item.StageMerged,
 		merged: it.Stage == item.StageMerged,
 	}
+	c.adoption, err = adoptionIntent(ctx, p.d.pool, svc)
+	if err != nil {
+		return nil, err
+	}
 
 	// What the spec author is told, which is the intent's own and the service's
 	// own: the statement, the requirements this item answers, the criteria the

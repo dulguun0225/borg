@@ -103,6 +103,29 @@ func (GitClone) Push(ctx context.Context, req PushRequest) error {
 
 type GoResolver struct{}
 
+func moduleLicence(cache, modulePath, version string) string {
+	moduleDir := filepath.Join(cache, escapeModulePath(modulePath)+"@"+version)
+	for _, name := range []string{"LICENSE", "LICENCE", "COPYING"} {
+		if _, err := os.Stat(filepath.Join(moduleDir, name)); err == nil {
+			return name
+		}
+	}
+	return "could not derive"
+}
+
+func escapeModulePath(path string) string {
+	var escaped strings.Builder
+	for _, r := range path {
+		if r >= 'A' && r <= 'Z' {
+			escaped.WriteByte('!')
+			escaped.WriteByte(byte(r + ('a' - 'A')))
+			continue
+		}
+		escaped.WriteRune(r)
+	}
+	return escaped.String()
+}
+
 type goDependencyLists struct {
 	runtime []string
 	test    []string
@@ -180,9 +203,13 @@ func (GoResolver) Resolve(ctx context.Context, checkout Checkout, repositoryCred
 		}
 		seen[key] = true
 		runTime := packageInList(runtimePackages, fields[0])
+		buildTime := packageInList(testPackages, fields[0])
+		if !runTime && !buildTime {
+			buildTime = true
+		}
 		entries = append(entries, build.ResolvedEntry{Ecosystem: "go", Source: goModuleSource(fields[0]),
-			Package: fields[0], Version: fields[1], Digest: fields[2], Licence: "unknown", RequiredBy: modulePath,
-			RunTime: runTime, BuildTime: !runTime && packageInList(testPackages, fields[0])})
+			Package: fields[0], Version: fields[1], Digest: fields[2], Licence: moduleLicence(cache, fields[0], fields[1]), RequiredBy: modulePath,
+			RunTime: runTime, BuildTime: buildTime})
 	}
 	return Resolution{Entries: entries, Coverage: []build.Coverage{goCoverage(checkout)}, ModuleCache: cache}, nil
 }

@@ -38,7 +38,7 @@ import (
 // composed here because consumercontract cannot import every one of them.
 var publishedGoConvention = consumercontract.GoConvention + "; " +
 	contract.Convention + "; " + screenstatemachine.Convention + "; " + criterion.MutationConvention +
-	"; dependency resolvers: " + strings.Join(buildrunner.ResolverToolchains, ", ")
+	"; dependency resolvers: " + strings.Join(buildrunner.ResolverToolchains(), ", ")
 
 // implementationStage is one item's implementation version, the consumer
 // contract derived from the same build, the build record, and the measurement.

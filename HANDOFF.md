@@ -9,6 +9,7 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 # Rules for a step session
 
 - Read `CLAUDE.md`, then this file, then only the design files and packages the step names.
+- First, in `end-goal/claims.txt`, change the step's claims from `unbuilt M10` to `built`, so each package's `doc.go` can cite the claims it implements and `tracecheck` holds. That is the one edit to `end-goal/` a step makes.
 - Before coding, estimate the step's size. Over about 1,000 changed lines, split it here into `Na`, `Nb`, … with their own claim lists, and do `Na` alone.
 - Do not commit and do not push. Run `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, and the step's focused tests; do not run the whole suite, the coordinator does. The coordinator runs `drift-reviewer` on every directory whose `doc.go` changed, then commits.
 - Before returning, record under **Completed** the step, the directories changed, and every check run with its result, and move the step's entry from **Steps** to **Completed**. Keep **Unresolved** current.
@@ -17,6 +18,7 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 # Completed
 
 - Step 1, Build runner and build inputs. No split. Directories changed: `factory/buildrunner` (new), `factory/build`, `factory/exposure`, `factory/wayin`, `factory/cmd/factory`, `factory/cmd/driftdetector`, `factory/contractcheck`, `factory/healthmonitor`, `factory/mergequeue`, `factory/README.md`, `factory/deps.txt`, and the 15 claims flipped to `built` in `end-goal/claims.txt`. Three `drift-reviewer` rounds on `buildrunner`, `build`, `exposure` and `wayin`; the last left **Not implemented** empty except for claims on the pre-existing list. Checks at the commit: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `tools/consistency-commands.sh`, and `go test -count=1 -timeout 30m ./...` all passed.
+- Step 2, Adoption and master branch. No split. Directories changed: `factory/gate` (**doc.go changed**), `factory/buildrunner`, `factory/build`, `factory/score` (**doc.go changed**), and `factory/cmd/factory`. Adoption source resolves at Spec only for the first item on a deployer-recorded service with no factory release; later items weigh it. The build runner records missing digests separately, detects module licence files, and classifies unresolved Go entries as build-time. Checks: focused adoption/master tests passed; focused package tests passed; `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `git diff --check` passed; `graphify update .` passed.
 
 # Pre-existing drift
 
@@ -31,23 +33,16 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 - wayin C0436 — entrance.go:194-198: the render has a third outcome besides accepted or refused-with-the-rate, and at entrance.go:191,219 an unreachable store renders a plain-text 503 rather than a submit result.
 - build C1443 — schema.go:105-108: `source`, `version`, `digest` and `licence` carry no presence or naming rule, so an entry recording a source is not distinguished from one the resolver produced no source for except by an untyped empty string.
 
+- score C0069 — rejection.go:42-50, learn.go:185-187: the score reads the `queue_rejection` row and lowers the threshold one band per rejection at Merge to master, rather than ignoring it the way it ignores a hold.
+- score C1275 — learn.go:76-87, rules.go:147-153: four supplied values are moved by nothing, not two; the pass moves no exposure bound and no advisory severity.
+- score C1286 — version.go:374-390: a recalibration's version differs in more than the weights; it also carries a refitted per-set `Scale`, a cleared `Drift` list, and a new `RecalibratedThrough`.
+- score C1340 — rules.go:108-114: the two parameters stated as having no second end are the window's confidence and the item-size target, and the item-size target is not a window parameter.
+- gate C0885 — fire.go:235: a drift mismatch, a could-not-derive, a service missing a deployer field, and an irreversible area with no share each set `HumanDecides` with `Marks` empty, so the row carries no mark and reads as sent by the number.
+- gate C0883 — set.go:403: the Decomposition firing refuses only `dropped` and `escalated`, so it fires over an `unrefined` or `re-decomposing` intent (same for C0576).
+- gate C0868 — waits.go:126, refuse.go:177: a row waiting on a named human re-fires on a refer to that same human rather than widening to the owner.
+- gate C0898 — verdict.go:154: why it auto-passed is written onto the close event, not the open event beside the selection's mark.
+
 # Steps
-
-## 2. Adoption and master branch
-
-Claims: C0192, C0196, C0623, C0624.
-
-Design files to read: `end-goal/how-the-factory-works/01-one-pipeline.md`; `end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md`; `end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md`.
-
-Change `factory/service`, `factory/item`, `factory/gate`, `factory/buildrunner`, and the adoption path and tests in `factory/cmd/factory`. This is an existing-package change; preserve each package's documented shape and add the M10 citations to its `doc.go`.
-
-Prove an adoption intent keeps the source decision at Spec, builds the repository once on its trunk through the build runner, fast-forwards master only through the queue, and makes a later item weigh the admitted repository instead of repeating adoption. Test the human Spec decision and the post-adoption master/rebuild path end to end. Checks: focused package tests and `go test -count=1 ./factory/service ./factory/item ./factory/gate ./factory/buildrunner ./cmd/factory -run 'Adopt|Master'`, `go vet ./...`, `go run ./cmd/depscheck`, and `go run ./cmd/tracecheck`.
-
-Carried from step 1's last drift review, to fix here because this step changes `buildrunner`:
-- C1456 — runner.go: a set without content digests is recorded in `FetchWithoutRunningReason`, conflating two conditions the sentence keeps distinct; record the missing digests in their own field.
-- C1458 — runner.go: `ResolverToolchains` is a bare exported slice; publish it where `cmd/factory` publishes the factory version's facts.
-- C1465 — toolchain.go: every Go entry's licence is the literal `"unknown"`; read the module's licence file from the module cache where one exists, and leave could-not-derive only where none does.
-- C1459 — toolchain.go: an entry in neither the run-time nor the test dependency list is recorded as neither; decide which it is.
 
 ## 3. Candidate environment composition and run outcomes
 

@@ -125,10 +125,13 @@ var DDL = []string{
 	statically_linked_code boolean not null,
 	digests boolean not null,
 		fetch_without_running boolean not null,
-		fetch_without_running_reason text not null,
+	fetch_without_running_reason text not null,
+	missing_digests text not null default '',
 	` + record.Constraints + `,
 	constraint build_id_present check (build_id <> ''),
 	constraint ecosystem_present check (ecosystem <> ''),
 	constraint one_coverage_per_ecosystem unique (build_id, ecosystem)
 	)`,
+
+	`alter table ` + CoverageTable + ` add column if not exists missing_digests text not null default ''`,
 }

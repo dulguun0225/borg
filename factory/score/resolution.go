@@ -23,6 +23,9 @@ const (
 	// factory did not author, which resolves the source value toward the Spec
 	// gate.
 	CauseReportSourcedIntent Cause = "the intent came from reports"
+	// CauseAdoptedRepository is an existing repository admitted by the first
+	// item on a service.
+	CauseAdoptedRepository Cause = "the intent adopts an existing repository"
 	// CauseHarmMarkedReport is a report grouped into the item's intent saying a
 	// person is being harmed by the software, which resolves at the Spec row
 	// beside the source. It adds no gate a report did not already meet — the

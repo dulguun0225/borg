@@ -236,6 +236,8 @@
 // C1376). The threshold and the safeguard are
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
 // (C2214, C2215, C2219, C2240, C2255, C2260).
+// The human decision at Spec for an adoption intent is
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0196).
 //
 // Who holds a row's duty is ../../end-goal/what-humans-do.md (C2853, C2854,
 // C2873, C2874), read from the declaration

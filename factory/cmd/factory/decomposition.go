@@ -208,6 +208,10 @@ func (p *path) decomposeItems(ctx context.Context, in intent.Intent, services []
 			requirementIDs: it.RequirementsAnswered,
 			requirements:   answers,
 		}
+		c.adoption, err = adoptionIntent(ctx, d.pool, svc)
+		if err != nil {
+			return nil, err
+		}
 		candidates = append(candidates, c)
 		previous = it.ID
 

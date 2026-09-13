@@ -286,6 +286,7 @@ func (p *path) itemGate(ctx context.Context, c *candidate, row gate.Row, artifac
 	firing := gate.Firing{
 		Row:           row,
 		ItemID:        c.itemID,
+		Adoption:      c.adoption,
 		ArtifactID:    artifactID,
 		ServiceID:     c.svc.ID,
 		AreaID:        p.areaID,

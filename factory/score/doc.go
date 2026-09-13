@@ -243,11 +243,16 @@
 //
 // Resolving the report-grouped and the adoption intent's source value, and
 // what an owner leaves unauthored, are
-// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0190) and
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0190, C0192) and
 // ../../end-goal/what-humans-do.md (C2877); resolving a report-grouped intent
 // to Spec is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
 // (C0543).
+//
+// Resolving an adoption intent's source value toward Spec once, and weighing
+// that source after the adopted repository reaches master, are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md
+// (C0623, C0624).
 //
 // Review sampling moving the threshold one way, and learning from a
 // review-sampled rejection alone, are

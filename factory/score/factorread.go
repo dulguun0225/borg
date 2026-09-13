@@ -210,6 +210,9 @@ func hazardReading(grade area.Grade, c Change) reading {
 // itself reads the same way once the grouper has since grouped a report into
 // it: it now carries the same untrusted text, whatever raised it first.
 func (s *Score) intentSource(ctx context.Context, _ Version, c Change) (reading, error) {
+	if reading, found := adoptionSource(c); found {
+		return reading, nil
+	}
 	it, err := item.Get(ctx, s.pool, c.ItemID)
 	if err != nil {
 		return reading{unavailable: fmt.Sprintf("the item could not be read, so nothing says where its intent came from: %v", err)}, nil

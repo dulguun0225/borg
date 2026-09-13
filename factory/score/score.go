@@ -160,6 +160,9 @@ type Change struct {
 	// from reports resolves the source value and a withdrawal that removes a
 	// protection resolves the withdrawal value.
 	AtSpec bool
+	// Adoption is true only for the first item that admits an already running
+	// repository. It resolves the source factor at Spec once.
+	Adoption bool
 	// AtDeployToProduction is whether this firing is the deploy to production
 	// row. An irreversible hazard severity resolves there where no control can
 	// run: there is then no schedule to pick and every deploy goes without one,

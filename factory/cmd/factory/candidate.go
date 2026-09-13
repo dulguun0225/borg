@@ -93,8 +93,9 @@ type candidate struct {
 	// svc is the service record this item changes, and repo is that service's
 	// repository — the record's own field, so the run reads where the work is
 	// rather than being told twice.
-	svc    service.Service
-	branch string
+	svc      service.Service
+	adoption bool
+	branch   string
 	// specArtifactID, planArtifactID and tasksArtifactID are the versions the
 	// three stages above implementation authored, and spec, plan and tasks the
 	// text of each — what the stage below is handed, and what a reject hands

@@ -27,8 +27,10 @@ type Firing struct {
 	// decision-log retention moves. It is required at those four rows and
 	// refused at every other, and it is what the check that nothing is already
 	// pending matches on there.
-	RecordID      string
-	ItemID        string
+	RecordID string
+	ItemID   string
+	// Adoption marks the one Spec firing that admits an existing repository.
+	Adoption      bool
 	BuildID       string
 	ArtifactID    string
 	ServiceID     string
@@ -395,6 +397,7 @@ func (g *Gate) assess(ctx context.Context, f Firing, subjects policy.Subjects, v
 		FactorSet:               set,
 		AtImplementation:        f.Row.Kind == KindImplementation,
 		AtSpec:                  f.Row.Kind == KindSpec,
+		Adoption:                f.Adoption,
 		AtDeployToProduction:    f.Row.Kind == KindDeployToProduction,
 		ReplacesReleaseID:       rollout.ReplacesReleaseID,
 		EveryTargetServesAShare: rollout.EveryTargetServesAShare,
