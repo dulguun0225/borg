@@ -134,7 +134,7 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 
 # Unresolved
 
-- `go test ./cmd/factory` ran in 1765s after step 1 against `-timeout 30m`; one earlier run hit the timeout. A step that adds an end-to-end test raises the timeout in `factory/README.md`, `.github/workflows/factory.yml` and the handoff's check lines, or shortens a run.
+- `go test ./cmd/factory` took 1925s after step 2; the timeout in `factory/README.md` and `.github/workflows/factory.yml` is now 60m. Coordinator runs use it.
 
 - The exact resolver and registry APIs, host capability check for branch-restricted credentials, and process isolation mechanism are not specified. Inference: keep them behind interfaces in `buildrunner` and supply them from `cmd/factory`.
 - The named design does not enumerate the initial Go security-predicate kinds or their predicates. Inference: implement the existing list/decision seam first and require an explicit authored or shipped list before treating a predicate as decided.

@@ -83,7 +83,7 @@ docker compose up -d           # the database
 go vet ./...
 go run ./cmd/depscheck
 go run ./cmd/tracecheck
-go test -count=1 -timeout 30m ./...
+go test -count=1 -timeout 60m ./...
 ```
 
 [`../tools/consistency-commands.sh`](../tools/consistency-commands.sh) runs the design
@@ -106,7 +106,7 @@ npm run e2e                    # the four screens in a browser, against a factor
 
 Every start acquires the lease and then calls `postgres.Start`, which reads the store's schema history, refuses to start against a store this version cannot read, and applies the schema. What the history does not do is alter a table: `create table if not exists` leaves one that already exists as it is, and this version declares only widenings — the first schema and the changes made over it — so a dev database written while that schema was being edited is not brought forward by running against it. Drop the schema and let it be applied again, which for the dev database is `drop schema public cascade; create schema public;`. [`postgres/doc.go`](postgres/doc.go) says which caller of `Start` is not built.
 
-The database tests read `DATABASE_URL` and fall back to `postgres://factory:factory@localhost:5433/factory`. They do not skip when the database is unreachable — a silent skip is how a green run comes to mean nothing — so an unreachable database fails them. `-timeout 30m` is there because `cmd/factory`'s end-to-end suite runs past `go test`'s default of ten minutes for one package. `-count=1` is what keeps that promise: `go test` caches a result against the test binary and what the test read, and a database is neither, so a re-run with the database stopped reports the cached `ok` without opening a socket. Each database test creates a PostgreSQL schema of its own, applies the DDL inside it, and drops it when it ends, so a rerun on a database a previous run left dirty starts clean.
+The database tests read `DATABASE_URL` and fall back to `postgres://factory:factory@localhost:5433/factory`. They do not skip when the database is unreachable — a silent skip is how a green run comes to mean nothing — so an unreachable database fails them. `-timeout 60m` is there because `cmd/factory`'s end-to-end suite runs past `go test`'s default of ten minutes for one package, and past thirty since M10. `-count=1` is what keeps that promise: `go test` caches a result against the test binary and what the test read, and a database is neither, so a re-run with the database stopped reports the cached `ok` without opening a socket. Each database test creates a PostgreSQL schema of its own, applies the DDL inside it, and drops it when it ends, so a rerun on a database a previous run left dirty starts clean.
 
 [`../.github/workflows/factory.yml`](../.github/workflows/factory.yml) runs the same commands against a `postgres:17` service container.
 
