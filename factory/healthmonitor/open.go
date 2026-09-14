@@ -84,6 +84,25 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 	if err != nil {
 		return window.Window{}, false, err
 	}
+	if !hasTarget && dep.StrategyPerformed == deploy.StrategyWithControl {
+		// Adoption's control is the customer's running build. It has no factory
+		// release below the adoption, so the deploy target row is the source of
+		// the baseline arm. This opens C0627's comparison between two builds of
+		// the same head commit: the release arm is the factory build and this is
+		// what was running when the adoption began.
+		targets, err := deploy.Targets(ctx, h.pool, dep.ID)
+		if err != nil {
+			return window.Window{}, false, err
+		}
+		for _, one := range targets {
+			if one.ControlBuildID == "" {
+				continue
+			}
+			target = release.Release{ID: one.ControlReleaseID, BuildID: one.ControlBuildID}
+			hasTarget = true
+			break
+		}
+	}
 	parameters, err := h.policy.WindowParameters(ctx, w.ID)
 	if err != nil {
 		return window.Window{}, false, err
@@ -203,7 +222,7 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 // composed with no deployer.
 func (h *HealthMonitor) startControls(ctx context.Context, w Watching, opened window.Window,
 	dep deploy.Deploy, target release.Release, hasTarget bool) error {
-	if h.deployer == nil || dep.StrategyPerformed != deploy.StrategyWithControl || !hasTarget {
+	if h.deployer == nil || dep.StrategyPerformed != deploy.StrategyWithControl || !hasTarget || target.ID == dep.ReleaseID {
 		return nil
 	}
 	for _, t := range opened.Targets {

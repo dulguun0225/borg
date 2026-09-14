@@ -296,36 +296,6 @@ func TestASchemaChangeRunsTheServicesScriptAndIsInTheHistory(t *testing.T) {
 	}
 }
 
-// TestThePlatformRefusesWhatItCannotDo: this platform moves a process rather
-// than traffic, so it serves no share, and a shift reported as performed would
-// be a rollout recorded as having compared two builds while one served nothing.
-func TestThePlatformRefusesWhatItCannotDo(t *testing.T) {
-	ctx := t.Context()
-	local, _ := newTarget(t, "checkout")
-
-	err := local.ShiftTraffic(ctx, deployer, targetseam.Shift{
-		Service: "checkout", Build: "rel_one", Share: 0.1, Credential: credential,
-	})
-	if !errors.Is(err, localtarget.ErrNoShare) {
-		t.Errorf("ShiftTraffic = %v, want ErrNoShare", err)
-	}
-	if err != nil && !strings.Contains(err.Error(), "process") {
-		t.Errorf("the refusal reads %q, want it to say what the platform does instead", err)
-	}
-
-	err = local.SetInstanceCount(ctx, deployer, targetseam.InstanceCount{
-		Service: "checkout", Build: "rel_one", Count: 3, Credential: credential,
-	})
-	if !errors.Is(err, localtarget.ErrOneInstance) {
-		t.Errorf("SetInstanceCount(3) = %v, want ErrOneInstance", err)
-	}
-	if err := local.SetInstanceCount(ctx, deployer, targetseam.InstanceCount{
-		Service: "checkout", Build: "rel_one", Count: 1, Credential: credential,
-	}); err != nil {
-		t.Errorf("SetInstanceCount(1) = %v, want the count this platform already runs", err)
-	}
-}
-
 // TestAnAdoptedStoresChangesAreWrittenIntoTheHistoryAndAppliedToNothing: an
 // adopted service arrives with its store at the schema its head declares, so the
 // deploy of the adoption item's release writes one row per change the build

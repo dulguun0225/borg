@@ -424,6 +424,7 @@ func (g *Gate) rollout(ctx context.Context, f Firing) (score.Rollout, error) {
 	}
 	return score.Rollout{
 		ReplacesReleaseID:       f.ReplacesReleaseID,
+		Adoption:                f.Adoption,
 		EveryTargetServesAShare: env.EveryTargetServesAShare(runsOn.Targets...),
 		Irreversible:            irreversible,
 		Default:                 score.Strategy(env.StrategyDefault),

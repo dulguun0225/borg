@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/record"
+	"github.com/dulguun0225/borg/factory/score"
 )
 
 // Safeguard the strategy, which is the production deploy row's fourth action and
@@ -72,5 +73,5 @@ func (g *Gate) SafeguardTheStrategy(ctx context.Context, opened Opened, actor re
 	if opened.Strategy.Why == WhyFirstRelease {
 		return opened.Strategy, nil
 	}
-	return Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhySafeguarded}, nil
+	return Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: score.ShippedBandWidth, Why: WhySafeguarded}, nil
 }

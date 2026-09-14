@@ -58,6 +58,9 @@ type Pick struct {
 	Strategy Strategy
 	// Schedule is empty on the row without a control, which has none.
 	Schedule Schedule
+	// Share is the traffic share the selected schedule starts with, and is zero
+	// on the row without a control.
+	Share float64
 	// Why is what bounded the pick where something did, in words a human reads
 	// beside the strategy: no build to keep serving, a platform that serves no
 	// share, an irreversible area, the held-out sample, a safeguard, or the
@@ -116,6 +119,7 @@ func pickedBy(a score.Assessment, r score.Rollout) Pick {
 	return Pick{
 		Strategy: Strategy(picked.Strategy),
 		Schedule: Schedule(picked.Schedule),
+		Share:    picked.Share,
 		Why:      picked.Why,
 	}
 }

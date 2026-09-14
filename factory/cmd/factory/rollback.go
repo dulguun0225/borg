@@ -13,6 +13,7 @@ import (
 	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/healthmonitor"
+	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
 	"github.com/dulguun0225/borg/factory/service"
@@ -24,53 +25,35 @@ import (
 // [healthmonitor.Deployer], the arrangement the merge queue already has for
 // everything it needs done to a repository.
 
-// StartControl is refused on this platform. A control is a set of instances
-// taking comparable traffic beside the release, and this platform moves a
-// process rather than traffic: it serves no share and runs one instance, so
-// there is nowhere for a second set to take traffic from.
-//
-// It is refused rather than returning as though it had acted, for the reason
-// [localtarget] refuses a traffic shift: a control reported as started would be
-// a window recorded as having compared two builds while one of them served no
-// request. The score never asks for one here — the environment record declares
-// that no target serves a share, so the row without a control is what is picked
-// — and this is what says so if that ever changes.
-func (p *path) StartControl(context.Context, healthmonitor.Control) error {
-	return errors.New("factory: this platform serves no share, so no control can run beside a release")
+// StartControl is already performed by the production deploy's target reach.
+// The health monitor calls this after the deploy has recorded the control on
+// each reached target; this local composition has no second target operation.
+func (p *path) StartControl(context.Context, healthmonitor.Control) error { return nil }
+
+// TearDownControl ends the local control process at the window exit.
+func (p *path) TearDownControl(ctx context.Context, c healthmonitor.Control) error {
+	target := p.d.targets.at(c.Target)
+	if local, ok := target.(*localtarget.Local); ok {
+		return local.StopControl(ctx, deployerPrincipal, c.ServiceName)
+	}
+	return target.ShiftTraffic(ctx, deployerPrincipal, targetseam.Shift{
+		Service: c.ServiceName, Build: c.BuildID, Share: 1, Credential: p.d.credential,
+	})
 }
 
-// TearDownControl ends nothing, there being no control to end: nothing on this
-// platform starts one. It answers rather than refusing, because the health
-// monitor tears controls down at the passed and the timed-out exits on every
-// window it closes, and a refusal there would stop a window from closing over a
-// deploy that never had one.
-func (p *path) TearDownControl(context.Context, healthmonitor.Control) error { return nil }
-
-// TearDownKept ends nothing either, there being no kept fleet on this platform:
-// [path.reaches] keeps no instances, because this platform moves a process
-// rather than traffic and a rollback here is a redeploy of a binary still on
-// disk. It answers rather than refusing, for the reason [path.TearDownControl]
-// does: the health monitor asks at the close of the last window that could
-// return to a release, and a refusal there would stop that close.
-func (p *path) TearDownKept(context.Context, healthmonitor.Kept) error { return nil }
-
-// RollBack is the slow rollback the health monitor called for: the build of the
-// release it returns to put back on production's targets, the rollback's own
-// deploy record written, and the deploys it undid advanced to rolled back.
-//
-// It is the deployer's because reaching a deploy target is, and the health
-// monitor reaches none. The target's build is already in production's directory,
-// put there by the deploy that shipped it and never removed — so restoring it is
-// a deploy of a binary that is still on disk, and there is nothing to rebuild.
-// What that costs is that a directory pruned between the deploy and the rollback
-// would leave the rollback with nothing to put back, which nothing here prunes.
-func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
-	made, err := build.Get(ctx, p.d.pool, r.ToBuildID)
-	if err != nil {
-		return err
+// TearDownKept ends the local kept process after the last window that could
+// return to it closes.
+func (p *path) TearDownKept(ctx context.Context, k healthmonitor.Kept) error {
+	target := p.d.targets.at(k.Target)
+	if local, ok := target.(*localtarget.Local); ok {
+		return local.StopKept(ctx, deployerPrincipal, k.ServiceName)
 	}
-	// The rollback reaches the targets the service runs on, which is the set the
-	// deploy it undoes reached.
+	return nil
+}
+
+// RollBack returns traffic to the kept fleet where the failed deploy left one;
+// otherwise it restores the recorded build onto the targets.
+func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	svc, err := p.serviceOf(ctx, r.ServiceID)
 	if err != nil {
 		return err
@@ -83,33 +66,44 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 	if err != nil {
 		return err
 	}
-	dep, err := deploy.Restore(ctx, p.deploys, deploy.Restoration{
-		Performance: deploy.Performance{
-			Actor:              deployActor,
-			Principal:          deployerPrincipal,
-			ServiceID:          r.ServiceID,
-			ServiceName:        r.ServiceName,
-			EnvironmentID:      r.EnvironmentID,
-			What:               deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
-			IntoProduction:     true,
-			StrategyPicked:     deploy.StrategyWithoutControl,
-			Credential:         p.d.credential,
-			WayInAddress:       p.d.wayInAddress,
-			Reaches:            p.reaches(p.production, svc),
-			EnvironmentTargets: environmentTargets(p.production),
-			UndoneDeployIDs:    undone,
-		},
-		Undoing: deploy.Undoing{
-			FailedReleaseID:   r.FailedReleaseID,
-			SkippedReleaseIDs: r.SkippedReleaseIDs,
-			Source:            r.Source,
-		},
-		RecordedDigest:      made.ArtifactDigest,
-		Artifacts:           artifactsOf{dir: addresses[0]},
-		ConfigurationSource: p,
-	})
+	performance := deploy.Performance{
+		Actor:              deployActor,
+		Principal:          deployerPrincipal,
+		ServiceID:          r.ServiceID,
+		ServiceName:        r.ServiceName,
+		EnvironmentID:      r.EnvironmentID,
+		What:               deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
+		IntoProduction:     true,
+		StrategyPicked:     deploy.StrategyWithoutControl,
+		Credential:         p.d.credential,
+		WayInAddress:       p.d.wayInAddress,
+		Reaches:            p.reaches(p.production, svc),
+		EnvironmentTargets: environmentTargets(p.production),
+		UndoneDeployIDs:    undone,
+	}
+	dep, returned, err := p.shiftBack(ctx, r, performance)
 	if err != nil {
 		return err
+	}
+	if !returned {
+		made, err := build.Get(ctx, p.d.pool, r.ToBuildID)
+		if err != nil {
+			return err
+		}
+		dep, err = deploy.Restore(ctx, p.deploys, deploy.Restoration{
+			Performance: performance,
+			Undoing: deploy.Undoing{
+				FailedReleaseID:   r.FailedReleaseID,
+				SkippedReleaseIDs: r.SkippedReleaseIDs,
+				Source:            r.Source,
+			},
+			RecordedDigest:      made.ArtifactDigest,
+			Artifacts:           artifactsOf{dir: addresses[0]},
+			ConfigurationSource: p,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(p.d.out, "Rollback %s complete: build %s of release %s is back on the target\n",
 		dep.ID, r.ToBuildID, r.ToReleaseID)
@@ -133,6 +127,33 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 		ServiceID: r.ServiceID,
 	})
 	return err
+}
+
+func (p *path) shiftBack(ctx context.Context, r healthmonitor.Rollback, performance deploy.Performance) (deploy.Deploy, bool, error) {
+	kept, err := deploy.ByRelease(ctx, p.d.pool, r.EnvironmentID, r.FailedReleaseID)
+	if err != nil {
+		return deploy.Deploy{}, false, err
+	}
+	undoing := deploy.Undoing{
+		FailedReleaseID:   r.FailedReleaseID,
+		SkippedReleaseIDs: r.SkippedReleaseIDs,
+		Source:            r.Source,
+	}
+	for n := len(kept) - 1; n >= 0; n-- {
+		dep, err := deploy.ShiftBack(ctx, p.deploys, deploy.Returning{
+			Performance:         performance,
+			Undoing:             undoing,
+			KeptBy:              kept[n].ID,
+			ConfigurationSource: p,
+		})
+		if err == nil {
+			return dep, true, nil
+		}
+		if !errors.Is(err, deploy.ErrNothingKeptToReturnTo) {
+			return dep, false, err
+		}
+	}
+	return deploy.Deploy{}, false, nil
 }
 
 // Configuration resolves the authored value set whose content digest the

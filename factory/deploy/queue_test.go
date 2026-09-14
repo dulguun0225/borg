@@ -122,41 +122,36 @@ func TestQueueHoldDecidesEachCondition(t *testing.T) {
 	}
 }
 
-func TestAwaitedRevertIsNeverHeldAndGoesFirst(t *testing.T) {
-	readings := queueConditions{
-		window:       deploy.WindowReading{Open: 2, Limit: 2},
-		budget:       true,
-		rollback:     deploy.RollbackReading{Holding: true, RevertIntentID: "revert-intent"},
-		dependencies: []deploy.DependencyReading{{RequiredItemID: "item-1", CurrentItemID: "item-2"}},
-		drift:        true,
-		human:        false,
+func TestAwaitedRevertIsHeldByEveryNonRollbackException(t *testing.T) {
+	conditions := []struct {
+		name string
+		set  func(*queueConditions)
+		want deploy.HoldKind
+	}{
+		{"window is excepted", func(r *queueConditions) { r.window = deploy.WindowReading{Open: 2, Limit: 2} }, deploy.HoldNone},
+		{"rollback is excepted", func(r *queueConditions) { r.rollback.Holding = true }, deploy.HoldNone},
+		{"budget", func(r *queueConditions) { r.budget = true }, deploy.HoldBudget},
+		{"dependency", func(r *queueConditions) {
+			r.dependencies = []deploy.DependencyReading{{RequiredItemID: "item-1", CurrentItemID: "item-2"}}
+		}, deploy.HoldDependency},
+		{"drift", func(r *queueConditions) { r.drift = true }, deploy.HoldDrift},
+		{"human", func(r *queueConditions) { r.human = true }, deploy.HoldHuman},
 	}
-	composed := deploy.QueueReadings{
-		Window: readings, Budget: readings, Rollback: readings,
-		Dependency: readings, Drift: readings, Human: readings,
-	}
-	revert := deploy.QueueCandidate{
-		ItemID: "revert", IntentID: "revert-intent", ServiceID: "svc",
-		ReleaseID: "rel-revert", ReleaseNumber: 2,
-	}
-	decision, err := composed.Held(context.Background(), revert)
-	if err != nil {
-		t.Fatalf("Held: %v", err)
-	}
-	if decision.Held || decision.Why != deploy.HoldNone || !decision.AwaitedRevert {
-		t.Fatalf("Held = %+v, want an unheld awaited revert", decision)
-	}
-	ordered, err := deploy.QueueOrder(context.Background(), "svc", []deploy.QueueCandidate{
-		revert, {ItemID: "release", ServiceID: "svc", ReleaseID: "rel-release", ReleaseNumber: 1},
-	}, composed)
-	if err != nil {
-		t.Fatalf("QueueOrder: %v", err)
-	}
-	if len(ordered) == 0 || ordered[0].ItemID != revert.ItemID {
-		t.Fatalf("QueueOrder = %#v, want the awaited revert first", ordered)
-	}
-	if ordered[0].HoldReason != deploy.HoldNone || !ordered[0].AwaitedRevert {
-		t.Fatalf("awaited revert in queue = %#v, want no hold", ordered[0])
+	for _, condition := range conditions {
+		t.Run(condition.name, func(t *testing.T) {
+			readings := queueConditions{window: deploy.WindowReading{Open: 0, Limit: 2}, rollback: deploy.RollbackReading{Holding: true, RevertIntentID: "revert-intent"}}
+			condition.set(&readings)
+			decision, err := (deploy.QueueReadings{
+				Window: readings, Budget: readings, Rollback: readings,
+				Dependency: readings, Drift: readings, Human: readings,
+			}).Held(context.Background(), deploy.QueueCandidate{ItemID: "revert", IntentID: "revert-intent", ServiceID: "svc"})
+			if err != nil {
+				t.Fatalf("Held: %v", err)
+			}
+			if decision.Why != condition.want || decision.Held != (condition.want != deploy.HoldNone) || !decision.AwaitedRevert {
+				t.Fatalf("Held = %+v, want %s", decision, condition.want)
+			}
+		})
 	}
 }
 

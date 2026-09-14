@@ -104,6 +104,11 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, g
 	if err != nil {
 		return gate.Opened{}, gate.Firing{}, err
 	}
+	current, found, err := deploy.Current(ctx, p.d.pool, c.svc.ID, p.production.ID,
+		serviceAddresses(p.production, c.svc))
+	if err != nil {
+		return gate.Opened{}, gate.Firing{}, err
+	}
 	it, err := item.Get(ctx, p.d.pool, c.itemID)
 	if err != nil {
 		return gate.Opened{}, gate.Firing{}, err
@@ -119,6 +124,7 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, g
 	firing := gate.Firing{
 		Row:                      gate.DeployToProduction,
 		ItemID:                   c.itemID,
+		Adoption:                 c.adoption,
 		BuildID:                  c.reverifiedBuildID,
 		ServiceID:                c.svc.ID,
 		AreaID:                   p.areaID,
@@ -128,6 +134,9 @@ func (p *path) fireProduction(ctx context.Context, c *candidate) (gate.Opened, g
 		Measurement:              c.measurement,
 		Exposure:                 reached,
 		RevertWhileRollbackHolds: revert,
+	}
+	if found {
+		firing.ReplacesReleaseID = current.ReleaseID
 	}
 	opened, err := p.gate.Fire(ctx, firing)
 	return opened, firing, err
@@ -151,17 +160,20 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 	// binary is already here — is deployed from what is already in production's
 	// directory, which nothing removes.
 	from := filepath.Join(c.environmentDir, c.reverifiedBuildID)
-	to := filepath.Join(d.dir, c.reverifiedBuildID)
 	if c.environmentDir != "" {
 		if _, err := os.Stat(from); err == nil {
-			if err := copyFile(from, to); err != nil {
-				return err
+			for _, address := range serviceAddresses(p.production, c.svc) {
+				if err := copyFile(from, filepath.Join(address, c.reverifiedBuildID)); err != nil {
+					return err
+				}
 			}
 		}
 	}
-	if _, err := os.Stat(to); err != nil {
-		return fmt.Errorf("factory: build %s is not in production's directory and its candidate environment has none: %w",
-			c.reverifiedBuildID, err)
+	for _, address := range serviceAddresses(p.production, c.svc) {
+		if _, err := os.Stat(filepath.Join(address, c.reverifiedBuildID)); err != nil {
+			return fmt.Errorf("factory: build %s is not in production target %s and its candidate environment has none: %w",
+				c.reverifiedBuildID, address, err)
+		}
 	}
 
 	dep, err := p.intoProduction(ctx, c, pick)

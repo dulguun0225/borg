@@ -95,8 +95,8 @@ const (
 )
 
 // QueueDecision is the deploy queue's decision and the condition behind it.
-// AwaitedRevert is the rollback exception: that candidate is not held by the
-// rollback and is ordered ahead of the other releases.
+// AwaitedRevert says the candidate is excepted from the rollback and window
+// holds and is ordered ahead of the other releases.
 type QueueDecision struct {
 	Held          bool
 	Why           HoldKind
@@ -107,7 +107,7 @@ type QueueDecision struct {
 
 // Held reads all six conditions and decides whether the candidate waits. The
 // first condition in queue order supplies Why; a rollback's awaited revert is
-// excepted only from that rollback condition.
+// excepted from the rollback and window conditions only.
 func (r QueueReadings) Held(ctx context.Context, candidate QueueCandidate) (QueueDecision, error) {
 	var decision QueueDecision
 	set := func(kind HoldKind) {
@@ -116,11 +116,18 @@ func (r QueueReadings) Held(ctx context.Context, candidate QueueCandidate) (Queu
 		}
 	}
 
+	rollback, err := r.Rollback.ReadRollback(ctx, candidate)
+	if err != nil {
+		return QueueDecision{}, err
+	}
+	decision.AwaitedRevert = rollback.Holding && candidate.IntentID != "" &&
+		candidate.IntentID == rollback.RevertIntentID
+
 	window, err := r.Window.ReadWindow(ctx, candidate.ServiceID)
 	if err != nil {
 		return QueueDecision{}, err
 	}
-	if window.Open >= window.Limit {
+	if window.Open >= window.Limit && !decision.AwaitedRevert {
 		set(HoldWindow)
 	}
 
@@ -132,12 +139,6 @@ func (r QueueReadings) Held(ctx context.Context, candidate QueueCandidate) (Queu
 		set(HoldBudget)
 	}
 
-	rollback, err := r.Rollback.ReadRollback(ctx, candidate)
-	if err != nil {
-		return QueueDecision{}, err
-	}
-	decision.AwaitedRevert = rollback.Holding && candidate.IntentID != "" &&
-		candidate.IntentID == rollback.RevertIntentID
 	if rollback.Holding && !decision.AwaitedRevert {
 		set(HoldRollback)
 	}
@@ -171,16 +172,6 @@ func (r QueueReadings) Held(ctx context.Context, candidate QueueCandidate) (Queu
 		set(HoldHuman)
 	}
 
-	if decision.AwaitedRevert {
-		if decision.Human {
-			decision.Held = true
-			decision.Why = HoldHuman
-			return decision, nil
-		}
-		decision.Held = false
-		decision.Why = HoldNone
-		return decision, nil
-	}
 	decision.Held = decision.Why != HoldNone
 	return decision, nil
 }

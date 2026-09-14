@@ -215,7 +215,7 @@
 //
 // the hazard severity the context group reads is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md
-// (C0683, C0685, C0687);
+// (C0683, C0685, C0686, C0687);
 //
 // the score version as a row of the chained log is seam 2 of
 // ../../end-goal/deferred.md (C0066, C0069, C0071); and the two read-time
@@ -260,7 +260,7 @@
 // (C0902, C0903); picking only the widening schedule at irreversible, and
 // withholding the other two there, are
 // ../../end-goal/how-the-factory-works/03-gates/02-the-rollout-strategy.md
-// (C0919, C0920); supplying the floor a safeguard may raise is
+// (C0907, C0919, C0920); supplying the floor a safeguard may raise is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/07-merge-to-master.md
 // (C1159).
 //

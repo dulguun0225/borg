@@ -4,22 +4,23 @@
 // # The files
 //
 // local.go is the process: [Local] and [New], [Local.Dir], the seam operations
-// [Local.Deploy], [Local.PlaceMutant], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the files
-// [RunningFile], [SignalFile], [ExchangeFile]
-// and [WayInSocket] with the [SignalEnv], [ExchangeEnv] and [DeployEnv]
+// [Local.Deploy], [Local.PlaceMutant], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the
+// controlled placement [Local.DeployWithControl], the files
+// [RunningFile], [ControlFile], [KeptFile], [TrafficFile], [SignalFile], [ExchangeFile]
+// and [WayInSocket] with the [SignalEnv], [ExchangeEnv], [TrafficEnv], [BuildEnv]
+// and [DeployEnv]
 // variables that name what a started process is told, and [ErrBuildNotLocal] and
 // [ErrServiceNotLocal]. store.go is the service's store: [DataDir],
 // [HistoryFile], [SchemaScript] and [SnapshotDir], the operations
 // [Local.ApplySchemaChange], [Local.Snapshot] and [Local.DeleteSnapshot], and
 // [ErrNoSchemaScript],
-// [ErrSnapshotUnverified], [ErrSnapshotGone] and [ErrNameNotLocal]. traffic.go is the two
-// operations this platform cannot perform, [Local.ShiftTraffic] and
-// [Local.SetInstanceCount], with [ErrNoShare] and [ErrOneInstance]. The tests
-// are local_test.go, store_test.go and snapshot_test.go, which need a
-// directory and no database: store_test.go is the schema history, the drain
-// and the cut a replacement reports, and the two operations this platform
-// refuses; snapshot_test.go is the copy taken before a destructive change,
-// verified, and deleted through the seam.
+// [ErrSnapshotUnverified], [ErrSnapshotGone] and [ErrNameNotLocal]. traffic.go is
+// [Local.ShiftTraffic], [Local.StopControl], [Local.StopKept] and
+// [Local.SetInstanceCount], with [ErrNoPreviousBuild] and [ErrOneInstance]. The
+// tests are local_test.go, store_test.go and snapshot_test.go, which need a
+// directory and no database: store_test.go is the schema history and the drain
+// a replacement reports; snapshot_test.go is the copy taken before a destructive
+// change, verified, and deleted through the seam.
 //
 // [New] takes a directory, and there is one target per target rather than one
 // per environment or one per install: an environment names the addresses a
@@ -36,12 +37,10 @@
 // rollout row drops one, so the wait is as long as the longest request and a
 // caller unwilling to wait cancels the context, which is an error and no
 // replacement reported. [Local.Stop] drains the same way, reports the same
-// drain, and clears what says it runs. [Local.Reconfigure] is [Local.Deploy]
-// under another name for the build already running: this platform has no way
-// to hand a running instance new values short of restarting it, so it drains
-// the instance and starts the same build again under the fresh configuration,
-// which is what the fast rollback uses to mint the kept instance a new
-// way-in token. [Local.ReadRunning] reports the build whose process is still alive, the
+// drain, and clears what says it runs. [Local.DeployWithControl] starts the new
+// build beside the running one and records the running process as control and
+// kept. [Local.Reconfigure] refreshes the kept process for a fast rollback, or
+// restarts the running build when no kept process exists. [Local.ReadRunning] reports the build whose process is still alive, the
 // digest of the artifact it was started from, the one instance this platform
 // runs, and the service's schema history. A dead
 // process reads as nothing running. The directory is a boundary and not a
@@ -51,25 +50,17 @@
 // A deployment names the build and never the release; the release crosses
 // only on a schema change, as the history row's field naming what shipped it.
 //
-// # What this platform cannot do
+// # Traffic
 //
-// It moves a process rather than traffic, so it serves no share:
-// [Local.ShiftTraffic] refuses with [ErrNoShare] and [Local.SetInstanceCount]
-// answers a count of one and refuses every other with [ErrOneInstance]. Two
-// things follow. One is that the row with a control is unavailable here, which
-// the environment record declares per target, so every deploy here goes
-// without a control rather than the deployer discovering it. The other is
-// that the fast rollback — traffic
-// shifted onto the instances of the release returned to — cannot be performed
-// here at all: this platform runs one process per service and keeps no second
-// fleet, so a rollback here is the deployer's slow way, a redeploy of a binary
-// still in this directory. Neither
-// returns as though it had acted, because a shift reported as performed would be
-// a rollout recorded as having compared two builds while one of them served no
-// request. An environment record declares this per target, so the score picks the
-// row without a control rather than one the deployer discovers it cannot perform;
-// where a target was declared as serving a share, the deployer writes the strategy
-// it performed beside the one that was picked and the refusal shows there.
+// The target keeps the release, a control and a kept copy side by side. Both
+// secondary processes receive [TrafficEnv] and read [TrafficFile], whose line
+// names each serving build and its share. [Local.DeployWithControl] leaves the
+// already-running process as the control and kept fleet beside the new release.
+// [Local.ShiftTraffic] writes those lines and reuses the recorded processes,
+// including at a full shift. [Local.StopControl] and [Local.StopKept] end the
+// two lifecycle identities at their exits. [Local.SetInstanceCount] still answers one release
+// instance and refuses another count. These operations implement the local
+// target's traffic and rollback behavior (C0626, C2052).
 //
 // # The service's store
 //

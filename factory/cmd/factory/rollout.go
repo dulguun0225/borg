@@ -8,8 +8,10 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/principal"
+	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -32,9 +34,8 @@ var deployerPrincipal = principal.OfComponent("deployer")
 // the environment's whole list, so a project whose services sit on three subsets
 // of one environment rolls each out over its own.
 //
-// No instances are kept: this platform moves a process rather than traffic, so
-// there is no second fleet to keep and a rollback is a redeploy of a binary
-// still on disk.
+// The local target runs the release and its control side by side when the
+// deployer asks it to shift a share.
 // environmentTargets is every target one environment names, in the
 // environment's order, which is what the deploy record holds a row beside each
 // of. It is the whole list where [path.reaches] is the service's own subset of
@@ -108,14 +109,31 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 
 // intoProduction puts the release on the production targets the service runs on,
 // in that set's order, one at a time, under the strategy the production deploy
-// row picked. The bake volume between one target and the next is zero and no
-// [deploy.Bake] is supplied, so the deployer holds nowhere: what could answer it
-// is the health monitor reading the window this deploy has not opened yet, and
-// package deploy's doc.go says that caller is not built.
+// row picked. Where a current release exists, its running fleet is supplied as
+// the control and kept fleet for the target.
 func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick) (deploy.Deploy, error) {
 	delivered, err := p.redeliveredReleaseIDs(ctx, c)
 	if err != nil {
 		return deploy.Deploy{}, err
+	}
+	reaches := p.reaches(p.production, c.svc)
+	control, controlFound, err := p.controlFor(ctx, c)
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
+	adoptionReleaseID := ""
+	if c.adoption {
+		adoptionReleaseID = c.releaseID
+	}
+	reaches, current, found, err := deploy.ProductionReaches(ctx, p.d.pool, deployerPrincipal,
+		p.d.credential, c.svc.Name, p.production.ID, control, controlFound,
+		adoptionReleaseID, reaches, strategyOf(pick), pick.Share)
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
+	controlReleaseID, controlBuildID := "", ""
+	if found {
+		controlReleaseID, controlBuildID = current.ReleaseID, current.BuildID
 	}
 	return deploy.Perform(ctx, p.deploys, deploy.Performance{
 		Actor:               deployActor,
@@ -126,12 +144,38 @@ func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick)
 		What:                deploy.OfRelease(c.releaseID, c.reverifiedBuildID),
 		IntoProduction:      true,
 		StrategyPicked:      strategyOf(pick),
+		ControlReleaseID:    controlReleaseID,
+		ControlBuildID:      controlBuildID,
 		DeliveredReleaseIDs: delivered,
 		Credential:          p.d.credential,
 		WayInAddress:        p.d.wayInAddress,
-		Reaches:             p.reaches(p.production, c.svc),
+		Reaches:             reaches,
 		EnvironmentTargets:  environmentTargets(p.production),
 	})
+}
+
+func (p *path) controlFor(ctx context.Context, c *candidate) (deploy.Deploy, bool, error) {
+	if c.adoption {
+		return deploy.Deploy{}, false, nil
+	}
+	current, err := release.Get(ctx, p.d.pool, c.releaseID)
+	if err != nil {
+		return deploy.Deploy{}, false, err
+	}
+	target, found, err := p.healthMonitor.TargetBelow(ctx, healthmonitor.Watching{
+		ID: c.svc.ID, Name: c.svc.Name, EnvironmentID: p.production.ID,
+	}, current.Number)
+	if err != nil || !found {
+		return deploy.Deploy{}, false, err
+	}
+	controls, err := deploy.ByRelease(ctx, p.d.pool, p.production.ID, target.ID)
+	if err != nil {
+		return deploy.Deploy{}, false, err
+	}
+	if len(controls) == 0 {
+		return deploy.Deploy{}, false, fmt.Errorf("factory: rollback target release %s has no deploy record", target.ID)
+	}
+	return controls[len(controls)-1], true, nil
 }
 
 func (p *path) redeliveredReleaseIDs(ctx context.Context, c *candidate) ([]string, error) {

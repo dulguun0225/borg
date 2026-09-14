@@ -48,6 +48,10 @@ const SignalEnv = "BORG_SIGNAL"
 // ran there before it — which is what the comparison's baseline is.
 func SignalFile(dir, build string) string { return filepath.Join(dir, build+".signal") }
 
+// TrafficFile is the file both running builds read to decide which build serves
+// and what fraction of traffic it receives.
+func TrafficFile(dir, service string) string { return filepath.Join(dir, service+".traffic") }
+
 // ExchangeEnv is the environment variable each started process is told the file to
 // write its exchange documents into. It is here beside [SignalEnv] and for the same
 // reason: the name belongs to the platform that wires it, not to an agreement
@@ -71,6 +75,16 @@ func ExchangeFile(dir, build string) string { return filepath.Join(dir, build+".
 // is what tells the instances this deploy placed from the instances of the same
 // build an earlier deploy placed — the control's among them.
 const DeployEnv = "BORG_DEPLOY"
+
+// TrafficEnv is the environment variable each started process is told for the
+// file that names the build serving traffic and its share. Both arms read the
+// same file, so a shift changes what each process serves without replacing the
+// processes.
+const TrafficEnv = "BORG_TRAFFIC"
+
+// BuildEnv is the environment variable naming the build whose share a process
+// reads from [TrafficFile].
+const BuildEnv = "BORG_BUILD"
 
 // WayInSocket is where the way in inside the service running in dir listens: a
 // Unix socket in the target's own directory, named by the service the way
@@ -98,6 +112,12 @@ func WayInSocket(dir, service string) string { return filepath.Join(dir, service
 // there — which is exactly what the drift detector is, and what the seam's
 // read operation is for.
 func RunningFile(dir, service string) string { return filepath.Join(dir, service+".running") }
+
+// ControlFile records the side-by-side control process.
+func ControlFile(dir, service string) string { return filepath.Join(dir, service+".control") }
+
+// KeptFile records the side-by-side kept process.
+func KeptFile(dir, service string) string { return filepath.Join(dir, service+".kept") }
 
 var (
 	// ErrBuildNotLocal is returned by [Local.Deploy] for a build that is not a
@@ -145,60 +165,18 @@ func (l *Local) Dir() string { return l.dir }
 // error from the start instead, with nothing left running for the service —
 // there the replacement has already happened.
 func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.Deployment) (targetseam.Placement, error) {
-	if err := targetseam.CheckPrincipal(p); err != nil {
+	if err := l.validateDeployment(p, d); err != nil {
 		return targetseam.Placement{}, err
 	}
-	if err := d.Validate(); err != nil {
+	_, _, _, err := l.read(d.Service)
+	if err != nil {
 		return targetseam.Placement{}, err
-	}
-	// What this confines is the two joins below: the build string and the service
-	// name both reach here from the store, and a target that joins whatever it is
-	// handed runs whatever that names, so dir is the boundary and filepath.IsLocal is
-	// what holds it — no parent traversal, no absolute path, no root.
-	if !filepath.IsLocal(d.Build) {
-		return targetseam.Placement{}, fmt.Errorf("%w: %q", ErrBuildNotLocal, d.Build)
-	}
-	if !filepath.IsLocal(d.Service) {
-		return targetseam.Placement{}, fmt.Errorf("%w: %q", ErrServiceNotLocal, d.Service)
 	}
 	replacement, err := l.drain(ctx, d.Service)
 	if err != nil {
 		return targetseam.Placement{}, err
 	}
-
-	cmd := exec.Command(filepath.Join(l.dir, d.Build))
-	cmd.Env = append(os.Environ(),
-		SignalEnv+"="+SignalFile(l.dir, d.Build),
-		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build),
-		DeployEnv+"="+deployID(d.Configuration))
-	// The way in starts only where all three are set. The token is one of the
-	// configuration values below, handed to the service the way every other
-	// value is; these two are the platform's own, and a deployment carrying no
-	// entrance is a factory serving none, where the way in in this build
-	// listens nowhere rather than dialling something that is not there.
-	if d.WayInAddress != "" {
-		cmd.Env = append(cmd.Env,
-			wayin.StoreEnv+"="+d.WayInAddress,
-			wayin.ListenEnv+"="+WayInSocket(l.dir, d.Service))
-	}
-	for n, name := range d.Configuration.Names {
-		cmd.Env = append(cmd.Env, name+"="+d.Configuration.Values[n])
-	}
-	if err := cmd.Start(); err != nil {
-		return targetseam.Placement{}, fmt.Errorf("localtarget: starting %s for service %q: %w", d.Build, d.Service, err)
-	}
-	// Reap the process when it exits. An exited child that nobody waits on
-	// stays in the process table as a zombie, and a zombie still answers
-	// signal 0 as though it were alive — so without this, a process that died
-	// on its own would read as running forever. A process started by an earlier
-	// factory run has no waiter here, which [Local.ReadRunning] states the cost of.
-	go func() { _ = cmd.Wait() }()
-
-	record := d.Build + " " + strconv.Itoa(cmd.Process.Pid)
-	if err := os.WriteFile(RunningFile(l.dir, d.Service), []byte(record), 0o644); err != nil {
-		return targetseam.Placement{}, fmt.Errorf("localtarget: recording what runs for service %q: %w", d.Service, err)
-	}
-	return targetseam.Placement{Replacement: replacement}, nil
+	return l.startMain(d, replacement)
 }
 
 // PlaceMutant drains the service and starts the supplied artifact directly.
@@ -259,27 +237,6 @@ func deployID(configuration targetseam.ValueSet) string {
 	return ""
 }
 
-// Reconfigure hands the instance running for the service a fresh
-// configuration by restarting it under the new one: this platform runs one
-// process per service and has no way to hand a running one new values short
-// of that, so what [Local.Deploy] does for a new build this does for the
-// build already running — drained, then started again under the resolved
-// set, which is what the fast rollback uses to mint the kept instance a
-// fresh way-in token rather than leaving it holding the one an earlier
-// deploy minted.
-func (l *Local) Reconfigure(ctx context.Context, p principal.Principal, r targetseam.Reconfiguration) (targetseam.Placement, error) {
-	if err := targetseam.CheckPrincipal(p); err != nil {
-		return targetseam.Placement{}, err
-	}
-	if err := r.Validate(); err != nil {
-		return targetseam.Placement{}, err
-	}
-	return l.Deploy(ctx, p, targetseam.Deployment{
-		Service: r.Service, Build: r.Build, Credential: r.Credential,
-		Configuration: r.Configuration, WayInAddress: r.WayInAddress,
-	})
-}
-
 // drain asks the instance running for the service to end and waits until it
 // has finished what it holds. It ends nothing itself: neither rollout row drops
 // a request, so the wait is as long as the longest request the instance is
@@ -332,6 +289,12 @@ func (l *Local) Stop(ctx context.Context, p principal.Principal, service string,
 		return targetseam.Placement{}, err
 	}
 	if err := check(service, credential); err != nil {
+		return targetseam.Placement{}, err
+	}
+	if err := l.StopControl(ctx, p, service); err != nil {
+		return targetseam.Placement{}, err
+	}
+	if err := l.StopKept(ctx, p, service); err != nil {
 		return targetseam.Placement{}, err
 	}
 	ended, err := l.drain(ctx, service)

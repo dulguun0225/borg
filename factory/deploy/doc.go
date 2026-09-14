@@ -263,7 +263,7 @@
 // C1728, C1729, C1730, C1731, C1732, C1734, C1736, C1737, C1738, C1753), and
 // which release the slow one returns to, in
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
-// (C2053, C2054, C2071), computed by the health monitor, which is what calls
+// (C2052, C2053, C2054, C2071), computed by the health monitor, which is what calls
 // [Restore]; the restart and the deployer's write order in
 // ../../end-goal/one-process.md (C2746, C2751, C2752, C2761); and the
 // mitigation, which is a class of two operations, in ../../end-goal/deferred.md
@@ -286,14 +286,12 @@
 
 // The deploy queue's held conditions and release-number order are
 // ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0233, C0234,
-// C0235, C1552), and its rollback exception and bounded redelivery are
-// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
-// (C1628).
+// C0235, C1552).
 //
 // What adoption's deploy record and current release let the factory's
 // checks read are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md
-// (C0628, C0629); being in an environment by having been deployed there is
+// (C0626, C0628, C0629); being in an environment by having been deployed there is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
 // (C0722).
 //

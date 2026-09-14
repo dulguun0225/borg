@@ -98,6 +98,9 @@ type Pick struct {
 	Strategy Strategy
 	// Schedule is empty on the row without a control, which has none.
 	Schedule Schedule
+	// Share is the traffic share the selected schedule starts with, and is zero
+	// on the row without a control.
+	Share float64
 	// Why is what decided the pick where something other than the number did, in
 	// words a human reads beside the strategy: no build to keep serving, a
 	// platform that serves no share, an irreversible area, the held-out sample,
@@ -111,7 +114,10 @@ type Pick struct {
 // irreversible. All four are the caller's reads, being facts of records the
 // score does not weigh a factor from.
 type Rollout struct {
-	ReplacesReleaseID       string
+	ReplacesReleaseID string
+	// Adoption says the release replaces the customer's running build, which
+	// has no factory release id to name.
+	Adoption                bool
 	EveryTargetServesAShare bool
 	HeldOut                 bool
 	Irreversible            bool
@@ -149,7 +155,7 @@ type Rollout struct {
 // yet. Until something does, every controlled rollout widens as the comparison
 // stays clear, which is the schedule an irreversible area is already held to.
 func PickStrategy(a Assessment, r Rollout) Pick {
-	if r.ReplacesReleaseID == "" {
+	if r.ReplacesReleaseID == "" && !r.Adoption {
 		return Pick{Strategy: StrategyWithoutControl, Why: WhyFirstRelease}
 	}
 	if !r.EveryTargetServesAShare {
@@ -158,15 +164,15 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 	pick := Pick{Strategy: StrategyWithoutControl}
 	switch {
 	case r.KeepsAControl:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhySafeguarded}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhySafeguarded}
 	case r.HeldOut:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhyHeldOut}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhyHeldOut}
 	case r.Default == StrategyWithControl:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Why: WhyAuthored}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhyAuthored}
 	case r.Default == StrategyWithoutControl:
 		pick = Pick{Strategy: StrategyWithoutControl, Why: WhyAuthored}
 	case a.DiscountedImpact >= boundOf(a):
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth}
 	}
 	// Why names the one thing that decided the row, so a reason already named is
 	// not overwritten: a held-out release in an irreversible area was decided by

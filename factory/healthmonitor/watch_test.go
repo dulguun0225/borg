@@ -269,10 +269,9 @@ func TestAFailedExitWithNothingToReturnToPagesAtAnyHour(t *testing.T) {
 	}
 }
 
-// TestAWindowThatRulesTheRegressionOutClosesPassedWithTheControlTornDownFirst is
-// the shortest exit and its ordering: teardown is what a rollback needs and not
-// what the exit alone decides, so the control ends before the window does.
-func TestAWindowThatRulesTheRegressionOutClosesPassedWithTheControlTornDownFirst(t *testing.T) {
+// TestAWindowThatRulesTheRegressionOutClosesPassedWithoutAControl is the
+// shortest exit for a release whose deploy recorded no control.
+func TestAWindowThatRulesTheRegressionOutClosesPassedWithoutAControl(t *testing.T) {
 	ctx, g := newGraph(t)
 	shipOne(t, ctx, g, "in_below", window.ExitTimedOut)
 	under := shipOne(t, ctx, g, "in_under", "")
@@ -288,11 +287,10 @@ func TestAWindowThatRulesTheRegressionOutClosesPassedWithTheControlTornDownFirst
 	if len(watched) != 1 || watched[0].Exit != window.ExitPassed {
 		t.Fatalf("Watch = exit %q, want passed: the comparison ruled the size out", watched[0].Exit)
 	}
-	// The control ends before the window closes and the fleet kept for a
-	// rollback ends after it, that fleet being torn down when the last window
-	// that could return to it closes and never at an exit of its own.
-	if len(deployer.calls) != 2 || deployer.calls[0] != "tear down control on "+theTarget {
-		t.Fatalf("the deployer was asked for %v, want the control torn down and then the kept fleet", deployer.calls)
+	// This deploy recorded no control, so the health monitor asks only for the
+	// kept fleet after the window closes.
+	if len(deployer.calls) != 1 || len(deployer.kept) != 1 {
+		t.Fatalf("the deployer was asked for %v, want only the kept fleet", deployer.calls)
 	}
 	if len(deployer.kept) != 1 || deployer.kept[0].Target != theTarget {
 		t.Errorf("the kept fleets torn down are %+v, want the one on %s", deployer.kept, theTarget)

@@ -177,7 +177,7 @@
 //
 // The exit with no rollback target taking the page is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/01-a-service-that-already-exists.md
-// (C0632); a failing rollout rolling back inside its window is
+// (C0627, C0632); a failing rollout rolling back inside its window is
 // ../../end-goal/how-the-factory-works/03-gates/01-where-a-gate-is-and-what-decides-it.md
 // (C0904).
 //

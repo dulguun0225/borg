@@ -338,6 +338,9 @@ func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win wi
 		return nil
 	}
 	for target, buildID := range h.controlTargets(ctx, win) {
+		if buildID == "" {
+			continue
+		}
 		control := Control{
 			ServiceID: w.ID, ServiceName: w.Name, EnvironmentID: w.EnvironmentID,
 			DeployID: win.DeployID, Target: target, BuildID: buildID,
@@ -361,7 +364,7 @@ func (h *HealthMonitor) tearDownControls(ctx context.Context, w Watching, win wi
 func (h *HealthMonitor) controlTargets(ctx context.Context, win window.Window) map[string]string {
 	targets, err := deploy.Targets(ctx, h.pool, win.DeployID)
 	if err != nil {
-		return fallbackTargets(win.Targets)
+		return nil
 	}
 	carrying := map[string]string{}
 	for _, t := range targets {
@@ -377,20 +380,9 @@ func (h *HealthMonitor) controlTargets(ctx context.Context, win window.Window) m
 		carrying[t.Address] = buildID
 	}
 	if len(carrying) == 0 {
-		return fallbackTargets(win.Targets)
+		return nil
 	}
 	return carrying
-}
-
-// fallbackTargets is every address in addresses with no build named, the shape
-// [HealthMonitor.controlTargets] falls back to where the record names a control
-// on no target it could read.
-func fallbackTargets(addresses []string) map[string]string {
-	fallback := make(map[string]string, len(addresses))
-	for _, address := range addresses {
-		fallback[address] = ""
-	}
-	return fallback
 }
 
 // newestRecord is the newest time the store held a record for this service over

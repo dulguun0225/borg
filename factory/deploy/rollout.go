@@ -12,37 +12,15 @@ import (
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
-// Reach is one target of the environment as the deployer reaches it: the
-// address, the target itself, how many instances of the release a rollback
-// would return to are kept there, and whether the platform behind it serves a
-// share. The slice is in the environment's order, which is the order a rollout
-// reaches them in.
+// Reach is one target the deployer reaches, in environment order.
 type Reach struct {
-	Address string
-	Target  targetseam.Target
-	// ReleaseInstances is how many instances of this deploy's own build run
-	// here, and ControlInstances how many the control on this target runs —
-	// there is one control per production target the release has reached,
-	// started on that target when the rollout reaches it, and the deploy
-	// record names each.
+	Address          string
+	Target           targetseam.Target
 	ReleaseInstances int
 	ControlInstances int
-	// KeptInstances is the instances the build being replaced had, or the
-	// fraction of them an owner authored, kept here until the last window that
-	// could return to it closes: a rollback returns production to them, and a
-	// share is not a capacity.
-	KeptInstances int
-	// ServesAShare is what the environment record declares per target. Where a
-	// service runs on a target whose platform serves no share, the row with a
-	// control is unavailable there, permanently rather than once — every deploy
-	// on that target is performed without one and the record says so, and
-	// nothing here is refused; a target declared as serving a share that then
-	// refuses the shift is what makes the strategy performed differ from the
-	// one picked in the same way.
-	ServesAShare bool
-	// Share is what a control's schedule asks this target to give the release at
-	// the start of the rollout, under a strategy with a control.
-	Share float64
+	KeptInstances    int
+	ServesAShare     bool
+	Share            float64
 }
 
 // Notifier is what the deployer pages through at the two exits that page: a
@@ -298,7 +276,7 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 			continue
 		}
 
-		placed, err := reach.Target.Deploy(ctx, p.Principal, deployment)
+		placed, err := place(ctx, p, reach, deployment)
 		if err != nil {
 			return d, refused(ctx, w, p, d, n, reach, err)
 		}
@@ -331,6 +309,19 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 	}
 	d.Status = StatusComplete
 	return d, nil
+}
+
+type controlledTarget interface {
+	DeployWithControl(context.Context, principal.Principal, targetseam.Deployment) (targetseam.Placement, error)
+}
+
+func place(ctx context.Context, p Performance, reach Reach, d targetseam.Deployment) (targetseam.Placement, error) {
+	if p.IntoProduction && p.StrategyPicked == StrategyWithControl && reach.ServesAShare {
+		if target, ok := reach.Target.(controlledTarget); ok {
+			return target.DeployWithControl(ctx, p.Principal, d)
+		}
+	}
+	return reach.Target.Deploy(ctx, p.Principal, d)
 }
 
 // beginning is what [Writer.Start] is given, assembled from the performance so

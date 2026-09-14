@@ -228,16 +228,12 @@ func openSearchWindow(t *testing.T, ctx context.Context, g graph) window.Window 
 	return opened
 }
 
-// TestARollbackTearsDownTheControlOfEveryWindowItSkips is what The health
-// monitor states of the failed exit: a rollback closes the window of every
-// release it undoes, failed for the one whose analysis failed and skipped for
-// the rest, and no control survives it — every control ends with its window.
-// A control left running after its window closed is a mismatch like any other,
-// which would hold that service's production deploys and page.
-func TestARollbackTearsDownTheControlOfEveryWindowItSkips(t *testing.T) {
+// TestARollbackDoesNotTearDownAnUnrecordedControl closes every window the
+// rollback skips without asking for controls that those deploys did not run.
+func TestARollbackDoesNotTearDownAnUnrecordedControl(t *testing.T) {
 	ctx, g := newGraph(t)
 	shipOne(t, ctx, g, "in_below", window.ExitTimedOut)
-	under := shipOne(t, ctx, g, "in_under", "")
+	shipOne(t, ctx, g, "in_under", "")
 	above := shipOne(t, ctx, g, "in_above", "")
 
 	deployer := &fakeDeployer{}
@@ -263,13 +259,8 @@ func TestARollbackTearsDownTheControlOfEveryWindowItSkips(t *testing.T) {
 		t.Fatalf("the window above closed %q, want skipped", closed.Exit)
 	}
 
-	// One teardown per window the rollback closed: the failed one's own and the
-	// skipped one's, each named on the deploy record the window was opened over.
-	for _, deployID := range []string{windowOver(t, ctx, g, under).DeployID, skippedWindow.DeployID} {
-		if !tornDownFor(deployer, deployID) {
-			t.Errorf("the control on deploy %s survived the rollback; the deployer was asked for %v",
-				deployID, deployer.calls)
-		}
+	if len(deployer.tornDown) != 0 {
+		t.Errorf("the deployer was asked to tear down absent controls: %v", deployer.calls)
 	}
 }
 
@@ -326,15 +317,4 @@ func windowOver(t *testing.T, ctx context.Context, g graph, rel release.Release)
 		t.Fatalf("reading the window over release %s: found %t, %v", rel.ID, is, err)
 	}
 	return found
-}
-
-// tornDownFor reports whether the deployer was asked to tear down the control
-// on one deploy record.
-func tornDownFor(d *fakeDeployer, deployID string) bool {
-	for _, c := range d.tornDown {
-		if c.DeployID == deployID {
-			return true
-		}
-	}
-	return false
 }
