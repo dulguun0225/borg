@@ -2,6 +2,7 @@ package environment
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -17,13 +18,28 @@ import (
 // which is what package policy calls instead so that the write and the policy
 // version it appends commit together or not at all.
 type Writer struct {
-	pool  *pgxpool.Pool
-	token lease.Token
+	pool          *pgxpool.Pool
+	token         lease.Token
+	targetRemoval TargetRemovalReader
 }
 
+// TargetRemovalReader reports whether a deploy record marks an environment
+// target complete for a release.
+type TargetRemovalReader interface {
+	DeployComplete(context.Context, string, string) (bool, error)
+}
+
+// ErrNoTargetRemovalReader is returned when an environment target removal has
+// no reader of the deployer's completion record.
+var ErrNoTargetRemovalReader = errors.New("environment: no reader was supplied for the deployer's target removal")
+
 // NewWriter returns the writer over pool, fencing every write with token.
-func NewWriter(pool *pgxpool.Pool, token lease.Token) *Writer {
-	return &Writer{pool: pool, token: token}
+func NewWriter(pool *pgxpool.Pool, token lease.Token, readers ...TargetRemovalReader) *Writer {
+	var reader TargetRemovalReader
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
+	return &Writer{pool: pool, token: token, targetRemoval: reader}
 }
 
 // Create writes a persistent environment in a transaction of its own. It is
@@ -56,9 +72,9 @@ func (w *Writer) AddTarget(ctx context.Context, actor record.Actor, id string, t
 
 // RemoveTarget removes one target in a transaction of its own. It is
 // [RemoveTarget] with the transaction opened here.
-func (w *Writer) RemoveTarget(ctx context.Context, actor record.Actor, id, address string, completeDeployRecords int) error {
+func (w *Writer) RemoveTarget(ctx context.Context, actor record.Actor, id, address string) error {
 	return w.inTransaction(ctx, "removing a target from "+id, func(tx pgx.Tx) error {
-		return RemoveTarget(ctx, tx, w.token, actor, id, address, completeDeployRecords)
+		return RemoveTarget(ctx, tx, w.token, actor, id, address, w.targetRemoval)
 	})
 }
 
@@ -220,11 +236,10 @@ func AddTarget(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.A
 
 // RemoveTarget removes one address from the environment's target list, refused
 // while any service's deploy record marks that target complete for a release —
-// the deployer's removal on that one target comes first. The count is the
-// caller's argument for the reason [Withdraw]'s is. The last target may not be
+// the deployer's removal on that one target comes first. The last target may not be
 // removed: an environment with no address is one no deploy can reach, so an
 // environment down to one target is withdrawn rather than emptied.
-func RemoveTarget(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, id, address string, completeDeployRecords int) error {
+func RemoveTarget(ctx context.Context, tx pgx.Tx, token lease.Token, actor record.Actor, id, address string, removals TargetRemovalReader) error {
 	if err := lease.Fence(ctx, tx, token); err != nil {
 		return err
 	}
@@ -247,8 +262,15 @@ func RemoveTarget(ctx context.Context, tx pgx.Tx, token lease.Token, actor recor
 	if len(kept) == 0 {
 		return fmt.Errorf("%w: %s is the last target of %s", ErrTargetsEmpty, address, id)
 	}
-	if completeDeployRecords != 0 {
-		return fmt.Errorf("%w: %d on %s", ErrSoftwareStandsOnIt, completeDeployRecords, address)
+	if removals == nil {
+		return ErrNoTargetRemovalReader
+	}
+	complete, err := removals.DeployComplete(ctx, id, address)
+	if err != nil {
+		return fmt.Errorf("environment: reading removal of %s from %s: %w", id, address, err)
+	}
+	if complete {
+		return fmt.Errorf("%w: %s", ErrSoftwareStandsOnIt, address)
 	}
 	if _, err := tx.Exec(ctx, `update `+Table+` set targets = $1 where id = $2`, joinTargets(kept), id); err != nil {
 		return fmt.Errorf("environment: removing %s from %s: %w", address, id, err)

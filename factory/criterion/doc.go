@@ -27,6 +27,8 @@
 // [Undecided]. unreliable.go is [Reliability] and [Unreliable]. encoding.go is
 // [Encoding], [Derivation], [Derive], [Encodings], [CheckEncodings], and the
 // five errors it rejects with.
+// stats.go is [Withdrawal] and [WithdrawalsForService], the read used by the
+// Factory criteria counts.
 //
 // db_test.go, result_db_test.go, hazard_db_test.go, provenance_db_test.go and
 // mutation_db_test.go are the tests against the database; encoding_test.go,

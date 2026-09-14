@@ -179,7 +179,11 @@ func (v *views) legalHolds(ctx context.Context) ([]screens.LegalHold, error) {
 // torn down is a place that no longer exists, and one still standing is a place
 // a service is running on.
 func (v *views) environments(ctx context.Context) ([]screens.Environment, error) {
-	rows := []screens.Environment{environmentView(v.p.production)}
+	production, err := v.environmentView(ctx, v.p.production)
+	if err != nil {
+		return nil, err
+	}
+	rows := []screens.Environment{production}
 	items, err := item.All(ctx, v.p.d.pool)
 	if err != nil {
 		return nil, err
@@ -192,17 +196,13 @@ func (v *views) environments(ctx context.Context) ([]screens.Environment, error)
 		if !found || !env.Live() {
 			continue
 		}
-		rows = append(rows, environmentView(env))
+		view, err := v.environmentView(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, view)
 	}
 	return rows, nil
-}
-
-func environmentView(env environment.Environment) screens.Environment {
-	view := screens.Environment{ID: env.ID, Kind: string(env.Kind)}
-	for _, target := range env.Targets {
-		view.Targets = append(view.Targets, target.Address)
-	}
-	return view
 }
 
 // rolePrompts is the version in force per role and any version awaiting the

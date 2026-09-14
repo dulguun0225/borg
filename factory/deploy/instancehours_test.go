@@ -57,6 +57,13 @@ func TestTheThreeFleetsSpansAreSummedIntoInstanceHours(t *testing.T) {
 	if !one.Priced.InForce || one.Priced.Amount != 8 || one.Priced.Rate != 0.5 {
 		t.Errorf("the target converted to %+v, want each span converted at the rate in force at its write", one.Priced)
 	}
+	reading, err := deploy.InstanceHoursReadingForRelease(ctx, pool, r.ID)
+	if err != nil {
+		t.Fatalf("InstanceHoursReadingForRelease: %v", err)
+	}
+	if reading.Hours != 16 || reading.Amount != 8 || !reading.Priced {
+		t.Errorf("release hours reading = %+v, want 16 hours and 8 priced", reading)
+	}
 	for _, fleet := range []deploy.Fleet{one.Fleets.Release, one.Fleets.Control, one.Fleets.Kept} {
 		if fleet.TornDownAt == "" {
 			t.Errorf("a fleet torn down names no date: %+v", fleet)

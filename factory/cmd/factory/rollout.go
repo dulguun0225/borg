@@ -146,6 +146,7 @@ func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick)
 		StrategyPicked:      strategyOf(pick),
 		ControlReleaseID:    controlReleaseID,
 		ControlBuildID:      controlBuildID,
+		InstanceHourRate:    instanceHourRate(c.svc),
 		DeliveredReleaseIDs: delivered,
 		Credential:          p.d.credential,
 		WayInAddress:        p.d.wayInAddress,

@@ -67,11 +67,7 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		if err != nil {
 			return nil, err
 		}
-		ceiling := p.d.candidateCeiling
-		if p.production.MaxConcurrentCandidateEnvironments > 0 &&
-			(ceiling <= 0 || p.production.MaxConcurrentCandidateEnvironments < ceiling) {
-			ceiling = p.production.MaxConcurrentCandidateEnvironments
-		}
+		ceiling := p.production.MaxConcurrentCandidateEnvironments
 		if ceiling > 0 && live >= ceiling {
 			standing = append(standing, gate.HoldNoRoomOnThePlatform)
 		}

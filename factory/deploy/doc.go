@@ -32,7 +32,10 @@
 // read.go is every read that takes the pool and not the writer: [Get],
 // [Targets], [CompleteOnEvery], [Current], [CurrentOnTarget],
 // [PreviousOnTarget], [BackfillComplete], [ByRelease], [Unfinished],
-// [Rollbacks] and [NewestRollback]. queue.go is [QueueCandidate],
+// [Rollbacks], [NewestRollback], [HoursReading],
+// [InstanceHoursReadingForRelease] and [InstanceHoursForRelease].
+// environmentremovalread.go is [EnvironmentTargetRemovalComplete], the read
+// supplied when an environment target is removed. queue.go is [QueueCandidate],
 // [QueueReadings], and [QueueOrder], the release-number deploy queue. bake.go is the hold between
 // one target and the next: [Bake] as an interface the caller implements,
 // [DefaultBakePoll], and the hold itself. configuration.go is what the deployer
@@ -324,6 +327,9 @@
 // ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md (C1347).
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // (C2065).
+// The three fleet spans and the per-release instance-hours reading are
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md
+// (C1689).
 //
 // [DeleteSnapshot] deleting the copy and writing the deletion on the record is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md

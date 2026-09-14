@@ -1,6 +1,7 @@
 package environment_test
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -17,7 +18,10 @@ var deployer = record.Actor{Kind: record.KindComponent, Key: "deployer", Basis: 
 // dependency at the release that was current then, and the versions of the seed
 // and of the non-production value set.
 var composition = environment.Composition{
-	From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one", Addresses: []environment.ComposedAddress{{Interface: "health", Address: "https://dep.example/api,west"}}}},
+	From: []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one", Addresses: []environment.ComposedAddress{
+		{Interface: "health", Address: "https://dep.example/api,west"},
+		{Interface: "metrics", Address: "https://dep.example/metrics"},
+	}}},
 	SeedVersion:     "seed_one",
 	SeedDeclaration: "seed rows",
 	ValueSetVersion: "values_one",
@@ -66,7 +70,10 @@ func TestACandidatesEnvironmentIsComposedRecomposedAndTornDown(t *testing.T) {
 	// Recomposed: the dependencies' current releases have moved since, and so has
 	// the seed the store was built from.
 	moved := environment.Composition{
-		From:            []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two", Addresses: []environment.ComposedAddress{{Interface: "health", Address: "https://dep.example/api,west"}}}},
+		From: []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_two", Addresses: []environment.ComposedAddress{
+			{Interface: "health", Address: "https://dep.example/api,west"},
+			{Interface: "metrics", Address: "https://dep.example/metrics"},
+		}}},
 		SeedVersion:     "seed_two",
 		ValueSetVersion: "values_one",
 	}
@@ -178,6 +185,35 @@ func TestTheCandidateWriterRefusesWhatIsNotACandidates(t *testing.T) {
 	// until the candidate deploy gate approves.
 	if _, found, err := environment.ForItem(ctx, pool, "it_none"); err != nil || found {
 		t.Errorf("ForItem on an item with no environment = found %v, %v", found, err)
+	}
+}
+
+type compositionReader struct {
+	candidate bool
+	running   bool
+}
+
+func (r compositionReader) ReleaseRunning(context.Context, string, string) (bool, error) {
+	return r.running, nil
+}
+
+func (r compositionReader) Candidate(context.Context, string) (bool, error) {
+	return r.candidate, nil
+}
+
+func TestCompositionRefusesAReleaseNotRunningOrAnotherServiceCandidate(t *testing.T) {
+	ctx, pool, _, token := newTable(t)
+	from := environment.Composition{From: []environment.Composed{{ServiceID: "svc_dep", ReleaseID: "rel_one"}}}
+	compose := func(reader compositionReader) error {
+		_, err := environment.NewCandidates(pool, token, reader).Compose(ctx, deployer,
+			"it_validation", theProject, oneTarget("/srv/candidate"), credential, from)
+		return err
+	}
+	if err := compose(compositionReader{candidate: true, running: true}); !errors.Is(err, environment.ErrDependencyIsCandidate) {
+		t.Errorf("composition over another service's candidate = %v, want ErrDependencyIsCandidate", err)
+	}
+	if err := compose(compositionReader{}); !errors.Is(err, environment.ErrDependencyReleaseNotRunning) {
+		t.Errorf("composition over a release not running on its dependency = %v, want ErrDependencyReleaseNotRunning", err)
 	}
 }
 

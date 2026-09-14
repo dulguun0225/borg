@@ -74,6 +74,15 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, projectName s
 		if !found {
 			return Installed{}, fmt.Errorf("policy: project %s has no production environment", proj.ID)
 		}
+		if production.MaxConcurrentCandidateEnvironments == 0 && candidateCeiling > 0 {
+			if _, err := f.SetMaxConcurrentCandidateEnvironments(ctx, actor, production.ID, candidateCeiling); err != nil {
+				return Installed{}, err
+			}
+			production, err = environment.Get(ctx, f.pool, production.ID)
+			if err != nil {
+				return Installed{}, err
+			}
+		}
 		version, err := f.newest(ctx, actor)
 		if err != nil {
 			return Installed{}, err
@@ -87,6 +96,10 @@ func (f *Factory) Install(ctx context.Context, actor record.Actor, projectName s
 	}
 	if candidateCeiling > 0 {
 		version, err = f.SetMaxConcurrentCandidateEnvironments(ctx, actor, created.Production.ID, candidateCeiling)
+		if err != nil {
+			return Installed{}, err
+		}
+		created.Production, err = environment.Get(ctx, f.pool, created.Production.ID)
 		if err != nil {
 			return Installed{}, err
 		}

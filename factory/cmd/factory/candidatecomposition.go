@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/dulguun0225/borg/factory/decisionlog"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
+	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -35,6 +37,46 @@ func (p *path) Dependencies(ctx context.Context, itemID, serviceID, productionID
 		dependencies = append(dependencies, dependency)
 	}
 	return dependencies, nil
+}
+
+// ReleaseRunning and Candidate are the reads environment uses to validate a
+// persisted composition. They stay in the command composition because release
+// and item records are owned by other packages.
+func (p *path) ReleaseRunning(ctx context.Context, serviceID, releaseID string) (bool, error) {
+	svc, err := service.Get(ctx, p.d.pool, serviceID)
+	if err != nil {
+		return false, err
+	}
+	production, found, err := environment.Production(ctx, p.d.pool, svc.ProjectID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, fmt.Errorf("factory: service %s has no production environment", serviceID)
+	}
+	current, found, err := deploy.Current(ctx, p.d.pool, serviceID, production.ID,
+		serviceAddresses(production, svc))
+	return found && current.ReleaseID == releaseID, err
+}
+
+func (p *path) Candidate(ctx context.Context, serviceID string) (bool, error) {
+	items, err := item.All(ctx, p.d.pool)
+	if err != nil {
+		return false, err
+	}
+	for _, one := range items {
+		if one.ServiceID != serviceID {
+			continue
+		}
+		env, found, err := environment.ForItem(ctx, p.d.pool, one.ID)
+		if err != nil {
+			return false, err
+		}
+		if found && env.Kind == environment.KindCandidate && env.Live() {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (p *path) SeedVersions(ctx context.Context, serviceID string) ([]deploy.Version, error) {
@@ -100,3 +142,4 @@ func describeComposition(composed []environment.Composed) string {
 
 var _ deploy.CandidateSource = (*path)(nil)
 var _ deploy.WaitLog = candidateWaitLog{}
+var _ environment.CompositionReader = (*path)(nil)

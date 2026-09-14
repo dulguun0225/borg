@@ -63,6 +63,9 @@ func (v *views) numbers(ctx context.Context, who principal.Principal) (screens.N
 	if out.IntentOutcomes, err = v.intentOutcomes(ctx); err != nil {
 		return out, err
 	}
+	if out.HostingHours, out.MutationScores, out.CriteriaCounts, err = v.hostingAndCriteria(ctx, services, releases); err != nil {
+		return out, err
+	}
 	return out, nil
 }
 

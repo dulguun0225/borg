@@ -59,6 +59,27 @@ func TestCycleHoursAndEnvironmentHoursSumAcrossCycles(t *testing.T) {
 	}
 }
 
+func TestCompositionHoursUsesTheRecordedRunStart(t *testing.T) {
+	began := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	cycle := environment.Cycle{ID: "ecy_comp", BeganAt: record.FormatTime(began),
+		RunCouldStartAt: record.FormatTime(began.Add(90 * time.Minute))}
+	hours, err := cycle.CompositionHours()
+	if err != nil {
+		t.Fatalf("CompositionHours: %v", err)
+	}
+	if hours != 1.5 {
+		t.Errorf("CompositionHours = %v, want 1.5", hours)
+	}
+	incomplete := environment.Cycle{ID: "ecy_incomplete", BeganAt: record.FormatTime(began)}
+	zero, err := incomplete.CompositionHours()
+	if err != nil {
+		t.Fatalf("CompositionHours of incomplete cycle: %v", err)
+	}
+	if zero != 0 {
+		t.Error("an incomplete cycle reports composition time")
+	}
+}
+
 // TestDDLListsEveryReason keeps the CHECK constraint and [environment.Reasons]
 // from disagreeing: the constraint is SQL text rather than built from the
 // slice, so this is what says they still name the same reasons.

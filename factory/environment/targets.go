@@ -54,8 +54,8 @@ func splitTargets(stored string) ([]Target, error) {
 	return targets, nil
 }
 
-// What a candidate's environment was composed from is stored one entry per line:
-// service id, release id, interface and encoded address.
+// What a candidate's environment was composed from is stored one dependency per
+// line: service id, release id, then each interface and encoded address pair.
 //
 // The seed version and the value-set version are columns of their own rather than
 // lines here, being one each rather than a list.
@@ -63,12 +63,11 @@ func splitTargets(stored string) ([]Target, error) {
 func joinComposed(composedFrom []Composed) string {
 	lines := make([]string, 0, len(composedFrom))
 	for _, d := range composedFrom {
+		fields := []string{d.ServiceID, d.ReleaseID}
 		for _, address := range d.Addresses {
-			lines = append(lines, d.ServiceID+" "+d.ReleaseID+" "+url.QueryEscape(address.Interface)+" "+url.QueryEscape(address.Address))
+			fields = append(fields, url.QueryEscape(address.Interface), url.QueryEscape(address.Address))
 		}
-		if len(d.Addresses) == 0 {
-			lines = append(lines, d.ServiceID+" "+d.ReleaseID)
-		}
+		lines = append(lines, strings.Join(fields, " "))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -79,17 +78,13 @@ func splitComposed(stored string) ([]Composed, error) {
 	}
 	var composedFrom []Composed
 	for _, line := range strings.Split(stored, "\n") {
-		serviceID, rest, ok := strings.Cut(line, " ")
-		releaseID, rest, hasRelease := strings.Cut(rest, " ")
-		if !ok || !hasRelease || serviceID == "" || releaseID == "" {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] == "" || fields[1] == "" || (len(fields)-2)%2 != 0 {
 			return nil, fmt.Errorf("environment: %q is not a service id and a release id", line)
 		}
-		var addresses []ComposedAddress
-		if rest != "" {
-			interfaceName, storedAddress, hasAddress := strings.Cut(rest, " ")
-			if !hasAddress || interfaceName == "" || storedAddress == "" {
-				return nil, fmt.Errorf("environment: %q has an invalid composed address", line)
-			}
+		addresses := make([]ComposedAddress, 0, (len(fields)-2)/2)
+		for n := 2; n < len(fields); n += 2 {
+			interfaceName, storedAddress := fields[n], fields[n+1]
 			interfaceName, err := url.QueryUnescape(interfaceName)
 			if err != nil || interfaceName == "" {
 				return nil, fmt.Errorf("environment: %q has an invalid composed interface", line)
@@ -100,7 +95,7 @@ func splitComposed(stored string) ([]Composed, error) {
 			}
 			addresses = append(addresses, ComposedAddress{Interface: interfaceName, Address: address})
 		}
-		composedFrom = append(composedFrom, Composed{ServiceID: serviceID, ReleaseID: releaseID, Addresses: addresses})
+		composedFrom = append(composedFrom, Composed{ServiceID: fields[0], ReleaseID: fields[1], Addresses: addresses})
 	}
 	return composedFrom, nil
 }

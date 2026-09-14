@@ -1,6 +1,7 @@
 package environment_test
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -74,7 +75,9 @@ func TestTheShareIsReadOverTheServicesOwnSet(t *testing.T) {
 // address, refused while any service's deploy record marks that target complete
 // for a release, so the deployer's removal on that one target comes first.
 func TestATargetLeavesTheFieldTheWayAnEnvironmentIsWithdrawn(t *testing.T) {
-	ctx, pool, w, _ := newTable(t)
+	ctx, pool, _, token := newTable(t)
+	removals := targetRemovals{"/srv/targets/two": true}
+	w := environment.NewWriter(pool, token, removals)
 
 	created, err := w.Create(ctx, owner, productionSpec(
 		environment.Target{Address: "/srv/targets/one"},
@@ -85,14 +88,15 @@ func TestATargetLeavesTheFieldTheWayAnEnvironmentIsWithdrawn(t *testing.T) {
 	}
 
 	// One deploy record still marks that target complete for a release.
-	err = w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/two", 1)
+	err = w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/two")
 	if !errors.Is(err, environment.ErrSoftwareStandsOnIt) {
 		t.Errorf("removing a target software still stands on = %v, want ErrSoftwareStandsOnIt", err)
 	}
-	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/three", 0); !errors.Is(err, environment.ErrTargetNotHeld) {
+	removals["/srv/targets/two"] = false
+	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/three"); !errors.Is(err, environment.ErrTargetNotHeld) {
 		t.Errorf("removing an address the environment does not hold = %v, want ErrTargetNotHeld", err)
 	}
-	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/two", 0); err != nil {
+	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/two"); err != nil {
 		t.Fatalf("RemoveTarget: %v", err)
 	}
 
@@ -106,7 +110,7 @@ func TestATargetLeavesTheFieldTheWayAnEnvironmentIsWithdrawn(t *testing.T) {
 
 	// The last target may not go: an environment with no address is one no
 	// deploy can reach, so an environment down to one is withdrawn instead.
-	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/one", 0); !errors.Is(err, environment.ErrTargetsEmpty) {
+	if err := w.RemoveTarget(ctx, owner, created.ID, "/srv/targets/one"); !errors.Is(err, environment.ErrTargetsEmpty) {
 		t.Errorf("removing the last target = %v, want ErrTargetsEmpty", err)
 	}
 
@@ -123,6 +127,12 @@ func TestATargetLeavesTheFieldTheWayAnEnvironmentIsWithdrawn(t *testing.T) {
 	if !slices.Equal(read.Addresses(), []string{"/srv/targets/one", "/srv/targets/three"}) {
 		t.Errorf("the targets read back as %v, want the new one last", read.Addresses())
 	}
+}
+
+type targetRemovals map[string]bool
+
+func (r targetRemovals) DeployComplete(_ context.Context, _, address string) (bool, error) {
+	return r[address], nil
 }
 
 // TestAPersistentEnvironmentIsWithdrawnByAnOwner: it ends by an owner's

@@ -66,7 +66,8 @@ func (p *path) dropItem(ctx context.Context, actor record.Actor, id string) erro
 		Target: p.d.targets.at(env.Targets[0].Address), Environments: p.candidates,
 		EnvironmentID: env.ID, Address: env.Targets[0].Address, ServiceName: svc.Name,
 		Principal: deployerPrincipal, Credential: p.d.credential, Actor: deployActor,
-		Reason: environment.ReasonDropped,
+		Reason:          environment.ReasonDropped,
+		EnvironmentRate: environmentRate(svc),
 	}); err != nil {
 		return err
 	}

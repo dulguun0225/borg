@@ -69,6 +69,14 @@ type Cycle struct {
 	ConvertedAmount float64
 }
 
+// HoursReading is the environment-hours total and the converted amount that
+// was fixed on the cycles at their teardown writes.
+type HoursReading struct {
+	Hours  float64
+	Amount float64
+	Priced bool
+}
+
 // Open is whether the cycle has not been torn down. An environment has at most
 // one open cycle, which the partial unique index in [DDL] is what enforces.
 func (c Cycle) Open() bool { return c.TornDownAt == "" }
@@ -103,6 +111,47 @@ func EnvironmentHours(cycles []Cycle, now time.Time) (float64, error) {
 		total += hours
 	}
 	return total, nil
+}
+
+// CompositionHours is the recorded span from composition start until the run
+// could start. An open or incomplete span has no composition time yet.
+func (c Cycle) CompositionHours() (float64, error) {
+	if c.RunCouldStartAt == "" {
+		return 0, nil
+	}
+	began, err := record.ParseTime(c.BeganAt)
+	if err != nil {
+		return 0, fmt.Errorf("environment: the start of cycle %s: %w", c.ID, err)
+	}
+	ready, err := record.ParseTime(c.RunCouldStartAt)
+	if err != nil {
+		return 0, fmt.Errorf("environment: the run start of cycle %s: %w", c.ID, err)
+	}
+	return ready.Sub(began).Hours(), nil
+}
+
+// HoursForItem reads the candidate environment's recorded hours for one item.
+func HoursForItem(ctx context.Context, pool *pgxpool.Pool, itemID string, now time.Time) (HoursReading, error) {
+	env, found, err := ForItem(ctx, pool, itemID)
+	if err != nil || !found {
+		return HoursReading{}, err
+	}
+	cycles, err := Cycles(ctx, pool, env.ID)
+	if err != nil {
+		return HoursReading{}, err
+	}
+	hours, err := EnvironmentHours(cycles, now)
+	if err != nil {
+		return HoursReading{}, err
+	}
+	reading := HoursReading{Hours: hours, Priced: len(cycles) > 0}
+	for _, cycle := range cycles {
+		if !cycle.Rate.InForce {
+			reading.Priced = false
+		}
+		reading.Amount += cycle.ConvertedAmount
+	}
+	return reading, nil
 }
 
 // TearDown ends the cycle in progress and, where the reason is one of the three

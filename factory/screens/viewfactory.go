@@ -97,9 +97,18 @@ type LegalHold struct {
 
 // Environment is production, a customer's, or a candidate's.
 type Environment struct {
-	ID      string
-	Kind    string
-	Targets []string
+	ID                            string
+	Kind                          string
+	ItemID                        string
+	Targets                       []string
+	CompositionHours              float64
+	EnvironmentHours              float64
+	EnvironmentAmount             float64
+	EnvironmentAmountInForce      bool
+	StandingCandidateEnvironments int
+	HeldCandidateEnvironments     int
+	Room                          int
+	RoomReported                  bool
 }
 
 // FleetEntry is a model at an effort in a role with a scope: the fleet
@@ -189,6 +198,9 @@ type Numbers struct {
 	// grouped from reports, and nothing for one the factory raised — absence
 	// being the answer and not a gap.
 	IntentOutcomes []IntentOutcome
+	HostingHours   []HostingHours
+	MutationScores []MutationScore
+	CriteriaCounts []CriteriaCount
 }
 
 // IntentOutcome is one closed intent's outcome as the close computed it,

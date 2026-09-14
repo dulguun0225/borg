@@ -84,15 +84,16 @@ func CloseCandidateRunWait(ctx context.Context, log WaitLog, actor record.Actor,
 // candidate. The deployer stops the target before it writes the environment
 // record.
 type CandidateTeardown struct {
-	Target        targetStopper
-	Environments  environmentTeardowns
-	EnvironmentID string
-	Address       string
-	ServiceName   string
-	Principal     principal.Principal
-	Credential    secretref.Ref
-	Actor         record.Actor
-	Reason        environment.Reason
+	Target          targetStopper
+	Environments    environmentTeardowns
+	EnvironmentID   string
+	Address         string
+	ServiceName     string
+	Principal       principal.Principal
+	Credential      secretref.Ref
+	Actor           record.Actor
+	Reason          environment.Reason
+	EnvironmentRate environment.Rate
 }
 
 type targetStopper interface {
@@ -112,5 +113,5 @@ func TearDownCandidate(ctx context.Context, t CandidateTeardown) error {
 	if _, err := t.Target.Stop(ctx, t.Principal, t.ServiceName, t.Credential); err != nil {
 		return err
 	}
-	return t.Environments.TearDown(ctx, t.Actor, t.EnvironmentID, t.Reason, environment.Rate{})
+	return t.Environments.TearDown(ctx, t.Actor, t.EnvironmentID, t.Reason, t.EnvironmentRate)
 }

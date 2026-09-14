@@ -87,6 +87,9 @@ type Performance struct {
 	// ControlBuildID is the build that release's control runs, which the record
 	// names beside the release and the instances running it.
 	ControlBuildID string
+	// InstanceHourRate is the service rate in force when a production fleet is
+	// torn down. It is absent for candidate deploys and for an unauthored rate.
+	InstanceHourRate Priced
 	// DeliveredReleaseIDs is a revert's deploy listing the releases it delivers.
 	DeliveredReleaseIDs []string
 	// Backfill is what a backfill item's release copies between, and is empty on
@@ -256,6 +259,10 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 		if err := w.ReachTarget(ctx, d.ID, reach.Address); err != nil {
 			return d, err
 		}
+		previous, previousTarget, err := previousReleaseTarget(ctx, w, p, d, reach.Address)
+		if err != nil {
+			return d, err
+		}
 
 		if p.What.Removal() {
 			// What goes on the record is what the seam reported: the one outcome
@@ -270,6 +277,9 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 			if err := w.CompleteTarget(ctx, d.ID, reach.Address, ended.Replacement); err != nil {
 				return d, err
 			}
+			if err := tearDownPreviousRelease(ctx, w, p, previous, previousTarget); err != nil {
+				return d, err
+			}
 			if err := undoTarget(ctx, w, p, d, reach.Address); err != nil {
 				return d, err
 			}
@@ -281,6 +291,9 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 			return d, refused(ctx, w, p, d, n, reach, err)
 		}
 		if err := w.CompleteTarget(ctx, d.ID, reach.Address, placed.Replacement); err != nil {
+			return d, err
+		}
+		if err := tearDownPreviousRelease(ctx, w, p, previous, previousTarget); err != nil {
 			return d, err
 		}
 
@@ -309,19 +322,6 @@ func perform(ctx context.Context, w *Writer, p Performance, d Deploy) (Deploy, e
 	}
 	d.Status = StatusComplete
 	return d, nil
-}
-
-type controlledTarget interface {
-	DeployWithControl(context.Context, principal.Principal, targetseam.Deployment) (targetseam.Placement, error)
-}
-
-func place(ctx context.Context, p Performance, reach Reach, d targetseam.Deployment) (targetseam.Placement, error) {
-	if p.IntoProduction && p.StrategyPicked == StrategyWithControl && reach.ServesAShare {
-		if target, ok := reach.Target.(controlledTarget); ok {
-			return target.DeployWithControl(ctx, p.Principal, d)
-		}
-	}
-	return reach.Target.Deploy(ctx, p.Principal, d)
 }
 
 // beginning is what [Writer.Start] is given, assembled from the performance so

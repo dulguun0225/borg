@@ -63,6 +63,9 @@ func (v *views) serviceSummary(ctx context.Context, svc service.Service) (screen
 		}
 		summary.CurrentRelease = rel.Number
 	}
+	if summary.KeptFleetStop, err = v.keptFleetStop(ctx, svc, v.p.production.ID); err != nil {
+		return summary, false, err
+	}
 	newest, found, err := newestWindow(ctx, v.p.d.pool, svc.ID)
 	if err != nil {
 		return summary, false, err
@@ -90,6 +93,9 @@ func (v *views) ServiceOn(ctx context.Context, _ principal.Principal, serviceID,
 	view := screens.Service{
 		ServiceID: svc.ID, EnvironmentID: environmentID,
 		Unmeasured: unmeasuredFields(svc) != "",
+	}
+	if view.KeptFleetStop, err = v.keptFleetStop(ctx, svc, environmentID); err != nil {
+		return screens.Service{}, err
 	}
 
 	env, err := environment.Get(ctx, v.p.d.pool, environmentID)
@@ -141,7 +147,7 @@ func (v *views) ServiceOn(ctx context.Context, _ principal.Principal, serviceID,
 		return screens.Service{}, err
 	}
 	for _, one := range checks {
-		if one.Subject != svc.ID && one.Subject != svc.Name {
+		if !checkBelongsTo(one, svc, env) {
 			continue
 		}
 		view.LastChecks = append(view.LastChecks, screens.LastCheck{
@@ -149,6 +155,18 @@ func (v *views) ServiceOn(ctx context.Context, _ principal.Principal, serviceID,
 			IntervalSeconds: int64(one.Interval / time.Second),
 			FurtherPassOwed: one.FurtherPassOwed(),
 		})
+	}
+	if v.p.d.driftdetector != nil {
+		own, err := driftdetector.LastChecks(ctx, v.p.d.driftdetector, svc.ID)
+		if err != nil {
+			return screens.Service{}, err
+		}
+		for _, one := range own {
+			view.LastChecks = append(view.LastChecks, screens.LastCheck{
+				Component: "drift detector", Checks: one.Target, LastPass: one.At,
+				IntervalSeconds: int64(one.Interval / time.Second), FurtherPassOwed: one.FurtherPassOwed,
+			})
+		}
 	}
 
 	if view.Windows, view.EmissionVersion, err = v.watchedFor(ctx, svc); err != nil {
@@ -161,6 +179,32 @@ func (v *views) ServiceOn(ctx context.Context, _ principal.Principal, serviceID,
 		return screens.Service{}, err
 	}
 	return view, nil
+}
+
+func (v *views) keptFleetStop(ctx context.Context, svc service.Service, environmentID string) (*screens.KeptFleetStop, error) {
+	if !svc.MaxConcurrentKeptFleets.Present {
+		return nil, nil
+	}
+	count, err := deploy.KeptFleets(ctx, v.p.d.pool, svc.ID, environmentID)
+	if err != nil {
+		return nil, err
+	}
+	if float64(count) < svc.MaxConcurrentKeptFleets.Number {
+		return nil, nil
+	}
+	return &screens.KeptFleetStop{Count: count, Limit: int(svc.MaxConcurrentKeptFleets.Number)}, nil
+}
+
+func checkBelongsTo(check lastcheck.LastCheck, svc service.Service, env environment.Environment) bool {
+	if check.Subject == svc.ID || check.Subject == svc.Name || check.Subject == env.ID {
+		return true
+	}
+	for _, target := range serviceTargets(env, svc) {
+		if check.Subject == target.Address {
+			return true
+		}
+	}
+	return false
 }
 
 // targetsOf is one row per target of the environment the service runs on:

@@ -17,6 +17,7 @@ import (
 	"github.com/dulguun0225/borg/factory/gate"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/mergequeue"
+	"github.com/dulguun0225/borg/factory/project"
 	"github.com/dulguun0225/borg/factory/release"
 )
 
@@ -424,7 +425,18 @@ func TestThePriorityReordersTheQueue(t *testing.T) {
 // afterwards is one row per wait and not one per pass that met the condition.
 func TestThePlatformWithNoRoomWaits(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
-	d.candidateCeiling = 1
+	prj, found, err := project.ByName(ctx, d.pool, d.project)
+	if err != nil || !found {
+		t.Fatalf("reading the installed project: found %v, %v", found, err)
+	}
+	production, found, err := environment.Production(ctx, d.pool, prj.ID)
+	if err != nil || !found {
+		t.Fatalf("reading the installed production environment: found %v, %v", found, err)
+	}
+	if _, err := newFactory(d.pool, d.token).SetMaxConcurrentCandidateEnvironments(ctx,
+		owner(t, ctx, d.pool, d.token, d.human), production.ID, 1); err != nil {
+		t.Fatalf("authoring the production room: %v", err)
+	}
 
 	res, err := run(ctx, d, of(theStatement, theSecondStatement))
 	if err != nil {

@@ -96,11 +96,7 @@ func (p *path) candidateEnvironment(ctx context.Context, c *candidate) error {
 	if err != nil {
 		return err
 	}
-	ceiling := d.candidateCeiling
-	if p.production.MaxConcurrentCandidateEnvironments > 0 &&
-		(ceiling <= 0 || p.production.MaxConcurrentCandidateEnvironments < ceiling) {
-		ceiling = p.production.MaxConcurrentCandidateEnvironments
-	}
+	ceiling := p.production.MaxConcurrentCandidateEnvironments
 	if ceiling > 0 && live >= ceiling {
 		// The condition is recomputed at every firing, so a pass that meets it
 		// again writes no second row about one wait: what a reader of the log

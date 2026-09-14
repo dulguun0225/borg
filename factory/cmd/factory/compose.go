@@ -46,7 +46,7 @@ import (
 // needs the one run composes rather than a second composition to keep in step
 // with it.
 func compose(ctx context.Context, d deps) (*path, error) {
-	if d.candidateCeiling < 1 {
+	if d.install && d.candidateCeiling < 1 {
 		return nil, fmt.Errorf("factory: the platform's room for candidate environments is %d, and a run needs one",
 			d.candidateCeiling)
 	}
@@ -96,7 +96,6 @@ func compose(ctx context.Context, d deps) (*path, error) {
 		Builds:        buildRecordWriter{writer: p.builds, actor: buildActor},
 		ShippedBundle: factoryVersion,
 	})
-	p.candidates = environment.NewCandidates(d.pool, d.token)
 	// Decomposition reads every rollback hold standing itself, at each write,
 	p.decomposition.Holds = rollbackHoldsSeam{p: p}
 	// Retiring a service is an owner's write that calls the deployer, and the
@@ -118,6 +117,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	}
 	p.production = installed.Production
 	p.projectID = installed.Project.ID
+	p.candidates = environment.NewCandidates(d.pool, d.token, p)
 	p.scoreVersion = scoreVersion.ID
 	p.scoreBand = scoreVersion.BandWidthOrShipped()
 

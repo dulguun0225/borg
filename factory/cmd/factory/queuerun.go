@@ -198,7 +198,8 @@ func (p *path) tearDown(ctx context.Context, c *candidate) error {
 		Target: p.d.targets.at(c.environmentDir), Environments: p.candidates,
 		EnvironmentID: c.environmentID, Address: c.environmentDir, ServiceName: c.svc.Name,
 		Principal: deployerPrincipal, Credential: p.d.credential, Actor: deployActor,
-		Reason: environment.ReasonMerged,
+		Reason:          environment.ReasonMerged,
+		EnvironmentRate: environmentRate(c.svc),
 	}); err != nil {
 		return err
 	}

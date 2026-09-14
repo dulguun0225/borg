@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/people"
+	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
@@ -34,11 +35,15 @@ func (p *path) StartControl(context.Context, healthmonitor.Control) error { retu
 func (p *path) TearDownControl(ctx context.Context, c healthmonitor.Control) error {
 	target := p.d.targets.at(c.Target)
 	if local, ok := target.(*localtarget.Local); ok {
-		return local.StopControl(ctx, deployerPrincipal, c.ServiceName)
-	}
-	return target.ShiftTraffic(ctx, deployerPrincipal, targetseam.Shift{
+		if err := local.StopControl(ctx, deployerPrincipal, c.ServiceName); err != nil {
+			return err
+		}
+	} else if err := target.ShiftTraffic(ctx, deployerPrincipal, targetseam.Shift{
 		Service: c.ServiceName, Build: c.BuildID, Share: 1, Credential: p.d.credential,
-	})
+	}); err != nil {
+		return err
+	}
+	return p.tearDownControlFleet(ctx, c)
 }
 
 // TearDownKept ends the local kept process after the last window that could
@@ -46,9 +51,60 @@ func (p *path) TearDownControl(ctx context.Context, c healthmonitor.Control) err
 func (p *path) TearDownKept(ctx context.Context, k healthmonitor.Kept) error {
 	target := p.d.targets.at(k.Target)
 	if local, ok := target.(*localtarget.Local); ok {
-		return local.StopKept(ctx, deployerPrincipal, k.ServiceName)
+		if err := local.StopKept(ctx, deployerPrincipal, k.ServiceName); err != nil {
+			return err
+		}
 	}
-	return nil
+	return p.tearDownKeptFleet(ctx, k)
+}
+
+func (p *path) tearDownControlFleet(ctx context.Context, c healthmonitor.Control) error {
+	dep, target, err := p.fleetTarget(ctx, c.DeployID, c.Target)
+	if err != nil || target.Fleets.Control.Instances == 0 || target.Fleets.Control.TornDownAt != "" {
+		return err
+	}
+	hours, err := deploy.Hours(dep.At, record.Now(), target.Fleets.Control.Instances)
+	if err != nil {
+		return err
+	}
+	svc, err := p.serviceOf(ctx, c.ServiceID)
+	if err != nil {
+		return err
+	}
+	return p.deploys.TearDownControl(ctx, c.DeployID, c.Target, hours, instanceHourRate(svc))
+}
+
+func (p *path) tearDownKeptFleet(ctx context.Context, k healthmonitor.Kept) error {
+	dep, target, err := p.fleetTarget(ctx, k.DeployID, k.Target)
+	if err != nil || target.Fleets.Kept.Instances == 0 || target.Fleets.Kept.TornDownAt != "" {
+		return err
+	}
+	hours, err := deploy.Hours(dep.At, record.Now(), target.Fleets.Kept.Instances)
+	if err != nil {
+		return err
+	}
+	svc, err := p.serviceOf(ctx, k.ServiceID)
+	if err != nil {
+		return err
+	}
+	return p.deploys.TearDownKept(ctx, k.DeployID, k.Target, hours, instanceHourRate(svc))
+}
+
+func (p *path) fleetTarget(ctx context.Context, deployID, address string) (deploy.Deploy, deploy.Target, error) {
+	dep, err := deploy.Get(ctx, p.d.pool, deployID)
+	if err != nil {
+		return deploy.Deploy{}, deploy.Target{}, err
+	}
+	targets, err := deploy.Targets(ctx, p.d.pool, deployID)
+	if err != nil {
+		return deploy.Deploy{}, deploy.Target{}, err
+	}
+	for _, target := range targets {
+		if target.Address == address {
+			return dep, target, nil
+		}
+	}
+	return deploy.Deploy{}, deploy.Target{}, fmt.Errorf("factory: deploy %s has no target %s", deployID, address)
 }
 
 // RollBack returns traffic to the kept fleet where the failed deploy left one;
@@ -73,6 +129,7 @@ func (p *path) RollBack(ctx context.Context, r healthmonitor.Rollback) error {
 		ServiceName:        r.ServiceName,
 		EnvironmentID:      r.EnvironmentID,
 		What:               deploy.OfRelease(r.ToReleaseID, r.ToBuildID),
+		InstanceHourRate:   instanceHourRate(svc),
 		IntoProduction:     true,
 		StrategyPicked:     deploy.StrategyWithoutControl,
 		Credential:         p.d.credential,

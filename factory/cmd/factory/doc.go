@@ -163,4 +163,13 @@
 
 // ../../../end-goal/how-the-factory-works/10-fleet/05-an-account-that-runs-out-is-a-hold.md
 // (C2470, C2472).
+//
+// The Factory read models and their owning records are defined by
+// ../../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
+// (C1509, C1516), ../../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md
+// (C1689), ../../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// (C2290), and the screen scope rules in
+// ../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// and ../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
+// (C2641, C2684).
 package main

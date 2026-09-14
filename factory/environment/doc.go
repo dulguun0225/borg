@@ -9,8 +9,9 @@
 // [Production], [RefuseUnlessComposable], [ForItem], [CountLiveCandidates] and
 // [TornDownCandidates]. writer.go is the persistent
 // kinds' writer: [Writer] and [NewWriter] with [Writer.Create], [Writer.Withdraw],
-// [Writer.AddTarget] and [Writer.RemoveTarget], the transaction-taking functions
-// beside each ([Insert], [Withdraw], [AddTarget], [RemoveTarget]),
+// [Writer.AddTarget] and [Writer.RemoveTarget], [TargetRemovalReader], the
+// transaction-taking functions beside each ([Insert], [Withdraw], [AddTarget],
+// [RemoveTarget]),
 // [SetMaxConcurrentCandidateEnvironments] and [SetStrategyDefault]. candidate.go is the candidate kind's
 // writer: [Candidates] and [NewCandidates] with [Candidates.Compose] and
 // [Candidates.Recompose], plus [Composition], [Composed] and [NameForItem].
@@ -18,8 +19,9 @@
 // [ParseValueSet].
 // cycle.go is the compose-and-reclaim cycle: [Reason] with [Reasons] and
 // [Reason.ForGood], [Rate], [Cycle] with [Cycle.Open] and [Cycle.Hours],
-// [EnvironmentHours], [Candidates.TearDown] and [Candidates.RunCouldStart], and
-// the read [Cycles]. targets.go is how the targets and the composition are
+// [Cycle.CompositionHours], [HoursReading], [HoursForItem], [EnvironmentHours],
+// [Candidates.TearDown] and [Candidates.RunCouldStart], and the read [Cycles].
+// targets.go is how the targets and the composition are
 // written into and read back out of one field each. threshold.go is
 // [SetGateThreshold] and [GateThreshold]. schema.go is [Table], [CycleTable],
 // [ThresholdTable], [IDPrefix], [CycleIDPrefix], [ThresholdIDPrefix] and [DDL].
@@ -47,10 +49,11 @@
 // it serves a share, and they are a field rather than records of their own:
 // nothing holds a reference to a target that has to survive an address change,
 // a deploy record being keyed by service and environment. [Writer.AddTarget]
-// appends and [Writer.RemoveTarget] removes, each refused while a deploy record
-// still marks that address complete for a release, and the last target may not
-// be removed — an environment with no address is one no deploy can reach, so an
-// environment down to one target is withdrawn instead of emptied.
+// appends and [Writer.RemoveTarget] removes, each refused while the supplied
+// deploy-removal reader says that address still has a completed deploy record
+// for a release, and the last target may not be removed — an environment with
+// no address is one no deploy can reach, so an environment down to one target
+// is withdrawn instead of emptied.
 //
 // The credential a deploy is performed with is a [secretref.Ref], so the record
 // names it and holds no value. The two persistent kinds also declare a
@@ -63,10 +66,10 @@
 // shape the design admits and nothing else. A candidate's environment declares
 // no platform of its own: it is composed on the platform its item's production
 // environment declares. [SetMaxConcurrentCandidateEnvironments] authors the
-// ceiling on production's record beside the platform it declares, one per
-// platform, and [CountLiveCandidates] is scoped to the production environment
-// named — an install whose projects run on two platforms adds neither count
-// across them. The project is required of a persistent kind and empty on a
+// platform's maximum concurrent candidate environments on production's record
+// beside the platform it declares, and [CountLiveCandidates] is scoped to that
+// record. Composition compares the live count with this field. The project is
+// required of a persistent kind and empty on a
 // candidate's, which belongs to the item rather than the project;
 // production is one record per project, enforced by a unique index on the
 // project where the kind is production.
@@ -132,10 +135,9 @@
 // where the threshold is unauthored the value in force is what the score
 // supplies, and the supplied value is a field of the score's own record.
 //
-// [CountLiveCandidates] is read against a ceiling that is not gate policy and
-// no parameter of an owner's own, so the number it is compared against belongs
-// to whatever composes the deployer and not to this package and not to package
-// gatepolicy. [TornDownCandidates] is the other half of the deployer's pass over
+// [CountLiveCandidates] is read against the maximum on the production record;
+// the command composition holds a candidate at Deploy to candidate environment
+// when the count reaches that field. [TornDownCandidates] is the other half of the deployer's pass over
 // a platform: what the records mark torn down, compared against what the
 // platform reports holding, is where a teardown that failed is found. Neither
 // caller is built — the pass is the deployer's, in the command-line interface.
@@ -155,7 +157,7 @@
 // (C1500, C1502) for reclamation and the four reasons a cycle ends;
 //
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
-// (C1503, C1513, C1514, C1515, C1517) for the compose timestamps, the
+// (C1503, C1513, C1514, C1515, C1516, C1517) for the compose timestamps, the
 // platform's room, and environment-hours; and the threshold's scope is
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
 // (C2233, C2234, C2246, C2253, C2254).
@@ -181,9 +183,7 @@
 // room, and a failed teardown remains eligible for the deployer's next pass.
 // These are the claims in
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1391, C1392, C1405, C1895),
-// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
-// (C1485), and
+// (C1391, C1392, C1405, C1895), and
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
 // (C1505, C1510).
 //

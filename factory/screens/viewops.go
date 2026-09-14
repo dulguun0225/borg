@@ -14,7 +14,8 @@ type ServiceSummary struct {
 	CurrentRelease int64
 	// Health is a short reading: "measured", "unmeasured", or "watched with
 	// no way to reach passed".
-	Health string
+	Health        string
+	KeptFleetStop *KeptFleetStop
 }
 
 // Service is [Views.ServiceOn]'s view: one service's own view on one
@@ -40,7 +41,14 @@ type Service struct {
 	Unmeasured bool
 	// Mitigation is nil where none stands on any target of this service on
 	// this environment.
-	Mitigation *Mitigation
+	Mitigation    *Mitigation
+	KeptFleetStop *KeptFleetStop
+}
+
+// KeptFleetStop is the cap and standing count that stopped a service deploy.
+type KeptFleetStop struct {
+	Count int
+	Limit int
 }
 
 // TargetRelease is one target of the environment: which release of the

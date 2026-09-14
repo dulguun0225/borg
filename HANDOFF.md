@@ -26,6 +26,10 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 
 # Pre-existing drift
 
+- screens C0418 — no field counts submissions under a shape the store could not read.
+- screens C0419, C2604, C2634, C2661, C2704, C2860 — the old-way-in list has no ordering; a drift mismatch renders beside the target rather than over it; the spend ceiling view carries no units spent or period; nothing refuses a People row that acts nowhere; a gate row closed by a sibling holder does not reach an open item screen; no fleet proposal ever waits at Factory.
+- deploy C0701 — any completed removal clears the current release regardless ordering.
+- criterion C1042 — `HumanConfirmed` calls `InForce` without the rejected spec versions.
 - deploy C1681 — the kept count is the whole capacity the replaced release had; no owner-authored fraction is read.
 - service C1944 — where no run length is authored a component actor's write places no bound, so a safeguard may lengthen it.
 - service C2042 — an unauthored window limit resolves to this package's constant for readers outside gate policy rather than a value the score supplies.
@@ -114,17 +118,13 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 - localtarget C0914 — `DeployWithControl` reports a drain while the replaced instance is left alive as the control.
 - deploy C1738 — the deploy package's own notifier seam still pages only at the snapshot and artifact-digest exits; `cmd/factory` now pages a rollback target refusal through the credential wait after the rollback record exists.
 
+- Step 8, operational and Factory read models. No split. Directories changed: `factory/cmd/factory` (**doc.go changed**), `factory/criterion` (**doc.go changed**), `factory/deploy` (**doc.go changed**), `factory/environment` (**doc.go changed**), `factory/policy`, `factory/screens` (**doc.go changed**), and `HANDOFF.md`, plus the six claims flipped to `built` in `end-goal/claims.txt`. Factory now exposes recorded composition time and candidate environment-hours, platform room counts, per-item hosting and per-release instance-hours with explicit pricing presence, mutation scores, criteria counts grouped by withdrawal author, kept-fleet stops, and independent target, platform, service, and drift last-check scopes. Production fleet replacement and control/kept teardown persist instance-hours at the service rate in force; candidate teardown persists environment-hours at its rate. Reviewer follow-up makes production's authored room the only composition ceiling, reads deploy completion through the supplied environment-target reader, groups all addresses of a dependency in one composition row, validates dependency releases and candidate state, and removes C2641 from criterion's documentation. Pre-existing drift is recorded above. Checks: `go test -count=1 ./environment ./deploy ./criterion ./screens ./mergequeue` passed (`ok github.com/dulguun0225/borg/factory/environment 9.228s`, `ok github.com/dulguun0225/borg/factory/deploy 4.564s`, `ok github.com/dulguun0225/borg/factory/criterion 3.197s`, `ok github.com/dulguun0225/borg/factory/screens 0.160s`, `ok github.com/dulguun0225/borg/factory/mergequeue 14.737s`); `go test -count=1 -timeout 60m ./cmd/factory -run 'Candidate|Environment|Composition|Room|Remove|Retire|View|Screen|Hours'` passed (`ok github.com/dulguun0225/borg/factory/cmd/factory 333.522s`); `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `git diff --check` passed; `graphify update .` passed; all changed source and test files are under 500 lines.
+
+- environment C1522 — with no composition reader supplied, `validComposition` skips both checks.
+- environment C1397, C1398 — the only post-creation write of the ordered target field appends; no write reorders it.
+- criterion C1484 — nothing refuses a candidate-run result for a criterion the build's own process decided; `Latest` lets the run's result stand over the build's.
+
 # Steps
-
-## 8. Operational and Factory read models
-
-Claims: C1509, C1516, C1689, C2290, C2641, C2684.
-
-Design files to read: `end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md`; `end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md`; `end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md`; `end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md`; `end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md`.
-
-Change `factory/screens`, `factory/healthmonitor`, `factory/deploy`, `factory/environment`, `factory/score`, `factory/criterion`, `factory/contractcheck`, `factory/lastcheck`, and the read-model composition in `factory/cmd/factory`. These are existing packages. Read each record independently at its owning scope: service, item, persistent target, platform, and production drift target. Keep candidate environment hosting facts in the existing records and expose converted amounts only where the service rate is authored.
-
-Prove Factory read models for composition time, environment-hours per item, instance-hours per release, mutation/criteria counts, kept-fleet stop, and all required last-check scopes. Checks: focused read-model and command tests, `go test -count=1 ./factory/screens ./factory/healthmonitor ./factory/deploy ./factory/environment ./factory/score ./factory/criterion ./factory/contractcheck ./factory/lastcheck ./cmd/factory -run 'View|Screen|Hours|LastCheck|Fleet'`, `go vet ./...`, `go run ./cmd/depscheck`, and `go run ./cmd/tracecheck`.
 
 ## 9. Work, Ops, and Factory presentation
 
@@ -156,6 +156,8 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 
 # Unresolved
 
+- Step 8 platform room has two readings: an external platform adapter could report the held count and room, or the available seam can report only the factory's standing candidate count. The conservative implementation keeps the platform pass shape, mirrors the standing count for held capacity, and leaves room unreported until that adapter exists.
+
 - C0803: `item.RevertSiblings` forces the failed release's item into the set of shipped siblings, because after the rollback the live reading no longer counts it though it did ship; the other reading, live siblings only, produced no revert item at all.
 - `go test ./cmd/factory` took 1925s after step 2; the timeout in `factory/README.md` and `.github/workflows/factory.yml` is now 60m. Coordinator runs use it.
 
@@ -170,4 +172,4 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 
 # Summary
 
-Read `CLAUDE.md`, this handoff, the named M10 step-7 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Steps 1–7 are implemented; no step was split. The focused checks and unresolved design choices are recorded above.
+Read `CLAUDE.md`, this handoff, the named M10 step-8 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Steps 1–8 are implemented; no step was split. The focused checks and unresolved design choices are recorded above.

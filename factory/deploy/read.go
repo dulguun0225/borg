@@ -86,14 +86,33 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 // InstanceHoursForRelease sums the recorded target hours of every deploy that
 // delivered a release.
 func InstanceHoursForRelease(ctx context.Context, pool *pgxpool.Pool, releaseID string) (float64, error) {
-	var hours float64
-	err := pool.QueryRow(ctx, `select coalesce(sum(t.instance_hours), 0)
+	reading, err := InstanceHoursReadingForRelease(ctx, pool, releaseID)
+	return reading.Hours, err
+}
+
+// HoursReading is the recorded instance-hours total and the converted amount
+// where every recorded target span had a rate at its teardown write.
+type HoursReading struct {
+	Hours  float64
+	Amount float64
+	Priced bool
+}
+
+// InstanceHoursReadingForRelease reads the target rows of one release and
+// keeps the pricing distinction between no amount and an amount of zero.
+func InstanceHoursReadingForRelease(ctx context.Context, pool *pgxpool.Pool, releaseID string) (HoursReading, error) {
+	var reading HoursReading
+	var readingHours, pricedHours int
+	err := pool.QueryRow(ctx, `select coalesce(sum(t.instance_hours), 0), coalesce(sum(t.amount), 0),
+		count(t.instance_hours), count(t.amount)
 		from `+TargetTable+` t join `+Table+` d on d.id = t.deploy_id
-		where d.release_id = $1`, releaseID).Scan(&hours)
+		where d.release_id = $1 and t.instance_hours > 0`, releaseID).
+		Scan(&reading.Hours, &reading.Amount, &readingHours, &pricedHours)
 	if err != nil {
-		return 0, fmt.Errorf("deploy: reading instance-hours for release %s: %w", releaseID, err)
+		return HoursReading{}, fmt.Errorf("deploy: reading instance-hours for release %s: %w", releaseID, err)
 	}
-	return hours, nil
+	reading.Priced = readingHours > 0 && readingHours == pricedHours
+	return reading, nil
 }
 
 // TargetRemovalComplete reports whether a completed removal deploy names the

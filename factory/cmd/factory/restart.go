@@ -66,6 +66,7 @@ func (p *path) Rebuild(ctx context.Context, d deploy.Deploy) (deploy.Rebuilt, bo
 		ServiceID:          svc.ID,
 		ServiceName:        svc.Name,
 		EnvironmentID:      p.production.ID,
+		InstanceHourRate:   instanceHourRate(svc),
 		Credential:         p.d.credential,
 		WayInAddress:       p.d.wayInAddress,
 		Reaches:            p.reaches(p.production, svc),

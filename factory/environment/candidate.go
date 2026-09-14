@@ -34,7 +34,20 @@ var (
 	// ErrCompositionIncomplete is returned for a composition entry naming a
 	// service and no release, or a release and no service.
 	ErrCompositionIncomplete = errors.New("environment: a composition entry names a service and a release")
+	// ErrDependencyReleaseNotRunning is returned for a composition naming a
+	// release that is not current on its dependency.
+	ErrDependencyReleaseNotRunning = errors.New("environment: a dependency release is not running")
+	// ErrDependencyIsCandidate is returned for a composition whose dependency is
+	// running in another service's candidate environment.
+	ErrDependencyIsCandidate = errors.New("environment: a dependency is another service's candidate")
 )
+
+// CompositionReader is the composition's read of a dependency. It is supplied
+// by the component that owns release and candidate records.
+type CompositionReader interface {
+	ReleaseRunning(context.Context, string, string) (bool, error)
+	Candidate(ctx context.Context, serviceID string) (bool, error)
+}
 
 // Composed is one dependency the deployer put in place beside the candidate: the
 // service it is a release of, the release of it that was current when the
@@ -102,13 +115,18 @@ func NameForItem(itemID string) string { return "candidate/" + itemID }
 // tears it down for good when the item merges, is dropped, or is superseded by a
 // re-decomposition.
 type Candidates struct {
-	pool  *pgxpool.Pool
-	token lease.Token
+	pool        *pgxpool.Pool
+	token       lease.Token
+	composition CompositionReader
 }
 
 // NewCandidates returns the writer over pool, fencing every write with token.
-func NewCandidates(pool *pgxpool.Pool, token lease.Token) *Candidates {
-	return &Candidates{pool: pool, token: token}
+func NewCandidates(pool *pgxpool.Pool, token lease.Token, readers ...CompositionReader) *Candidates {
+	var reader CompositionReader
+	if len(readers) > 0 {
+		reader = readers[0]
+	}
+	return &Candidates{pool: pool, token: token, composition: reader}
 }
 
 // Compose creates the environment for one item and opens its first
@@ -138,7 +156,7 @@ func (c *Candidates) Compose(ctx context.Context, actor record.Actor, itemID, pr
 	if credential.Name() == "" {
 		return Environment{}, fmt.Errorf("environment: the candidate environment of %s names no credential", itemID)
 	}
-	if err := validComposition(composition); err != nil {
+	if err := c.validComposition(ctx, composition); err != nil {
 		return Environment{}, err
 	}
 
@@ -191,7 +209,7 @@ func (c *Candidates) Recompose(ctx context.Context, actor record.Actor, id strin
 	if err := actor.Validate(); err != nil {
 		return err
 	}
-	if err := validComposition(composition); err != nil {
+	if err := c.validComposition(ctx, composition); err != nil {
 		return err
 	}
 	return c.write(ctx, id, "recomposing", func(tx pgx.Tx, e Environment) error {
@@ -257,7 +275,7 @@ func (c *Candidates) write(ctx context.Context, id, doing string, write func(pgx
 	return nil
 }
 
-func validComposition(composition Composition) error {
+func (c *Candidates) validComposition(ctx context.Context, composition Composition) error {
 	for _, d := range composition.From {
 		if d.ServiceID == "" || d.ReleaseID == "" {
 			return fmt.Errorf("%w, not %q and %q", ErrCompositionIncomplete, d.ServiceID, d.ReleaseID)
@@ -266,6 +284,23 @@ func validComposition(composition Composition) error {
 			if address.Interface == "" || address.Address == "" {
 				return fmt.Errorf("%w: %s names an incomplete interface address", ErrCompositionIncomplete, d.ServiceID)
 			}
+		}
+		if c.composition == nil {
+			continue
+		}
+		candidate, err := c.composition.Candidate(ctx, d.ServiceID)
+		if err != nil {
+			return fmt.Errorf("environment: reading candidate dependency %s: %w", d.ServiceID, err)
+		}
+		if candidate {
+			return fmt.Errorf("%w: %s", ErrDependencyIsCandidate, d.ServiceID)
+		}
+		running, err := c.composition.ReleaseRunning(ctx, d.ServiceID, d.ReleaseID)
+		if err != nil {
+			return fmt.Errorf("environment: reading release %s on dependency %s: %w", d.ReleaseID, d.ServiceID, err)
+		}
+		if !running {
+			return fmt.Errorf("%w: %s on %s", ErrDependencyReleaseNotRunning, d.ReleaseID, d.ServiceID)
 		}
 	}
 	return nil

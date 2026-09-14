@@ -87,15 +87,10 @@
 // change is indistinguishable from one that was never told, until a human
 // reloads and sees the record moved.
 //
-// # What the views leave out
-//
-// [Factory] and [Service] answer less than the design asks a Factory or an
-// Ops view for; a field the design names and no view carries is listed here
-// so a reader finds it absent on purpose and not forgotten: environment-hours
-// per item and instance-hours per release, criteria withdrawn and unreliable
-// per service and per author, the product licence per service against its
-// release's resolved licences, and the rows each human referred and rejected
-// split by cause.
+// The Factory and Ops views carry the recorded composition and hosting hours,
+// mutation and criteria counts, the kept-fleet stop, and every relevant
+// last-check scope. The product licence and cause-split rows remain outside
+// this step.
 //
 // # What defines it The four screens, what waits on a human, and the badge:
 // ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
@@ -128,6 +123,19 @@
 // state, the version refusal, and the principal:
 // ../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md
 // (C2695, C2697, C2700, C2701, C2703, C2704, C2708, C2709, C2715, C2716).
+//
+// Composition time, platform room counts, environment-hours, and the
+// candidate-environment cost reading are
+// ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
+// (C1509, C1516); instance-hours are
+// ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md
+// (C1689); the kept-fleet stop is
+// ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/01-authored-and-not-among-the-eleven.md
+// (C2290); Factory's per-service and per-item hosting rows are
+// ../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md
+// (C2641); and the independent last-check scopes are
+// ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md
+// (C2684).
 //
 // The auto-approve and undone pair, and the two rates a threshold is read
 // against:
