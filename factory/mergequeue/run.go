@@ -149,7 +149,7 @@ func (q *Queue) Run(ctx context.Context, serviceID string) (Pass, error) {
 	ahead := make([]item.Item, 0, len(pending))
 	for _, c := range pending {
 		c.speculation = slices.Clone(ahead)
-		c.verified, err = q.repo.Reverify(ctx, c.it, c.speculation)
+		c.verified, err = q.reverify(ctx, c.it, c.speculation)
 		if err != nil {
 			return pass, fmt.Errorf("mergequeue: re-verifying %s: %w", c.it.ID, err)
 		}
@@ -184,7 +184,7 @@ func (q *Queue) Run(ctx context.Context, serviceID string) (Pass, error) {
 			continue
 		}
 		if !sameItems(c.speculation, merged) {
-			c.verified, err = q.repo.Reverify(ctx, c.it, slices.Clone(merged))
+			c.verified, err = q.reverify(ctx, c.it, slices.Clone(merged))
 			if err != nil {
 				return pass, fmt.Errorf("mergequeue: re-verifying %s against the master that resulted: %w",
 					c.it.ID, err)

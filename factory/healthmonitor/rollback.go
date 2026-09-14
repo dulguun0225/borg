@@ -172,16 +172,18 @@ func (h *HealthMonitor) rollBack(ctx context.Context, w Watching, one *Watched) 
 //
 // It runs to the service's highest release and not to the failed one. A release
 // above the failed one is exactly the case the design names — a rollback that
-// sweeps — and one below it and above the target is undone for the same reason.
+// sweeps up to the current window limit — and one below it and above the target
+// is undone for the same reason.
 func (h *HealthMonitor) releasesSkippedBy(ctx context.Context, w Watching, target, failed release.Release) ([]string, error) {
-	highest, found, err := release.Highest(ctx, h.pool, w.ID)
-	if err != nil {
-		return nil, err
+	limit := 0
+	if h.policy != nil {
+		parameters, err := h.policy.WindowParameters(ctx, w.ID)
+		if err != nil {
+			return nil, err
+		}
+		limit = int(parameters.WindowLimit.Number)
 	}
-	if !found {
-		return nil, nil
-	}
-	above, err := release.Between(ctx, h.pool, w.ID, target.Number+1, highest.Number)
+	above, err := release.Above(ctx, h.pool, w.ID, target.Number, limit)
 	if err != nil {
 		return nil, err
 	}

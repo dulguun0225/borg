@@ -191,6 +191,11 @@ func (p *path) decomposeSet(ctx context.Context, intentID string, set *decomposi
 		return nil, err
 	}
 	services := p.servicesOf[in.ID]
+	services, err = p.revertServices(ctx, in, services)
+	if err != nil {
+		return nil, err
+	}
+	p.servicesOf[in.ID] = services
 	if len(services) == 0 {
 		if services, _, err = servicesFor(in.Statement, p.d.services); err != nil {
 			return nil, err
@@ -206,13 +211,22 @@ func (p *path) decomposeSet(ctx context.Context, intentID string, set *decomposi
 		requirements = append(requirements, agent.Requirement{ID: r.ID, Statement: r.Statement})
 	}
 
-	candidates, err := p.decomposeItems(ctx, in, services, requirements)
+	candidates, used, err := p.decomposeRevertItems(ctx, in, requirements)
+	if err != nil {
+		return nil, err
+	}
+	if !used {
+		candidates, err = p.decomposeItems(ctx, in, services, requirements)
+	}
 	if err != nil {
 		return nil, err
 	}
 	_, statement, err := servicesFor(in.Statement, p.d.services)
-	if err != nil {
+	if err != nil && in.Evidence == "" {
 		return nil, err
+	}
+	if err != nil {
+		statement = in.Statement
 	}
 	for _, c := range candidates {
 		set.itemIDs = append(set.itemIDs, c.itemID)

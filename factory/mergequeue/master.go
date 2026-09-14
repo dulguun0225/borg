@@ -207,7 +207,7 @@ func (q *Queue) readMaster(ctx context.Context, serviceID string) (Master, []Out
 // the point anything may be sent back from. Nothing here decides pass or fail,
 // so [ErrReverificationRepeats] is never asked of it.
 func (q *Queue) complete(ctx context.Context, it item.Item, made build.Build, head string) (Outcome, error) {
-	verified, err := q.repo.Reverify(ctx, it, nil)
+	verified, err := q.reverify(ctx, it, nil)
 	if err != nil {
 		return Outcome{}, fmt.Errorf("mergequeue: completing the merge of %s: %w", it.ID, err)
 	}

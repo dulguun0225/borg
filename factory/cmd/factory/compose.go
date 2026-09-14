@@ -32,6 +32,7 @@ import (
 	"github.com/dulguun0225/borg/factory/policy"
 	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
 )
@@ -240,17 +241,18 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// a revert is [path.IsARevert]: the link is the intent's evidence, written
 	// the same way whichever of the two sources raised it.
 	p.queue = mergequeue.New(mergequeue.Composition{
-		Pool:         d.pool,
-		Token:        d.token,
-		Log:          p.log,
-		Releases:     release.NewWriter(d.pool, d.token),
-		Items:        p.items,
-		Repository:   p,
-		Numbers:      mergequeue.NoNumbersSeen{},
-		DesignSystem: mergequeue.EveryMoveDiffers{},
-		Backlog:      mergequeue.NoBacklog{},
-		Reverts:      p,
-		Reliability:  p,
+		Pool:               d.pool,
+		Token:              d.token,
+		Log:                p.log,
+		Releases:           release.NewWriter(d.pool, d.token),
+		Items:              p.items,
+		Repository:         p,
+		Numbers:            mergequeue.NoNumbersSeen{},
+		DesignSystem:       mergequeue.EveryMoveDiffers{},
+		Backlog:            mergequeue.NoBacklog{},
+		Reverts:            p,
+		Reliability:        p,
+		SecurityPredicates: securitypredicate.Go(factoryVersion),
 	})
 	fmt.Fprintf(d.out, "Policy version %s in force; score version %s (formula %s)\n",
 		installed.Version.ID, scoreVersion.ID, scoreVersion.FormulaVersion)
@@ -391,63 +393,6 @@ func atLeastASecond(every time.Duration) time.Duration {
 // bound that run's spec stage, and does bound every run after it.
 func (p *path) subjectsFor(c *candidate) policy.Subjects {
 	return policy.Subjects{ServiceID: c.svc.ID, AreaID: p.areaID}
-}
-
-// deployOrder is the candidates of one service that were minted a release, in the
-// order they deploy: the revert of an outstanding rollback first, and then the rest
-// by number, lowest first. A candidate with no release is left out — there is
-// nothing to deploy — and so is one of another service.
-//
-// The number orders deploys and a revert is the one exception the design makes to
-// that. Every release the rollback's hold is holding cannot deploy until the revert
-// ships, so making the revert wait behind them by number would be the same deadlock
-// one step further out.
-func (p *path) deployOrder(ctx context.Context, svc service.Service, candidates []*candidate) ([]*candidate, error) {
-	// One entry per item: the pass reads every live item back out of the
-	// records and the queue answers with the ones it adopted, so one candidate
-	// reaches this list from both — and a release deployed twice in one pass
-	// would fire the row that decides it twice.
-	var minted []*candidate
-	seen := map[string]bool{}
-	for _, c := range candidates {
-		if c.releaseID == "" || c.svc.ID != svc.ID || c.deployID != "" || c.held ||
-			c.factoryHold != "" || c.waiting != (gate.Row{}) || seen[c.itemID] {
-			continue
-		}
-		seen[c.itemID] = true
-		minted = append(minted, c)
-	}
-	for a := 1; a < len(minted); a++ {
-		for b := a; b > 0 && minted[b].releaseNumber < minted[b-1].releaseNumber; b-- {
-			minted[b], minted[b-1] = minted[b-1], minted[b]
-		}
-	}
-
-	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, svc.ID, p.production.ID)
-	if err != nil || !found {
-		return minted, err
-	}
-	revertIntentID, err := revertIntentOf(ctx, p, svc, rollback)
-	if err != nil {
-		return nil, err
-	}
-	reverts, rest := []*candidate{}, []*candidate{}
-	for _, c := range minted {
-		it, err := item.Get(ctx, p.d.pool, c.itemID)
-		if err != nil {
-			return nil, err
-		}
-		if it.IntentID != "" && it.IntentID == revertIntentID {
-			reverts = append(reverts, c)
-			continue
-		}
-		rest = append(rest, c)
-	}
-	if len(reverts) > 0 {
-		fmt.Fprintf(p.d.out, "A revert of rollback %s deploys ahead of %d release(s) its hold is holding\n",
-			rollback.ID, len(rest))
-	}
-	return append(reverts, rest...), nil
 }
 
 // inForceFor is the criteria in force for one build of one service: the ones

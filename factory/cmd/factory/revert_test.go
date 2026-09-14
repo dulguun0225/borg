@@ -7,6 +7,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/release"
 	"github.com/dulguun0225/borg/factory/screens"
 	"github.com/dulguun0225/borg/factory/service"
 )
@@ -73,6 +74,47 @@ func TestARevertARequestNamesPassesTheEvidenceOn(t *testing.T) {
 	}
 	if isRevert {
 		t.Error("IsARevert on an ordinary item = true, want false: it carries no evidence")
+	}
+}
+
+// TestARevertUsesOneItemPerShippedSibling checks the partial-delivery shape:
+// the evidence names one shipped release, but decomposition is told every
+// shipped sibling of that release's original intent, all joined by the revert
+// intent.
+func TestARevertUsesOneItemPerShippedSibling(t *testing.T) {
+	ctx, d, out := newContractPath(t)
+	res, err := run(ctx, d, []asked{across(pairStatement, theService, theSecondService)})
+	if err != nil {
+		t.Fatalf("the path stopped: %v\noutput so far:\n%s", err, out)
+	}
+	if len(res.candidates) != 2 {
+		t.Fatalf("the intent has %d candidates, want one per service", len(res.candidates))
+	}
+
+	firstRelease, found, err := release.ForItem(ctx, d.pool, res.candidates[0].itemID)
+	if err != nil || !found {
+		t.Fatalf("ForItem(%s) = found %v, %v", res.candidates[0].itemID, found, err)
+	}
+	s := newScreens(t, ctx, d, out)
+	svc, err := service.Get(ctx, d.pool, res.candidates[0].svc.ID)
+	if err != nil {
+		t.Fatalf("reading the service: %v", err)
+	}
+	s.mustCall(t, "raiseRevert", screens.RaiseRevertArgs{
+		ServiceID: svc.ID, ReleaseID: firstRelease.ID, Reason: "undo the partly delivered intent",
+	})
+	revert, found, err := intent.OnEvidence(ctx, d.pool, intent.Evidence{
+		ServiceID: svc.ID, ReleaseID: firstRelease.ID,
+	})
+	if err != nil || !found {
+		t.Fatalf("OnEvidence over the revert = found %v, %v", found, err)
+	}
+	services, err := s.p.revertServices(ctx, revert, []string{theService})
+	if err != nil {
+		t.Fatalf("revertServices: %v", err)
+	}
+	if len(services) != 2 || services[0] != theService || services[1] != theSecondService {
+		t.Fatalf("revert services = %v, want the shipped siblings in decomposition order", services)
 	}
 }
 

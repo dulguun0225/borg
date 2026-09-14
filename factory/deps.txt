@@ -570,7 +570,7 @@ score -> record gatepolicy area artifact consumercontract contract decisionlog d
 policy -> record gatepolicy area decisionlog environment factorysettings halt item lease legalhold principal project redaction safeguard score secretref service
 dispatch -> agent agentrun area artifact constraint decisionlog factorysettings fleetentry inputmanifest intent item lease people policy principal record
 gate -> area artifact criterion decisionlog environment halt intent item lease people policy principal record score screenstatemachine service
-mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release
+mergequeue -> build contract decisionlog environment gate halt intent item lease principal record release securitypredicate
 notifier -> decisionlog driftdetector factorysettings lastcheck lease people principal record service
 healthmonitor -> boundary decisionlog deploy gatepolicy incident intent item lastcheck notifier people policy principal record release service window
 contractcheck -> boundary consumercontract contract deploy environment gate gatepolicy intent item lastcheck policy record release service window

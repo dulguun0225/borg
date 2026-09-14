@@ -6,6 +6,7 @@ import (
 	"github.com/dulguun0225/borg/factory/contract"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/item"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 )
 
 // Repository is everything the queue needs done to the service's repository and
@@ -53,15 +54,10 @@ type Repository interface {
 // passed.
 //
 // The design states that the environment is recomposed at every
-// re-verification, so one naming the environment cycle already in force is
-// refused with [ErrReverificationRepeats] rather than read as nothing having
-// moved — [refuseIfRepeats] is the queue's own check of it. The build repeating
-// is not on its own refused: master already an ancestor of the candidate
-// branch is a no-op merge in git, so the candidate's own commit does not move
-// and naming the build already in force is the right answer to that and not a
-// repeat, the way [Queue.complete]'s own re-ask — which finishes a merge master
-// already carries, master being already an ancestor of the candidate there
-// too — already reads it.
+// re-verification and the build is new, so one naming either the environment
+// cycle or build already in force is refused with [ErrReverificationRepeats]
+// rather than read as nothing having moved — [refuseIfRepeats] is the queue's
+// own check of it.
 //
 // Why is what failed, in words a human reads on the rejection row, and is empty
 // where it passed. A merge conflict, a criterion that failed, a breaking
@@ -103,6 +99,12 @@ type Verified struct {
 	EnvironmentCycleID         string
 	ApprovedEnvironmentCycleID string
 	Forms                      []contract.Form
+	// Checkout is the re-verification checkout the queue's security-predicate
+	// reading runs against. It is empty where no new build was made.
+	Checkout string
+	// SecurityPredicates is the list's decision against this re-verification
+	// run. The queue rejects a kind that did not hold.
+	SecurityPredicates securitypredicate.Decided
 }
 
 // Confirmation is what the confirming run produced: the criteria the

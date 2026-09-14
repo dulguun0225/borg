@@ -156,6 +156,11 @@
 //     gaveUp and the three readings of what stopped an item; intentLeftItsStop,
 //     the re-match every writer of a record that ends an intent's stopping state
 //     calls; and defaultTier.
+//   - revertdecomposition.go — the composition's call to item.ShippedSiblings,
+//     which reads every shipped sibling of the original intent.
+//   - revertitems.go — the composition of one revert item per shipped sibling
+//     and its one item-package write.
+//   - deployqueue.go — the composition's readings supplied to deploy.QueueOrder.
 //   - candidate.go — asked, shipped, decompositionSet, and candidate: the
 //     run's own data shapes for one intent, what it did, one decomposition,
 //     and one item's build in progress. asked.resumeIntentID names an intent

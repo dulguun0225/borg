@@ -333,6 +333,12 @@ type Undoing struct {
 // release it failed and a source; nothing else names either.
 func (u Undoing) Any() bool { return u.FailedReleaseID != "" }
 
+// RedeliveredReleaseIDs is the releases a revert deploy delivers from the
+// rollback it answers. The failed release is deliberately not among them.
+func RedeliveredReleaseIDs(rollback Deploy) []string {
+	return append([]string(nil), rollback.Undoing.SkippedReleaseIDs...)
+}
+
 // SourceHealthMonitorAtFailed is the source of every rollback the factory
 // performs on its own: the comparison having crossed the boundary against the
 // release inside its analysis window. A rollback from this source is reported

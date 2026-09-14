@@ -264,6 +264,7 @@ type candidate struct {
 	queueRejected     bool
 	queueWhy          string
 	queueWaitRow      string
+	awaitedRevert     bool
 
 	deployID string
 	// windowID is the analysis window opened over the production deploy, and is empty

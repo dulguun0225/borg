@@ -89,16 +89,14 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 		t.Errorf("Current on a candidate environment = running %v, %v", running, err)
 	}
 
-	// The criteria were decided against the build, on that environment, by the
-	// deployer — twice at the candidate deploy row and twice more at the
-	// queue's re-verification, which reuses this same build because nothing
-	// changed to rebuild for, each of the two runs a row of its own in run order.
+	// The criteria were decided against the candidate-deploy build and then a
+	// new queue re-verification build, twice on each recomposed environment.
 	results, err := criterion.ResultsForBuild(ctx, d.pool, candidateDeploy.BuildID)
 	if err != nil {
 		t.Fatalf("reading what was decided over the build: %v", err)
 	}
-	if len(results) != 4 {
-		t.Fatalf("%d criteria were decided over the build, want four runs of the one in force: %+v", len(results), results)
+	if len(results) != 2 {
+		t.Fatalf("%d criteria were decided over the candidate-deploy build, want two runs: %+v", len(results), results)
 	}
 	for n, r := range results {
 		if r.Outcome != criterion.OutcomePassed {
@@ -107,6 +105,13 @@ func TestACandidateGetsAnEnvironmentOfItsOwn(t *testing.T) {
 		if r.Actor.Key != "deploy" {
 			t.Errorf("run %d was written by %q, want the deployer", n+1, r.Actor.Key)
 		}
+	}
+	verified, err := criterion.ResultsForBuild(ctx, d.pool, c.reverifiedBuildID)
+	if err != nil {
+		t.Fatalf("reading the queue re-verification build: %v", err)
+	}
+	if len(verified) != 2 {
+		t.Fatalf("%d criteria were decided over the queue re-verification build, want two runs: %+v", len(verified), verified)
 	}
 	if !strings.Contains(out.String(), "ran twice on the candidate environment") {
 		t.Errorf("the run does not report the encodings running twice:\n%s", out)

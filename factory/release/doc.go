@@ -93,5 +93,7 @@
 // ../../end-goal/how-the-factory-works/05-environments/04-what-the-candidate-environment-decides/02-the-verdict.md
 // (C1577); and the release number ordering one service's builds is
 // ../../end-goal/how-the-factory-works/07-contracts/01-two-versioned-things.md
-// (C1768).
+// (C1768); the bounded rollback record reading in [Above] is
+// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
+// (C1628).
 package release

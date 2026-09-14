@@ -23,10 +23,11 @@
 // [SkippedNumbersPayload]. reading.go is [Reading], [Rejection] with
 // [Rejection.TeachesNothing], [RejectionPayload], [Moved] and [refuseIfRepeats],
 // the check behind [ErrReverificationRepeats] that a re-verification deciding a
-// candidate's own merit never names the environment cycle already in force —
-// the build repeating is read as nothing to compare, master already an
-// ancestor of the candidate branch being a no-op merge in git. stop.go is
+// candidate's own merit never names the build or environment cycle already in
+// force. stop.go is
 // [WaitKind], [WaitPayload] and the four conditions that stop a fast-forward.
+// predicates.go is the re-verification decision over the composed security
+// predicate list.
 // repository.go is the seams: [Repository], [Verified], [Confirmation],
 // [Numbers], [DesignSystem], [Backlog], [Reverts] and [Reliability], each with
 // the value a factory composed without it uses.
@@ -96,7 +97,7 @@
 // queue did not make, and the number after a restore;
 //
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1427, C1428, C1431, C1432, C1436, C1457) for the rejection written into
+// (C1427, C1428, C1431, C1432, C1436, C1457, C1479) for the rejection written into
 // the log and the comparison of the re-resolved set's digests;
 //
 // ../../end-goal/how-the-factory-works/06-releases/02-the-release-record.md

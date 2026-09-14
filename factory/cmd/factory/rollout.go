@@ -113,20 +113,37 @@ func (p *path) intoCandidate(ctx context.Context, c *candidate, buildID string) 
 // is the health monitor reading the window this deploy has not opened yet, and
 // package deploy's doc.go says that caller is not built.
 func (p *path) intoProduction(ctx context.Context, c *candidate, pick gate.Pick) (deploy.Deploy, error) {
+	delivered, err := p.redeliveredReleaseIDs(ctx, c)
+	if err != nil {
+		return deploy.Deploy{}, err
+	}
 	return deploy.Perform(ctx, p.deploys, deploy.Performance{
-		Actor:              deployActor,
-		Principal:          deployerPrincipal,
-		ServiceID:          c.svc.ID,
-		ServiceName:        c.svc.Name,
-		EnvironmentID:      p.production.ID,
-		What:               deploy.OfRelease(c.releaseID, c.reverifiedBuildID),
-		IntoProduction:     true,
-		StrategyPicked:     strategyOf(pick),
-		Credential:         p.d.credential,
-		WayInAddress:       p.d.wayInAddress,
-		Reaches:            p.reaches(p.production, c.svc),
-		EnvironmentTargets: environmentTargets(p.production),
+		Actor:               deployActor,
+		Principal:           deployerPrincipal,
+		ServiceID:           c.svc.ID,
+		ServiceName:         c.svc.Name,
+		EnvironmentID:       p.production.ID,
+		What:                deploy.OfRelease(c.releaseID, c.reverifiedBuildID),
+		IntoProduction:      true,
+		StrategyPicked:      strategyOf(pick),
+		DeliveredReleaseIDs: delivered,
+		Credential:          p.d.credential,
+		WayInAddress:        p.d.wayInAddress,
+		Reaches:             p.reaches(p.production, c.svc),
+		EnvironmentTargets:  environmentTargets(p.production),
 	})
+}
+
+func (p *path) redeliveredReleaseIDs(ctx context.Context, c *candidate) ([]string, error) {
+	rollback, found, err := deploy.NewestRollback(ctx, p.d.pool, c.svc.ID, p.production.ID)
+	if err != nil || !found {
+		return nil, err
+	}
+	_, revertIntentID, outstanding, err := p.outstandingRevert(ctx, c.svc)
+	if err != nil || !outstanding || c.intentID != revertIntentID {
+		return nil, err
+	}
+	return deploy.RedeliveredReleaseIDs(rollback), nil
 }
 
 // strategyOf is the row's pick as the deploy record names it. The two

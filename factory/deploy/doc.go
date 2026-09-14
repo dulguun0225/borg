@@ -32,7 +32,8 @@
 // read.go is every read that takes the pool and not the writer: [Get],
 // [Targets], [CompleteOnEvery], [Current], [CurrentOnTarget],
 // [PreviousOnTarget], [BackfillComplete], [ByRelease], [Unfinished],
-// [Rollbacks] and [NewestRollback]. bake.go is the hold between
+// [Rollbacks] and [NewestRollback]. queue.go is [QueueCandidate],
+// [QueueReadings], and [QueueOrder], the release-number deploy queue. bake.go is the hold between
 // one target and the next: [Bake] as an interface the caller implements,
 // [DefaultBakePoll], and the hold itself. configuration.go is what the deployer
 // hands the service and what the record says about it: [DigestConfiguration]
@@ -282,6 +283,12 @@
 // backfill the record marks complete are
 // ../../end-goal/how-the-factory-works/07-contracts/09-the-store-is-a-contract-too.md
 // (C1860, C1861, C1863, C1864, C1868, C1869, C1870, C1872, C1875).
+
+// The deploy queue's held conditions and release-number order are
+// ../../end-goal/how-the-factory-works/01-one-pipeline.md (C0233, C0234,
+// C0235, C1552), and its rollback exception and bounded redelivery are
+// ../../end-goal/how-the-factory-works/06-releases/01-one-item-per-release.md
+// (C1628).
 //
 // What adoption's deploy record and current release let the factory's
 // checks read are

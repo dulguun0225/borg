@@ -12,18 +12,14 @@ import (
 	"github.com/dulguun0225/borg/factory/item"
 )
 
-// refuseIfRepeats is [ErrReverificationRepeats]'s check. It reads the
-// environment cycle alone, not the build: a re-verification naming the build
-// already in force is not on its own a repeat of the run that passed — merging
-// an already-ancestor master into the candidate branch is a no-op in git, so
-// the candidate's own commit does not move and [Repository] correctly answers
-// with the build already on record, the way [Queue.complete] always does and
-// [designSystemMoved]'s and [resolvedSetDiffers]'s own guard already read as
-// nothing to compare. The environment is a different record: the design
-// states it is recomposed at every re-verification whatever the build does,
-// so one naming the environment cycle already in force names the one thing
-// that did not happen, and that alone is refused.
+// refuseIfRepeats is [ErrReverificationRepeats]'s check. A re-verification
+// naming the build or environment cycle already in force did not make the new
+// build and recomposed environment the queue requires, so it is refused.
 func refuseIfRepeats(c *candidate) error {
+	if c.approvedFound && c.approved.ID != "" && c.approved.ID == c.verified.BuildID {
+		return fmt.Errorf("%w: %s names build %s again",
+			ErrReverificationRepeats, c.it.ID, c.verified.BuildID)
+	}
 	if c.verified.ApprovedEnvironmentCycleID != "" &&
 		c.verified.ApprovedEnvironmentCycleID == c.verified.EnvironmentCycleID {
 		return fmt.Errorf("%w: %s names environment cycle %s again",
@@ -399,12 +395,8 @@ func movedBetween(approved, reverified environment.Composition) []Moved {
 // a component or a token the candidate's build uses is the reading [DesignSystem]
 // supplies.
 //
-// [refuseIfRepeats] runs first: a re-verification naming the environment
-// cycle already in force is not read as nothing moved, it is refused with
-// [ErrReverificationRepeats]. The build repeating on its own is read as
-// nothing to compare, the way it always was: master already an ancestor of
-// the candidate branch is a no-op merge in git, and the build already on
-// record is the right answer to it and not a repeat to refuse.
+// [refuseIfRepeats] runs first: a re-verification naming the build or
+// environment cycle already in force is refused with [ErrReverificationRepeats].
 func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, error) {
 	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil
@@ -439,8 +431,7 @@ func (q *Queue) designSystemMoved(ctx context.Context, c *candidate) (string, er
 // source and the package rather than by the package alone, because one name in
 // two registries is two packages.
 //
-// [refuseIfRepeats] runs first, the same guard [designSystemMoved] asks, and
-// the build repeating on its own is read as nothing to compare the same way.
+// [refuseIfRepeats] runs first, the same guard [designSystemMoved] asks.
 func (q *Queue) resolvedSetDiffers(ctx context.Context, c *candidate) (string, error) {
 	if !c.approvedFound || c.verified.BuildID == "" {
 		return "", nil

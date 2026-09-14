@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/dulguun0225/borg/factory/build"
 	"github.com/dulguun0225/borg/factory/buildrunner"
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gate"
@@ -95,22 +94,6 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		return mergequeue.Verified{}, err
 	}
 
-	// Re-verification reuses the build already made for this item and commit;
-	// the candidate-deploy path is the separate caller that records a rebuild.
-	bl, found, err := build.ForCommit(ctx, p.d.pool, it.ID, c.svc.ID, commit)
-	if err != nil {
-		return mergequeue.Verified{}, err
-	}
-	if !found {
-		bl, err = p.createBuild(ctx, repo, c.branch, it.ID, c.svc.ID, commit)
-		if err != nil {
-			return mergequeue.Verified{}, err
-		}
-		fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s made from commit %s\n", it.ID, bl.ID, commit)
-	} else {
-		fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s already names commit %s\n", it.ID, bl.ID, commit)
-	}
-
 	composition, err := deploy.CompositionFor(ctx, p, deploy.Candidate{
 		ItemID: it.ID, ServiceID: it.ServiceID, ServiceName: c.svc.Name,
 		ProductionID: p.production.ID, Principal: deployerPrincipal, Credential: p.d.credential,
@@ -124,19 +107,15 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 	c.composedFrom = composition.From
 	c.composition = composition
 
-	// A re-verification over the same commit reuses the candidate-deploy build:
-	// its artifact is already on the candidate environment, and the additional
-	// criterion run is the next reading over that same build. A moved master has
-	// a new commit, so the candidate-deploy rebuild path makes a new record and
-	// artifact for it.
-	if !found {
-		rebuilt, err := p.buildInto(ctx, repo, c.environmentDir, bl.ID, c.svc.ID)
-		if err != nil {
-			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
-				Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
-		}
-		bl = rebuilt
+	// Re-verification always makes a new build, even when master was already an
+	// ancestor of the candidate branch. Its build-run encodings are therefore
+	// carried again, and its artifact is what the recomposed environment runs.
+	bl, err := p.buildInto(ctx, repo, c.environmentDir, c.buildID, c.svc.ID)
+	if err != nil {
+		return mergequeue.Verified{Commit: commit,
+			Why: "the tree does not compile with master merged into it: " + firstLines(err.Error())}, nil
 	}
+	fmt.Fprintf(p.d.out, "Re-verification of item %s: build %s made from commit %s\n", it.ID, bl.ID, commit)
 	c.candidateDeployBuild = bl.ID
 	dep, err := p.intoCandidate(ctx, c, bl.ID)
 	if err != nil {
@@ -157,11 +136,11 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		return mergequeue.Verified{}, err
 	}
 	if c.encodingDefect != "" {
-		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Checkout: c.environmentDir,
 			Why: "the criteria and the encodings do not match with master merged in: " + c.encodingDefect}, nil
 	}
 	if c.encodingCouldNotDerive {
-		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Checkout: c.environmentDir,
 			Why: "the criteria and the encodings do not match with master merged in: the encodings could not be derived"}, nil
 	}
 	results, err := p.decideCriteria(ctx, c, bl.ID, inForce)
@@ -179,7 +158,7 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 
 	for _, result := range results {
 		if result.Outcome.Blocks(false) {
-			return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+			return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Checkout: c.environmentDir,
 				Why:                 fmt.Sprintf("criterion %s is %s against build %s", result.CriterionID, result.Outcome, bl.ID),
 				FailedCriteria:      failedCriteria(results),
 				Composition:         c.composition,
@@ -201,14 +180,14 @@ func (p *path) Reverify(ctx context.Context, it item.Item, ahead []item.Item) (m
 		return mergequeue.Verified{}, err
 	}
 	if check := checked.Check(); check != "" {
-		return mergequeue.Verified{Commit: commit, BuildID: bl.ID,
+		return mergequeue.Verified{Commit: commit, BuildID: bl.ID, Checkout: c.environmentDir,
 			Why:                 check + " with master merged in: " + checked.Why(),
 			Composition:         c.composition,
 			ApprovedComposition: c.approvedFullComposition,
 		}, nil
 	}
 	return mergequeue.Verified{
-		Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes,
+		Commit: commit, BuildID: bl.ID, Passed: true, Forms: checked.Publishes, Checkout: c.environmentDir,
 		Composition:         c.composition,
 		ApprovedComposition: c.approvedFullComposition,
 	}, nil

@@ -21,8 +21,10 @@
 // with [Dispatch.Advance], [Dispatch.Enter], [Dispatch.ReturnTo],
 // [Dispatch.End], [Dispatch.Escalate],
 // [Dispatch.ClearEscalation], [Dispatch.Drop], and [Dispatch.SetPriority].
+// revert.go holds [RevertItem] and [Decomposition.CreateReverts].
 // read.go holds [Get], [ForIntent], [AtStage], [IDsInArea], [All], [Stages],
-// [AllStages], [Live], and [PartlyDelivered]. schema.go holds [Table],
+// [AllStages], [Live], and [PartlyDelivered]. revertsiblings.go holds
+// [ShippedSiblings]. schema.go holds [Table],
 // [StageTable], [IDPrefix], [StageIDPrefix], and [DDL].
 //
 // An item names the intent it was decomposed from, the one service it changes,
@@ -135,7 +137,9 @@
 //
 // [PartlyDelivered], and reading live off the production deploy record, are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/04-when-an-intents-items-do-not-all-ship.md
-// (C0797, C0798, C0799, C0800, C0801).
+// (C0797, C0798, C0799, C0800, C0801); [ShippedSiblings] and
+// [Decomposition.CreateReverts] are the one-revert-item-per-shipped-sibling
+// write in the same design (C0803).
 //
 // Computing partly delivered from its items, reading live off the production
 // deploy record, and re-decomposition superseding only what it replaced, are

@@ -18,7 +18,7 @@
 //
 // What defines it: the build runner and its build record are
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1434, C1454, C1456, C1458, C1459, C1464, C1465, C1469, C1480,
+// (C1434, C1454, C1458, C1459, C1464, C1465, C1469, C1480,
 // C1482); repository credentials and the build boundary are
 // ../../end-goal/deferred.md
 // (C0092); adoption through the ordinary pipeline is

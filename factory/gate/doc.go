@@ -77,7 +77,9 @@
 // own, supplied to it per close and compared as per-person keys: the People
 // declaration holds a duty by key, an artifact version records the actor that
 // wrote it by key, and a record's own routing names the human it bars. acknowledge.go is
-// [Gate.Acknowledge]. abandon.go is
+// [Gate.Acknowledge]. C1456 is implemented here: [routedByAResolution] resolves
+// a human to Implementation for a coverage that cannot separate fetching from
+// running, beside the same route for a set without digests. abandon.go is
 // [Gate.Abandon] with the three reasons a decision is ended, and the two
 // enforcements of the attempt limit with [Escalated]:
 // [Gate.EnforceAttemptLimit] over an item's own per-stage count and

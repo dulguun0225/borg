@@ -30,14 +30,20 @@ import (
 // the gate reads that store itself at the firing, puts a human at the row, and
 // carries what disagreed on the open event.
 func (p *path) productionDeploy(ctx context.Context, c *candidate) error {
+	if c.waiting == gate.DeployToProduction || c.held {
+		return nil
+	}
 	d := p.d
 	it, err := item.Get(ctx, d.pool, c.itemID)
 	if err != nil {
 		return err
 	}
-	held, err := p.factoryHolds(ctx, c.svc, it)
-	if err != nil {
-		return err
+	var held string
+	if !c.awaitedRevert {
+		held, err = p.factoryHolds(ctx, c.svc, it)
+		if err != nil {
+			return err
+		}
 	}
 	if held != "" {
 		c.factoryHold = held

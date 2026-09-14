@@ -16,6 +16,7 @@ import (
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/release"
+	"github.com/dulguun0225/borg/factory/securitypredicate"
 )
 
 // Actor is who the queue's writes are made as. The rejection row and every wait
@@ -70,13 +71,8 @@ var (
 	ErrNoWaitStanding = errors.New("mergequeue: no wait of the queue's stands over that commit")
 	// ErrReverificationRepeats is returned where a re-verification that decides a
 	// candidate's own merit — [designSystemMoved] and [resolvedSetDiffers] both
-	// ask [refuseIfRepeats] — names the environment cycle already in force: the
-	// design states the environment is recomposed at every re-verification, so
-	// one naming the cycle already in force names the one thing that did not
-	// happen. The build repeating is not on its own a repeat of the run that
-	// passed — master already an ancestor of the candidate branch is a no-op
-	// merge in git, and the build already on record is the right answer to that,
-	// the way [Queue.complete]'s own re-ask already reads it.
+	// ask [refuseIfRepeats] — names the build or environment cycle already in
+	// force.
 	ErrReverificationRepeats = errors.New("mergequeue: the re-verification repeats the run that passed")
 )
 
@@ -112,21 +108,25 @@ type Composition struct {
 	// rejection compared, so a failure that repeats there teaches the score
 	// nothing. A nil value is [NoUnreliableCriterion].
 	Reliability Reliability
+	// SecurityPredicates is the factory's list, decided by the queue against
+	// each new re-verification run.
+	SecurityPredicates securitypredicate.List
 }
 
 // Queue is the merge queue over one factory.
 type Queue struct {
-	pool         *pgxpool.Pool
-	token        lease.Token
-	log          *decisionlog.Writer
-	releases     *release.Writer
-	items        *item.Dispatch
-	repo         Repository
-	numbers      Numbers
-	designSystem DesignSystem
-	backlog      Backlog
-	reverts      Reverts
-	reliability  Reliability
+	pool               *pgxpool.Pool
+	token              lease.Token
+	log                *decisionlog.Writer
+	releases           *release.Writer
+	items              *item.Dispatch
+	repo               Repository
+	numbers            Numbers
+	designSystem       DesignSystem
+	backlog            Backlog
+	reverts            Reverts
+	reliability        Reliability
+	securityPredicates securitypredicate.List
 }
 
 // New returns the queue over one composition, with the optional readings
@@ -150,7 +150,8 @@ func New(c Composition) *Queue {
 	return &Queue{
 		pool: c.Pool, token: c.Token, log: c.Log, releases: c.Releases, items: c.Items, repo: c.Repository,
 		numbers: c.Numbers, designSystem: c.DesignSystem, backlog: c.Backlog, reverts: c.Reverts,
-		reliability: c.Reliability,
+		reliability:        c.Reliability,
+		securityPredicates: c.SecurityPredicates,
 	}
 }
 

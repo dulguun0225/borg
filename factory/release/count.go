@@ -111,18 +111,22 @@ func ForItem(ctx context.Context, pool *pgxpool.Pool, itemID string) (Release, b
 	return r, true, nil
 }
 
-// Above is every release of the service numbered above number, lowest first. It
+// Above is every release of the service numbered above number, lowest first,
+// up to limit releases. It
 // is what a rollback sweeps: master is linear, so the release above a bad one
 // includes it, and returning to a target below the bad one undoes every release
 // above that target.
 //
-// It answers what is above and not how far above. How many a rollback may sweep is
-// bounded by the window limit, which is how many analysis windows a service may hold
-// open at once and
-// is a parameter of an owner's rather than anything this package reads.
-func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64) ([]Release, error) {
-	rows, err := pool.Query(ctx, selectRelease+`
-		where service_id = $1 and number > $2 order by number`, serviceID, number)
+// A non-positive limit means no bound, which is useful to readers that ask for
+// the whole range rather than a rollback sweep.
+func Above(ctx context.Context, pool *pgxpool.Pool, serviceID string, number int64, limit ...int) ([]Release, error) {
+	query := selectRelease + ` where service_id = $1 and number > $2 order by number`
+	args := []any{serviceID, number}
+	if len(limit) > 0 && limit[0] > 0 {
+		query += ` limit $3`
+		args = append(args, limit[0])
+	}
+	rows, err := pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("release: reading the releases of %s above %d: %w", serviceID, number, err)
 	}
