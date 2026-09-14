@@ -38,6 +38,9 @@ const CHANNEL: Factory = {
       },
       { IntentID: 'int-2', Source: 'detector', Outcome: '' },
     ],
+    HostingHours: [],
+    MutationScores: [],
+    CriteriaCounts: [],
   },
   ReportChannel: {
     Ungrouped: 2,

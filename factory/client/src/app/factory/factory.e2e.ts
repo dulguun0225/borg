@@ -50,4 +50,8 @@ test('Factory leaves loading and renders the readiness reading', async ({ page }
 
   await expect(page.getByText('Reading the machine itself.')).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Readiness' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Mutation score per service' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Criteria' })).toBeVisible();
+  await expect(page.getByText('No mutation score is available.')).toBeVisible();
+  await expect(page.getByText('No service has criteria counts.')).toBeVisible();
 });

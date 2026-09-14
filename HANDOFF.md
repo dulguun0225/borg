@@ -123,19 +123,12 @@ Milestone M10 as `roadmap.md` states it, built as ordered steps, one commit per 
 - environment C1522 — with no composition reader supplied, `validComposition` skips both checks.
 - environment C1397, C1398 — the only post-creation write of the ordered target field appends; no write reorders it.
 - criterion C1484 — nothing refuses a candidate-run result for a criterion the build's own process decided; `Latest` lets the run's result stand over the build's.
+- Step 9, Work, Ops, and Factory presentation. No split. Directories changed: `factory/screens` (**doc.go changed**), `factory/cmd/factory`, `factory/client/src/app/api`, `factory/client/src/app/work` (**README changed**), and `factory/client/src/app/factory` (**README changed**), plus `HANDOFF.md` and the three claims flipped to `built` in `end-goal/claims.txt`. Work now reads and presents merge-queue rows with their standing waits and open analysis-window rows; Factory presents mutation score per service and criteria withdrawn per service and author beside in-force and unreliable counts. The server keeps these read models in the existing screen and composition packages, and screen handler tests cover the added Work and Factory response shapes. The empty `/work/all` state now renders the shared queue and window sections, including their named headings and empty messages. Checks: `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `go test -count=1 ./screens` passed; `go test -count=1 ./cmd/factory -run '^TestQueueWaitsKeepOnlyQueuePayloads$'` passed; `npm ci` passed; `npm run lint` passed; `npm test` passed (87 of 87); `npm run build` passed; `npm run e2e` passed (9 of 9); `graphify update .` passed. The first focused `go test -count=1 ./screens ./cmd/factory` attempt timed out in the existing database-backed test and is retained in the session record; the coordinator's full suite remains responsible for that package.
 
-# Steps
-
-## 9. Work, Ops, and Factory presentation
-
-Claims: C2573, C2625, C2626.
-
-Design files to read: `end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md`.
-
-Change `factory/screens`, `factory/cmd/factory`, and `client/`. These are existing packages/directories; no new Go package is planned. Add the Work board/list queue and window rows, Factory mutation score, withdrawn criteria, and unreliable criteria. Keep server read models in `factory/cmd/factory` and the existing screen package; keep presentation changes in the Angular client.
-
-Prove the four screen API responses and the browser end-to-end suite show queue/window waits and the three Factory metrics without writing records. Checks: `go test -count=1 ./factory/screens ./cmd/factory`, `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `cd client && npm ci && npm run lint && npm test && npm run build && npm run e2e`.
-
+- Factory screen C1080, C0865 — no share of criteria in the unwanted-condition pattern; no per-human count of rows acknowledged and decided by another holder.
+- Factory screen C0472, C0825, C1289, C0684, C0895, C2607, C2650, C2993 — two store-kept report counters where the design has one; the fleet table shows configuration and not what each agent does; a waiting policy version sits apart from its threshold; area severity per row rather than a count naming none; the approved/undone pair carries no split by cause; no skill version in force; the browser run decides only that the screen is served.
+- Work screen C0536, C0609, C0880, C1106, C2570, C0788, C2680, C2683, C2714, C2993 — the intent is not a timeline entry; a question is answered by typing its id; a row waiting on another holder refuses nothing; a version renders as an id; one decomposition decision has no address over its timelines; the empty predicate folds readiness rows in; two screens have no spec over their declared states; the browser run drives no subscription write-back.
+- screens C2601, C2605 — the emission version is reported beside no span; one mitigation pointer per service hides a second target's.
 # Coverage
 
 | Step | Claim ids |
@@ -172,4 +165,4 @@ None identified. All 75 M10 claims have an implementation owner and a test or en
 
 # Summary
 
-Read `CLAUDE.md`, this handoff, the named M10 step-8 design files, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Steps 1–8 are implemented; no step was split. The focused checks and unresolved design choices are recorded above.
+Read `CLAUDE.md`, this handoff, the named M10 step-9 design file, `factory/README.md`, `factory/deps.txt`, and the affected package `doc.go` files before coding. Steps 1–9 are implemented; no step was split. The focused checks and unresolved design choices are recorded above.

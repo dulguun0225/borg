@@ -59,4 +59,8 @@ test('Work recovers from its refused first read when a key is declared', async (
   await expect(page.getByText('What waits on a human could not be read')).toBeHidden();
   await expect(page.getByRole('heading', { name: 'Waiting on a human: 0' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Supply an intent' })).toBeVisible();
+
+  await page.goto('/work/all');
+  await expect(page.getByRole('heading', { name: 'Merge queue' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Open windows' })).toBeVisible();
 });

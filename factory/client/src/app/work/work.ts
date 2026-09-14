@@ -67,6 +67,7 @@ export class WorkScreen implements OnDestroy {
   protected readonly digest = computed(() => this.home()?.Digest ?? null);
   protected readonly readiness = computed(() => this.home()?.Readiness ?? []);
   protected readonly rows = computed(() => this.waiting()?.Rows ?? []);
+  protected readonly queue = computed(() => this.waiting()?.Queue ?? []);
   protected readonly busy = this.working.asReadonly();
   protected readonly refused = this.refusal.asReadonly();
 
@@ -93,6 +94,7 @@ export class WorkScreen implements OnDestroy {
       this.failure() !== '',
       this.stream.state() === 'disconnected',
       this.rows().length === 0 &&
+        this.queue().length === 0 &&
         this.lastChecks().length === 0 &&
         this.readiness().length === 0 &&
         this.awaitingReports().length === 0 &&

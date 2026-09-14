@@ -15,7 +15,7 @@ where nothing waits does the digest appear.
 | Address | File pair | What it is |
 |---|---|---|
 | `/work` | `work.ts`, `work.html` | The home view: the badge, the last check rows, the readiness reading, the digest at zero, every row waiting on a human, and the report and the report-derived intent each admission safeguard is holding, with the admission of each |
-| `/work/all` | `board.ts`, `board.html` | The board: every item and where each is stuck |
+| `/work/all` | `board.ts`, `board.html` | The board: every item and where each is stuck, the merge queue and its waits, and each open window with the release and build under watch |
 | `/work/intake` | `intake.ts`, `intake.html` | What a human supplies: an intent, an interview answer, the reading confirmed, a commit master holds, an intent ended, an intent-reach constraint and its withdrawal, a ceiling cleared |
 | `/work/item/:id` | `item.ts`, `item.html` | One item's timeline, its priority, ending it, the reports grouped into its intent with the admission of each and of the group, and, where a hold of the factory's own stands at the production deploy row and is approvable from here, approving through it |
 | `/work/decision/:id` | `decision.ts`, `decision.html` | One gate: acknowledge, approve, reject, hold, refer, edit in place, take over |
@@ -68,7 +68,7 @@ decisions name none — never withheld.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2570, C2576, C2577, C2578, C2579, C2580, C2583, C2584, C2585, C2590, C2592, C2593, C2595);
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2565, C2566, C2567, C2568, C2569, C2570, C2573, C2576, C2577, C2578, C2579, C2580, C2583, C2584, C2585, C2590, C2592, C2593, C2595);
 [Three properties every screen needs](../../../../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md) (C2678, C2679, C2680, C2683, C2686, C2688, C2690, C2691, C2693);
 [Reports](../../../../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md) (C0438, C0439, C0473);
 [The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2701, C2702, C2703, C2704, C2705, C2706, C2707, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994);

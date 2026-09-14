@@ -39,6 +39,8 @@ export class FactoryNumbersSection {
   protected readonly rejectionRate = computed(() => named(this.numbers().GateRejectionRate));
   protected readonly costs = computed(() => this.numbers().CostPerFeature ?? []);
   protected readonly outcomes = computed(() => this.numbers().IntentOutcomes ?? []);
+  protected readonly mutationScores = computed(() => this.numbers().MutationScores ?? []);
+  protected readonly criteriaCounts = computed(() => this.numbers().CriteriaCounts ?? []);
   protected readonly resolvedFactors = computed(() => this.view().ResolvedFactorGates ?? []);
   protected readonly load = computed(() => this.view().HumanLoad ?? []);
   protected readonly selfApprovals = computed(() => this.view().SelfApprovalCounts ?? []);

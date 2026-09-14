@@ -87,8 +87,9 @@
 // change is indistinguishable from one that was never told, until a human
 // reloads and sees the record moved.
 //
-// The Factory and Ops views carry the recorded composition and hosting hours,
-// mutation and criteria counts, the kept-fleet stop, and every relevant
+// The Work view carries the merge queue and open analysis windows, and the
+// Factory view carries mutation and criteria counts, beside the recorded
+// composition and hosting hours, the kept-fleet stop, and every relevant
 // last-check scope. The product licence and cause-split rows remain outside
 // this step.
 //
@@ -98,7 +99,8 @@
 // C2584, C2585, C2588, C2590, C2591, C2592, C2593, C2594, C2595, C2596, C2597,
 // C2599, C2600, C2601, C2602, C2604, C2605, C2606, C2608, C2611, C2612, C2613,
 // C2615, C2620, C2624, C2629, C2631, C2632, C2633, C2634, C2638, C2643, C2651,
-// C2652, C2653, C2654, C2656, C2658, C2660, C2661, C2662).
+// C2573, C2625, C2626, C2652, C2653, C2654, C2656, C2658, C2660, C2661,
+// C2662).
 //
 // Two audiences, designed for silence, and push not poll:
 // ../../end-goal/how-the-factory-works/11-screens/02-three-properties-every-screen-needs.md

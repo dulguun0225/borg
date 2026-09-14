@@ -80,6 +80,8 @@ const WORK_WITH_ROWS: Work = {
       },
     },
   ],
+  Queue: [],
+  Windows: [],
 };
 
 const PENDING_DECISION: Decision = {

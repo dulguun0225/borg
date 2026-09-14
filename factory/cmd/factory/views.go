@@ -335,7 +335,12 @@ func (v *views) Work(ctx context.Context, _ principal.Principal, filter screens.
 		return screens.Work{}, err
 	}
 
+	queue, windows, err := v.queueAndWindows(ctx, filter)
+	if err != nil {
+		return screens.Work{}, err
+	}
 	var board screens.Work
+	board.Queue, board.Windows = queue, windows
 	for _, it := range items {
 		switch it.Stage {
 		case item.StageDropped, item.StageSuperseded:

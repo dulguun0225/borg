@@ -40,7 +40,11 @@ func TestEveryReadRouteDecodesToItsOwnViewType(t *testing.T) {
 			return screens.Home{Badge: screens.Badge{Total: 3}}, nil
 		},
 		work: func(context.Context, principal.Principal, screens.Filter) (screens.Work, error) {
-			return screens.Work{Rows: []screens.WorkRow{{ItemID: "it_1"}}}, nil
+			return screens.Work{
+				Rows:    []screens.WorkRow{{ItemID: "it_1"}},
+				Queue:   []screens.QueueRow{{ServiceID: "svc_1", ItemID: "it_1", Waiting: "a queue wait"}},
+				Windows: []screens.WindowRow{{ID: "win_1", ServiceID: "svc_1", BuildID: "build_1"}},
+			}, nil
 		},
 		item: func(context.Context, principal.Principal, string) (screens.Item, error) {
 			return screens.Item{ID: "it_1"}, nil
@@ -55,7 +59,10 @@ func TestEveryReadRouteDecodesToItsOwnViewType(t *testing.T) {
 			return screens.Service{ServiceID: "svc_1"}, nil
 		},
 		factory: func(context.Context, principal.Principal) (screens.Factory, error) {
-			return screens.Factory{Projects: []screens.Project{{ID: "prj_1"}}}, nil
+			return screens.Factory{Projects: []screens.Project{{ID: "prj_1"}}, Numbers: screens.Numbers{
+				MutationScores: []screens.MutationScore{{ServiceID: "svc_1", Score: 0.8}},
+				CriteriaCounts: []screens.CriteriaCount{{ServiceID: "svc_1", InForce: 2, Unreliable: 1}},
+			}}, nil
 		},
 		constraint: func(context.Context, principal.Principal, string) (screens.Constraint, error) {
 			return screens.Constraint{ID: "con_1"}, nil
@@ -87,6 +94,24 @@ func TestEveryReadRouteDecodesToItsOwnViewType(t *testing.T) {
 		var raw map[string]json.RawMessage
 		if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
 			t.Fatalf("%s: decode top level: %v", tc.path, err)
+		}
+		if tc.path == "/api/work" {
+			var view screens.Work
+			if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+				t.Fatalf("%s: decode view: %v", tc.path, err)
+			}
+			if len(view.Queue) != 1 || len(view.Windows) != 1 {
+				t.Fatalf("%s: queue=%+v windows=%+v, want both step rows", tc.path, view.Queue, view.Windows)
+			}
+		}
+		if tc.path == "/api/factory" {
+			var view screens.Factory
+			if err := json.Unmarshal(rec.Body.Bytes(), &view); err != nil {
+				t.Fatalf("%s: decode view: %v", tc.path, err)
+			}
+			if len(view.Numbers.MutationScores) != 1 || len(view.Numbers.CriteriaCounts) != 1 {
+				t.Fatalf("%s: numbers=%+v, want mutation and criteria rows", tc.path, view.Numbers)
+			}
 		}
 	}
 }

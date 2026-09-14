@@ -7,7 +7,6 @@ import { ScreenState, malformations } from '../state/screen-state';
 import { predicateViolations } from '../state/predicates';
 import { FakeEventSource, FakeFetch, installFakes, restoreFakes } from '../../testing/fakes';
 import { FactoryScreen, factoryMachine } from './factory';
-
 const NOTHING_WAITS: Home = {
   Badge: {
     Total: 0,
@@ -26,9 +25,7 @@ const NOTHING_WAITS: Home = {
   Awaiting: { Reports: null, Intents: null },
   Digest: null,
 };
-
 const NOTHING_READY: Home = { ...NOTHING_WAITS, Readiness: [] };
-
 const AUTHORED: Factory = {
   Parameters: [
     { Name: 'risk_threshold', Subject: 'payments', Value: '0.7', Source: 'clamped by a safeguard' },
@@ -125,6 +122,9 @@ const AUTHORED: Factory = {
     CostPerFeature: [{ ModelVersion: 'a-model/3', Amount: 12000, Currency: '', IsTotal: false }],
     CostMeasured: false,
     IntentOutcomes: [{ IntentID: 'int-1', Source: 'detector', Outcome: '' }],
+    HostingHours: [],
+    MutationScores: [],
+    CriteriaCounts: [],
   },
   ReportChannel: { Ungrouped: 2, RefusedOverTheChannel: 5, Services: [], OnAnOldWayIn: [] },
   StoppedAtDispatch: [{ Cause: 'no fleet entry covers this role', Count: 2 }],
@@ -489,7 +489,6 @@ describe('Factory screen', () => {
     await fixture.whenStable();
   }
 });
-
 // The element a selector was written for, or a failure naming it: a spec that
 // silently matched nothing would pass by asserting over an empty DOM.
 function only<E extends Element>(found: E | null, what: string): E {

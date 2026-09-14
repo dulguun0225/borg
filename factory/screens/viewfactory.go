@@ -3,11 +3,9 @@ package screens
 // Factory is [Views.Factory]'s view: gate and risk policy in force, the
 // fleet, the lent credentials a fleet entry may run on, the constraints and
 // projects, the report channel's own numbers, and the factory's own numbers
-// over the one factory-owned span. Absent from it, because nothing builds
-// them yet: advisories, the mutation score, and the design-system numbers
-// _Work, Ops, Factory, People_ lists — each left out rather than shown as
-// zero, so a screen answering nothing is read as unbuilt and not as a quiet
-// week.
+// over the one factory-owned span. Advisories and design-system numbers are
+// absent rather than shown as zero, so a screen answering nothing is read as
+// unbuilt and not as a quiet week.
 type Factory struct {
 	Parameters      []Parameter
 	Safeguards      []Safeguard
@@ -180,8 +178,8 @@ type Area struct {
 }
 
 // Numbers is the read-time queries Factory reports over the one
-// factory-owned span: throughput, rework rate, gate rejection rate, and cost
-// per feature.
+// factory-owned span: throughput, rework rate, gate rejection rate, cost per
+// feature, mutation score, and criteria counts.
 type Numbers struct {
 	ThroughputPerService map[string]int64
 	ReworkRate           float64

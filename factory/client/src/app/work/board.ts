@@ -33,12 +33,14 @@ export class BoardScreen implements OnDestroy {
   protected readonly machine = workMachine;
   protected readonly message = this.failure.asReadonly();
   protected readonly rows = computed(() => this.view()?.Rows ?? []);
+  protected readonly queue = computed(() => this.view()?.Queue ?? []);
+  protected readonly windows = computed(() => this.view()?.Windows ?? []);
   protected readonly state = computed<ScreenState>(() =>
     screenState(
       this.reading(),
       this.failure() !== '',
       this.stream.state() === 'disconnected',
-      this.rows().length === 0,
+      this.rows().length === 0 && this.queue().length === 0 && this.windows().length === 0,
     ),
   );
 

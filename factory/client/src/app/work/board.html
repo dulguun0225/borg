@@ -11,7 +11,7 @@
     </div>
   }
   @case ('empty') {
-    <p>No item is open.</p>
+    <ng-container [ngTemplateOutlet]="rowsTable" />
     <div class="actions">
       <a routerLink="/work/intake">Supply an intent</a>
     </div>
@@ -32,6 +32,67 @@
 }
 
 <ng-template #rowsTable>
+  <h2>Merge queue</h2>
+  @if (queue().length > 0) {
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Service</th>
+          <th scope="col">Item</th>
+          <th scope="col">Priority</th>
+          <th scope="col">Held by</th>
+          <th scope="col">Waiting</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of queue(); track row.ServiceID + row.ItemID) {
+          <tr>
+            <td>{{ row.ServiceID }}</td>
+            <td>{{ row.ItemID === '' ? 'the service' : row.ItemID }}</td>
+            <td>{{ row.Priority }}</td>
+            <td>{{ row.Holder }}</td>
+            <td>{{ row.Waiting === '' ? 'nothing' : row.Waiting }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  } @else {
+    <p class="quiet">No merge queue wait is standing.</p>
+  }
+
+  <h2>Open windows</h2>
+  @if (windows().length > 0) {
+    <table>
+      <thead>
+        <tr>
+          <th scope="col">Service</th>
+          <th scope="col">Release</th>
+          <th scope="col">Build</th>
+          <th scope="col">Held by</th>
+          <th scope="col">Opened</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of windows(); track row.ID) {
+          <tr>
+            <td>{{ row.ServiceID }}</td>
+            <td>{{ row.ReleaseID }}</td>
+            <td>{{ row.BuildID }}</td>
+            <td>{{ row.Holder }}</td>
+            <td>{{ at(row.OpenedAt) }}</td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  } @else {
+    <p class="quiet">No analysis window is open.</p>
+  }
+
+  @if (rows().length === 0 && queue().length === 0 && windows().length === 0) {
+    <p>No item, queue member, or open window is on the board.</p>
+  }
+
+  @if (rows().length > 0) {
   <table>
     <thead>
       <tr>
@@ -64,4 +125,5 @@
       }
     </tbody>
   </table>
+  }
 </ng-template>

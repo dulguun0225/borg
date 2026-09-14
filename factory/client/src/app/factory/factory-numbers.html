@@ -90,6 +90,62 @@
   </table>
 }
 
+<h3>Mutation score per service</h3>
+@if (mutationScores().length === 0) {
+  <p class="quiet">No mutation score is available.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Service</th>
+        <th scope="col">Score</th>
+        <th scope="col">Mutants tested</th>
+        <th scope="col">Mutants detected</th>
+        <th scope="col">Reading</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of mutationScores(); track one.ServiceID) {
+        <tr>
+          <td>{{ one.ServiceID }}</td>
+          <td>{{ one.Score }}</td>
+          <td>{{ one.MutantsTested }}</td>
+          <td>{{ one.MutantsDetected }}</td>
+          <td>{{ one.Derived ? 'derived' : 'not derived' }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
+<h3>Criteria</h3>
+@if (criteriaCounts().length === 0) {
+  <p class="quiet">No service has criteria counts.</p>
+} @else {
+  <table>
+    <thead>
+      <tr>
+        <th scope="col">Service</th>
+        <th scope="col">Author</th>
+        <th scope="col">Withdrawn</th>
+        <th scope="col">In force</th>
+        <th scope="col">Unreliable</th>
+      </tr>
+    </thead>
+    <tbody>
+      @for (one of criteriaCounts(); track one.ServiceID + one.Author) {
+        <tr>
+          <td>{{ one.ServiceID }}</td>
+          <td>{{ one.Author === '' ? 'all criteria' : one.Author }}</td>
+          <td>{{ one.Withdrawn }}</td>
+          <td>{{ one.InForce }}</td>
+          <td>{{ one.Unreliable }}</td>
+        </tr>
+      }
+    </tbody>
+  </table>
+}
+
 <h2>Gates a resolved factor put a human at</h2>
 <p class="quiet">
   Grouped by which factor the vector names, so a fault in whatever supplies one reads as

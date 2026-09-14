@@ -110,10 +110,13 @@ type Digest struct {
 	AutoApprovals int64
 }
 
-// Work is the board [Views.Work] serves: the rows Filter selected. Ordering
-// is the client's: nothing here sorts what it renders.
+// Work is the board [Views.Work] serves: the rows, merge queue, and open
+// windows Filter selected. Ordering is the client's: nothing here sorts what
+// it renders.
 type Work struct {
-	Rows []WorkRow
+	Rows    []WorkRow
+	Queue   []QueueRow
+	Windows []WindowRow
 }
 
 // WorkRow is one row of the board: an item's identity and where it stands,
@@ -128,6 +131,28 @@ type WorkRow struct {
 	// Stop is the stop dispatch itself wrote onto this item and stage, or
 	// nil where nothing holds it.
 	Stop *DispatchStop
+}
+
+// QueueRow is one merge-queue row: the service and item in queue order, the
+// queue holding it, and the wait standing over it, if any. A service-level
+// wait has an empty ItemID.
+type QueueRow struct {
+	ServiceID string
+	ItemID    string
+	Priority  int64
+	Holder    string
+	Waiting   string
+}
+
+// WindowRow is one open analysis window: the service and release it watches,
+// the build under watch, who holds it, and when it opened.
+type WindowRow struct {
+	ID        string
+	ServiceID string
+	ReleaseID string
+	BuildID   string
+	Holder    string
+	OpenedAt  string
 }
 
 // Item is [Views.Item]'s view: one item's timeline in the order intent,

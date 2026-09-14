@@ -103,8 +103,27 @@ export interface WorkRow {
   Stop: DispatchStop | null;
 }
 
+export interface QueueRow {
+  ServiceID: string;
+  ItemID: string;
+  Priority: number;
+  Holder: string;
+  Waiting: string;
+}
+
+export interface WindowRow {
+  ID: string;
+  ServiceID: string;
+  ReleaseID: string;
+  BuildID: string;
+  Holder: string;
+  OpenedAt: Instant;
+}
+
 export interface Work {
   Rows: WorkRow[] | null;
+  Queue: QueueRow[] | null;
+  Windows: WindowRow[] | null;
 }
 
 export interface ArtifactVersion {

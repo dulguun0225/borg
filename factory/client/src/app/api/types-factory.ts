@@ -115,6 +115,39 @@ export interface Numbers {
   CostPerFeature: ModelCost[] | null;
   CostMeasured: boolean;
   IntentOutcomes: IntentOutcome[] | null;
+  HostingHours: HostingHours[] | null;
+  MutationScores: MutationScore[] | null;
+  CriteriaCounts: CriteriaCount[] | null;
+}
+
+export interface HostingHours {
+  ServiceID: string;
+  ItemID: string;
+  ReleaseNumber: number;
+  EnvironmentHours: number;
+  EnvironmentAmount: number;
+  EnvironmentAmountInForce: boolean;
+  InstanceHours: number;
+  InstanceAmount: number;
+  InstanceAmountInForce: boolean;
+}
+
+export interface MutationScore {
+  ServiceID: string;
+  ItemID: string;
+  BuildID: string;
+  Score: number;
+  MutantsTested: number;
+  MutantsDetected: number;
+  Derived: boolean;
+}
+
+export interface CriteriaCount {
+  ServiceID: string;
+  Author: string;
+  Withdrawn: number;
+  InForce: number;
+  Unreliable: number;
 }
 
 export interface DispatchCause {

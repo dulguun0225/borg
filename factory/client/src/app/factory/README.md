@@ -29,7 +29,7 @@ keeps both true.
 | `factory-policy.ts`, `.html` | The rows that decide a record, every parameter with its effective value and which read it came from, the form that authors one, the safeguards — whose form takes the service a gate-row safeguard fires for, keyed by the row — the halts, the legal holds, and seam 5 enforcement, off at install and turned on once here |
 | `factory-places.ts`, `.html` | The environments, the projects and areas with their forms and the project each area's chain ends at, ending a project and retiring a service — each armed by a first click and sent by a second on the same typed name — and the constraints in force with the three widest reaches listed by reach and a link to each one's own address; the form that supplies one takes a kind, document or notice, a notice's reach always one project |
 | `factory-reports.ts`, `.html` | The report channel: reports waiting to be grouped, refusals per service and over the whole channel, submissions the store could not read, each service serving a way in built under another release of the product, each service whose project has no notice — and the erasure as one action, armed by a first click and sent by a second, `spansTyped` refusing anything that is not a half-open byte range |
-| `factory-numbers.ts`, `.html` | Throughput, rework rate, gate rejection rate, cost per feature with each intent's outcome beside it, the gates a resolved factor put a human at, the human's load with the approve-and-undone pair and the self-approval counts, the auto-pass rates against the recorded ones with the held-out bands, the spend ceilings, and the page channel |
+| `factory-numbers.ts`, `.html` | Throughput, rework rate, gate rejection rate, cost per feature with each intent's outcome beside it, mutation score per service, criteria withdrawn per service and author beside the in-force and unreliable counts, the gates a resolved factor put a human at, the human's load with the approve-and-undone pair and the self-approval counts, the auto-pass rates against the recorded ones with the held-out bands, the spend ceilings, and the page channel |
 | `request.ts` | What a section asks the screen to send |
 | `factory.e2e.ts` | The browser run: the screen driven in Chromium against the factory's own process |
 | `factory-constraint.spec.ts`, `factory-reports.spec.ts` | The two specs split off the screen's own at the 500-line bound, each named for what it drives |
@@ -70,19 +70,17 @@ them, and no terminal state.
 ## What the view does not carry
 
 The Factory view leaves out, because nothing builds them yet, what its own doc comment
-names: the advisories and the registries watched for them, the mutation score, and the
-design-system numbers. Each is left out rather than shown as zero, so a screen answering
+names: the advisories and the registries watched for them, and the design-system numbers.
+Each is left out rather than shown as zero, so a screen answering
 nothing is read as unbuilt and not as a quiet week. Beside those, the design's Factory
 bullet asks for these and the view carries no field for them: whether the page a report
-marking harm can cause is turned off, environment-hours per item and instance-hours per
-release, criteria withdrawn per service and per author with the count unreliable, the hours
-a mitigation has stood per target — which Ops carries per service — the product licence per
-service against what its current release resolved, and the rows each human referred and
-rejected split by what put them at the row.
+marking harm can cause is turned off, the hours a mitigation has stood per target — which
+Ops carries per service — the product licence per service against what its current release
+resolved, and the rows each human referred and rejected split by what put them at the row.
 
 ## What defines it
 
-[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2621, C2622, C2624, C2629, C2631, C2632, C2633, C2634, C2635, C2636, C2637, C2638, C2639, C2646, C2647, C2648, C2650, C2651, C2652, C2653);
+[Work, Ops, Factory, People](../../../../../end-goal/how-the-factory-works/11-screens/01-work-ops-factory-people.md) (C2572, C2588, C2589, C2593, C2607, C2608, C2612, C2613, C2620, C2621, C2622, C2624, C2625, C2626, C2629, C2631, C2632, C2633, C2634, C2635, C2636, C2637, C2638, C2639, C2646, C2647, C2648, C2650, C2651, C2652, C2653);
 [What the factory auto-approved, and what was undone](../../../../../end-goal/how-the-factory-works/11-screens/04-what-the-factory-auto-approved-and-what-was-undone.md) (C2719, C2722, C2724, C2725);
 [The page channel, and what reached a human](../../../../../end-goal/how-the-factory-works/11-screens/05-the-page-channel-and-what-reached-a-human.md) (C2730, C2731, C2732, C2733, C2734, C2736, C2738);
 [The screens as software](../../../../../end-goal/how-the-factory-works/11-screens/03-the-screens-as-software.md) (C2698, C2700, C2702, C2703, C2705, C2711, C2712, C2713, C2714, C2715, C2716, C2992, C2993, C2994);
