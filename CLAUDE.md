@@ -327,6 +327,51 @@ refused; a name outside those bounds goes in `names.go`. Below the package name 
 is held in review and by `drift-reviewer`, whose third list is a name or mechanism the
 design does not have.
 
+### Building a milestone
+
+A milestone of `roadmap.md` is built as ordered steps, one commit per step, by a worker
+session per step under a coordinating session, which is how M10 was built. The
+coordinator plans, reviews, and commits; the worker writes code. In Claude Code the
+coordinator is the session and the worker is Codex on `gpt-5.6-luna`, launched by
+`tools/codex-step.sh` with the prompt in `prompts/build-step.md`; in Codex the worker is a
+native subagent given the same prompt. The plan is `HANDOFF.md`, written by a worker from
+`prompts/plan-milestone.md` and checked by the coordinator before any code: every claim
+the milestone builds appears once, assigned to the one package that will hold its
+mechanism. What M10 taught is that a worker left to assign claims cites them wholesale and
+puts the mechanism in the composition or nowhere, and every such step cost two or three
+review rounds to move it; the assignment in the plan is what stops that.
+
+The rules a step session follows, copied into the plan:
+
+- Read `CLAUDE.md`, then `HANDOFF.md`, then only the design files and packages the step
+  names.
+- First, in `end-goal/claims.txt`, change the step's claims from `unbuilt` to `built`, so
+  each package's `doc.go` can cite the claims it implements and `cmd/tracecheck` holds.
+  That is the one edit to `end-goal/` a step makes.
+- A `doc.go` cites a claim only where the package holds the claim's mechanism; a package
+  the claim's subject passes through cites it nowhere, and `cmd/` composes and holds no
+  mechanism. A mechanism found in `cmd/` at review moves to its package.
+- Before coding, estimate the step's size. Over about 1,000 changed lines, split it in the
+  plan into `Na`, `Nb`, … with their own claim lists, and do `Na` alone.
+- Run `go vet`, `depscheck`, `tracecheck`, and the step's focused tests; the coordinator
+  alone runs the whole suite, which takes most of an hour, and runs it detached from any
+  session limit.
+- Do not commit and do not push. The coordinator runs `drift-reviewer` on every directory
+  whose `doc.go` or screen `README.md` changed, sends the **Not implemented** and
+  **Implemented differently** lists back to the same worker session as the next round,
+  and commits when **Not implemented** is empty and the suite is green.
+- A finding on a claim built before this milestone is recorded in `HANDOFF.md` under a
+  heading for the owner and not fixed in the step, unless the step's own change
+  introduced it.
+- Before returning, record under **Completed** the step, the directories changed, and
+  every check run with its result, and move the step's entry out of **Steps**. Keep
+  **Unresolved** current.
+- A doubt about what the design means is recorded under **Unresolved** with the two
+  readings, and the more conservative one is built.
+
+The coordinator's rounds are what the work costs: on M10, nine steps took about
+thirty-five worker rounds, most of them review rounds, at one to three million tokens each.
+
 ## The review pass
 
 `end-goal/CLAUDE.md`'s consistency pass verifies the design document against rules the
