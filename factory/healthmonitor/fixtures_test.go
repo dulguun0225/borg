@@ -201,7 +201,7 @@ func (g graph) monitorComposed(t *testing.T, emission healthmonitor.Emission,
 func (g graph) authorTargets(t *testing.T, ctx context.Context) {
 	t.Helper()
 	g.inTransaction(t, ctx, func(tx pgx.Tx) error {
-		return service.SetTargets(ctx, tx, g.serviceID, []string{theTarget}, []string{theTarget})
+		return service.SetTargets(ctx, tx, g.serviceID, []string{theTarget}, []string{theTarget}, nil)
 	})
 }
 

@@ -159,6 +159,9 @@
 // platform's room, and environment-hours; and the threshold's scope is
 // ../../end-goal/how-the-factory-works/09-gate-policy/02-one-shape-across-all-of-them.md
 // (C2233, C2234, C2246, C2253, C2254).
+
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/04-retirement.md
+// (C0709).
 //
 // An environment reclaimed and composed again is
 // ../../end-goal/how-the-factory-works/03-gates/06-going-back-up.md (C1037);
@@ -178,7 +181,7 @@
 // room, and a failed teardown remains eligible for the deployer's next pass.
 // These are the claims in
 // ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
-// (C1391, C1392, C1402, C1405, C1895),
+// (C1391, C1392, C1405, C1895),
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/01-the-store-and-the-configuration.md
 // (C1485), and
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md

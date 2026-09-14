@@ -201,8 +201,9 @@
 // purpose. It stands until a human ends it at Ops, and [Writer.EndMitigation]
 // writes which human that was beside when they did, refusing anyone else with
 // [ErrNotAHuman]. [Operations] holds two and not three — ending every instance of a
-// service on a target is a third operation of the seam, which [Remove]
-// performs for a retirement and no human at Ops instructs. [Writer] writes all
+// service on a target is a third operation of the seam, which [Remove] and
+// [RemoveTarget] perform for a retirement or a service-target removal (C1402),
+// and no human at Ops instructs. [Writer] writes all
 // three tables and nothing else writes any of them.
 //
 // # What the deployer writes elsewhere
@@ -319,6 +320,10 @@
 // refusal errors at the schema and snapshot steps, are
 // ../../end-goal/how-the-factory-works/06-releases/05-the-deploy-record/01-a-schema-change.md
 // (C1663, C1665, C1666, C1667, C1671, C1675, C1676).
+
+// ../../end-goal/how-the-factory-works/04-risk-score/02-how-it-learns.md (C1347).
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2065).
 //
 // [DeleteSnapshot] deleting the copy and writing the deletion on the record is
 // ../../end-goal/how-the-factory-works/09-gate-policy/03-what-is-not-in-it/02-retention.md

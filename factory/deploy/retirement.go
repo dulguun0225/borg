@@ -8,6 +8,7 @@ import (
 	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/secretref"
+	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
 // The removal: what an owner's write of retired on a service record calls the
@@ -52,6 +53,36 @@ type Removal struct {
 	// the caller read them: a removal is one deploy record per environment and no
 	// environment is reached before another.
 	From []Environment
+}
+
+// TargetRemoval is a removal of one service from one target. The service
+// record is changed only after this operation completes and its caller's
+// count says no deploy record still stands on the target.
+type TargetRemoval struct {
+	Actor     record.Actor
+	Principal principal.Principal
+
+	ServiceID          string
+	ServiceName        string
+	EnvironmentID      string
+	Address            string
+	Target             targetseam.Target
+	Credential         secretref.Ref
+	EnvironmentTargets []string
+}
+
+// RemoveTarget performs the deployer's removal on one target.
+func RemoveTarget(ctx context.Context, w *Writer, r TargetRemoval) (Deploy, error) {
+	if r.ServiceID == "" || r.ServiceName == "" || r.EnvironmentID == "" || r.Address == "" || r.Target == nil {
+		return Deploy{}, fmt.Errorf("%w: target removal is incomplete", ErrRemovalIncomplete)
+	}
+	return Perform(ctx, w, Performance{
+		Actor: r.Actor, Principal: r.Principal, ServiceID: r.ServiceID,
+		ServiceName: r.ServiceName, EnvironmentID: r.EnvironmentID,
+		What: OfRemoval(), Credential: r.Credential,
+		Reaches:            []Reach{{Address: r.Address, Target: r.Target}},
+		EnvironmentTargets: r.EnvironmentTargets,
+	})
 }
 
 // Remove performs the removal and returns the record it wrote per environment.

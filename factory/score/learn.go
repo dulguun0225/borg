@@ -59,8 +59,9 @@ func (u Under) band() float64 {
 // Learn is what the score supplies and what it published beside it, computed
 // from every outcome in the store. It reads records and writes none — what
 // writes is [Writer.Ensure], which appends the version this is a field of.
-func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks, under Under) (Learned, error) {
-	e, err := ReadEvidence(ctx, pool, token, marks)
+func Learn(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks, under Under,
+	readers ...LearningReaders) (Learned, error) {
+	e, err := ReadEvidence(ctx, pool, token, marks, readers...)
 	if err != nil {
 		return Learned{}, err
 	}
@@ -262,10 +263,29 @@ func itemSizeTargets(e *Evidence, limit func(item.Stage) float64) []Supplied {
 		if value == start.Value {
 			continue
 		}
+		why := fmt.Sprintf("%d item(s) in this area reached the attempt limit at a stage and never shipped, which is what a decomposition too coarse spends and throws away", len(stalls))
+		if environmentHours, instanceHours := e.hostingHours(area); environmentHours != 0 || instanceHours != 0 {
+			why = fmt.Sprintf("%s; the learning pass also read %.2f environment-hours per item and %.2f instance-hours per release",
+				why, environmentHours, instanceHours)
+		}
 		moved = append(moved, Supplied{
 			Parameter: gatepolicy.ItemSizeTarget, Subject: area, Value: value,
-			Why: fmt.Sprintf("%d item(s) in this area reached the attempt limit at a stage and never shipped, which is what a decomposition too coarse spends and throws away", len(stalls)),
+			Why: why,
 		})
 	}
 	return moved
+}
+
+func (e *Evidence) hostingHours(area string) (float64, float64) {
+	var environmentHours, instanceHours float64
+	for _, it := range e.items {
+		if it.AreaID != area {
+			continue
+		}
+		environmentHours += e.environmentHours[it.ID]
+		if rel, found := e.releaseOfItem[it.ID]; found {
+			instanceHours += e.instanceHours[rel.ID]
+		}
+	}
+	return environmentHours, instanceHours
 }

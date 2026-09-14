@@ -136,7 +136,7 @@
 // ../../end-goal/how-the-factory-works/08-operations/07-pages.md (C2105, C2106,
 // C2107, C2108, C2109, C2110, C2111, C2112, C2113, C2114, C2115, C2117, C2118,
 // C2119, C2125, C2128, C2129, C2130, C2132, C2133, C2134, C2135, C2136, C2138,
-// C2139, C2140, C2142) — the one notifier, the three channels, the delivery
+// C2139, C2140, C2142, C2470, C2472) — the one notifier, the three channels, the delivery
 // record, the condition that qualifies for a page, the four page events, the
 // single widening, the paging hours, and the drift detector's own page — and
 // ../../end-goal/what-humans-do.md (C2853) for the twelve duties the routing

@@ -29,11 +29,11 @@ import (
 // record for it would be a decision where nothing is decided, and re-testing
 // would append one every time the gate re-fired.
 //
-// Eight of the fourteen holds this answers, and six it does not. The halt is
+// Nine of the fourteen holds this answers, and five it does not. The halt is
 // package gate's own read; the drift mismatch is a firing's own read of that
 // store; and the three left — a contract migration not shipped, the maximum
-// concurrent kept fleets, and an advisory match — each belong to a component
-// not composed here.
+// concurrent candidate environments, and an advisory match — each belong to a
+// component not composed here.
 func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) {
 	if !s.Row.Deploys() || s.ItemID == "" {
 		return nil, nil
@@ -90,6 +90,11 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		if !room {
 			standing = append(standing, gate.HoldWindowLimitReached)
 		}
+		if held, err := p.keptFleetHold(ctx, svc, it); err != nil {
+			return nil, err
+		} else if held != "" {
+			standing = append(standing, held)
+		}
 		awaiting, err := p.rollbackHold(ctx, svc, it)
 		if err != nil {
 			return nil, err
@@ -117,6 +122,27 @@ func (p *path) Standing(ctx context.Context, s gate.Subjects) ([]string, error) 
 		}
 	}
 	return standing, nil
+}
+
+// keptFleetHold reads the service's authored ceiling over standing kept deploy
+// records.
+func (p *path) keptFleetHold(ctx context.Context, svc service.Service, it item.Item) (string, error) {
+	if !svc.MaxConcurrentKeptFleets.Present {
+		return "", nil
+	}
+	revert, err := p.IsARevert(ctx, it)
+	if err != nil || revert {
+		return "", err
+	}
+	count, err := deploy.KeptFleets(ctx, p.d.pool, svc.ID, p.production.ID)
+	if err != nil {
+		return "", err
+	}
+	if float64(count) < svc.MaxConcurrentKeptFleets.Number {
+		return "", nil
+	}
+	return fmt.Sprintf("%s — %d standing kept fleet(s) against a limit of %.0f",
+		gate.HoldAtMaxConcurrentKeptFleets, count, svc.MaxConcurrentKeptFleets.Number), nil
 }
 
 // The three [contractcheck.StoreState] readings below are all of one thing this

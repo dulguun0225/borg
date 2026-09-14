@@ -284,18 +284,23 @@ func (v Version) PriorDrifted(author string) bool {
 // the log is append-only and chained, which is what makes a decision naming a
 // version a decision readable against what that version said.
 type Writer struct {
-	pool  *pgxpool.Pool
-	token lease.Token
-	marks Marks
+	pool    *pgxpool.Pool
+	token   lease.Token
+	marks   Marks
+	readers LearningReaders
 }
 
 // NewWriter returns the writer over pool, fencing every write with token and
 // reading the rollbacks a human marked through marks. A nil marks is [NoMarks].
-func NewWriter(pool *pgxpool.Pool, token lease.Token, marks Marks) *Writer {
+func NewWriter(pool *pgxpool.Pool, token lease.Token, marks Marks, readers ...LearningReaders) *Writer {
 	if marks == nil {
 		marks = NoMarks{}
 	}
-	return &Writer{pool: pool, token: token, marks: marks}
+	reader := LearningReaders(NoLearningReaders{})
+	if len(readers) > 0 && readers[0] != nil {
+		reader = readers[0]
+	}
+	return &Writer{pool: pool, token: token, marks: marks, readers: reader}
 }
 
 // Ensure is the version in force: the newest stored version where it still says
@@ -315,7 +320,7 @@ func (w *Writer) Ensure(ctx context.Context, actor record.Actor) (Version, error
 		// The pass reads under the version below it: the band it steps the
 		// threshold by, and the point the last recalibration read to, both of
 		// which are fields of that version and not of this source.
-		learned, err := Learn(ctx, w.pool, w.token, w.marks, newest.Under())
+		learned, err := Learn(ctx, w.pool, w.token, w.marks, newest.Under(), w.readers)
 		if err != nil {
 			return Version{}, false, err
 		}

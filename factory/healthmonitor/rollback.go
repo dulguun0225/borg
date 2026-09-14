@@ -3,6 +3,7 @@ package healthmonitor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/dulguun0225/borg/factory/boundary"
@@ -51,9 +52,14 @@ func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Wa
 		return one, err
 	}
 	one.WhyNoRollback = why
+	rollbackRefused := false
 	if one.WhyNoRollback == "" {
 		if err := h.rollBack(ctx, w, &one); err != nil {
-			return one, err
+			if !errors.Is(err, deploy.ErrTargetRefused) {
+				return one, err
+			}
+			rollbackRefused = true
+			one.WhyNoRollback = fmt.Sprintf("the rollback could not reach its target: %v", err)
 		}
 	}
 
@@ -63,13 +69,16 @@ func (h *HealthMonitor) failed(ctx context.Context, w Watching, one Watched) (Wa
 	}
 	one.IncidentID, one.RaisedIntentID = crossed.Incident.ID, crossed.IntentID
 
+	var pageErr error
 	if one.WhyNoRollback != "" {
-		if err := h.pageNoRollback(ctx, one); err != nil {
-			return one, err
+		if rollbackRefused {
+			pageErr = h.pageRollbackTargetRefused(ctx, one)
+		} else {
+			pageErr = h.pageNoRollback(ctx, one)
 		}
 	}
-
-	return h.close(ctx, w, one.Window, window.ExitFailed, one)
+	closed, closeErr := h.close(ctx, w, one.Window, window.ExitFailed, one)
+	return closed, errors.Join(pageErr, closeErr)
 }
 
 // whyNoRollback is why the failed exit rolls nothing back, and empty where it
@@ -277,6 +286,19 @@ func (h *HealthMonitor) pageNoRollback(ctx context.Context, one Watched) error {
 		// whatever hour the condition arose and never waits for the service's
 		// paging hours.
 		RollbackOutstanding: true,
+	})
+	return err
+}
+
+func (h *HealthMonitor) pageRollbackTargetRefused(ctx context.Context, one Watched) error {
+	if h.pager == nil {
+		return nil
+	}
+	_, err := h.pager.Notify(ctx, notifier.Wait{
+		Row: one.Window.ID, Kind: notifier.KindCredentialUnreachable,
+		Waiting: fmt.Sprintf("rollback of release %d could not reach its target: %s",
+			one.Release.Number, one.WhyNoRollback),
+		Worse: true, ServiceID: one.Window.ServiceID, RollbackOutstanding: true,
 	})
 	return err
 }

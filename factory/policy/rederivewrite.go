@@ -169,7 +169,7 @@ func (f *Factory) rewriteIn(ctx context.Context, tx pgx.Tx, actor record.Actor, 
 		// The environment's own list is not read here: what the version names
 		// is what package service already checked each target against when the
 		// owner authored it, so the re-derivation restores that same list.
-		return service.SetTargets(ctx, tx, value.Scope.ID, value.List, value.List)
+		return service.SetTargets(ctx, tx, value.Scope.ID, value.List, value.List, f.TargetRemovals)
 	case gatepolicy.ChangeFreeze:
 		// A period is added and never edited, so each the version names that
 		// the record does not hold is added; the insert conflicts on the period

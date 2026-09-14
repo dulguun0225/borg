@@ -63,6 +63,12 @@ var (
 	// ErrTargetNotInEnvironment is returned by [SetTargets] for a target the
 	// environment does not hold.
 	ErrTargetNotInEnvironment = errors.New("service: the environment holds no such target")
+	// ErrSoftwareStandsOnIt is returned by [SetTargets] where a removed target
+	// still has a completed deploy record for this service.
+	ErrSoftwareStandsOnIt = errors.New("service: a deploy record still marks the removed target complete")
+	// ErrNoTargetRemovalReader is returned by [SetTargets] when a write removes
+	// a target but its composition supplied no reader of the deployer's removal.
+	ErrNoTargetRemovalReader = errors.New("service: no reader was supplied for the deployer's target removal")
 	// ErrRetiredNotEmpty is returned by [Retire] where something still names the
 	// service: a consumer contract in force, an unmerged item, or an unmerged
 	// item's declared dependency.
@@ -102,6 +108,13 @@ func SetProvisioned(ctx context.Context, tx pgx.Tx, serviceID string,
 	return nil
 }
 
+// TargetRemovalReader reports whether the deployer has completed removing a
+// service from one address. The composition supplies it because service owns
+// the target-set write and deploy owns the removal record.
+type TargetRemovalReader interface {
+	RemovalComplete(ctx context.Context, serviceID, address string) (bool, error)
+}
+
 // SetTargets writes which of the environment's targets this service runs on, in
 // the order a rollout reaches them. Where an owner names none the service runs
 // on every target of the environment, so an empty list is a real value and not a
@@ -111,7 +124,8 @@ func SetProvisioned(ctx context.Context, tx pgx.Tx, serviceID string,
 // targets in, supplied by the caller: this package cannot read an environment
 // record — the edge is not in deps.txt and the direction would be the wrong one
 // — so the check the design requires is made here over what the caller read.
-func SetTargets(ctx context.Context, tx pgx.Tx, serviceID string, targets, environmentTargets []string) error {
+func SetTargets(ctx context.Context, tx pgx.Tx, serviceID string, targets, environmentTargets []string,
+	removals TargetRemovalReader) error {
 	for _, target := range targets {
 		if target == "" {
 			return fmt.Errorf("%w: an empty address", ErrTargetNotInEnvironment)
@@ -121,6 +135,33 @@ func SetTargets(ctx context.Context, tx pgx.Tx, serviceID string, targets, envir
 		}
 		if !slices.Contains(environmentTargets, target) {
 			return fmt.Errorf("%w: %q", ErrTargetNotInEnvironment, target)
+		}
+	}
+	var stored string
+	if err := tx.QueryRow(ctx, `select targets from `+Table+` where id = $1 for update`, serviceID).Scan(&stored); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("%w: %s", ErrNotFound, serviceID)
+		}
+		return fmt.Errorf("service: reading the targets of %s: %w", serviceID, err)
+	}
+	oldTargets := splitTargets(stored)
+	newTargets := targets
+	if len(newTargets) == 0 {
+		newTargets = environmentTargets
+	}
+	for _, old := range oldTargets {
+		if slices.Contains(newTargets, old) {
+			continue
+		}
+		if removals == nil {
+			return fmt.Errorf("%w: %s", ErrNoTargetRemovalReader, old)
+		}
+		complete, err := removals.RemovalComplete(ctx, serviceID, old)
+		if err != nil {
+			return fmt.Errorf("service: reading removal of %s from %s: %w", serviceID, old, err)
+		}
+		if !complete {
+			return fmt.Errorf("%w: %s", ErrSoftwareStandsOnIt, old)
 		}
 	}
 	tag, err := tx.Exec(ctx, `update `+Table+` set targets = $1 where id = $2`,

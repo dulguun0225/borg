@@ -133,13 +133,13 @@
 // [policy.Factory.WithdrawEnvironment] has no call: production's is the only
 // persistent environment this interface composes, and it is withdrawn with the
 // project by [calls.EndProject]. [path.approveThrough] is reached from Work by
-// [calls.ApproveThroughHold] and by no subcommand: the four factory holds it
+// [calls.ApproveThroughHold] and by no subcommand: the five factory holds it
 // approves through stop the production deploy row being fired at all, so there is
 // no open event for [calls.Decide] to name and that call fires the row with the
 // holds on it and approves it in one act. Every other hold the factory sets is on
 // a row the gate already fired, which [calls.Decide] approves through by naming
 // the set on the open event. What the item view offers the action against is
-// [path.factoryHoldsAsRead], the same four holds with the objective's budget read
+// [path.factoryHoldsAsRead], the same five holds with the objective's budget read
 // rather than raised.
 //
 // What defines it: the four screens as software and the fleet as records an
@@ -160,4 +160,7 @@
 // the duties the four screens' calls give a way in to are
 // ../../../end-goal/what-humans-do.md; and what each component may call is
 // ../../../end-goal/components.md.
+
+// ../../../end-goal/how-the-factory-works/10-fleet/05-an-account-that-runs-out-is-a-hold.md
+// (C2470, C2472).
 package main

@@ -17,6 +17,7 @@ import (
 	"github.com/dulguun0225/borg/factory/record"
 	"github.com/dulguun0225/borg/factory/safeguard"
 	"github.com/dulguun0225/borg/factory/score"
+	"github.com/dulguun0225/borg/factory/service"
 )
 
 // ErrNotAnOwner is returned by every authoring call for an actor that is not a
@@ -70,6 +71,11 @@ type Factory struct {
 	// deployer, so retiring through a factory with none composed would write
 	// retired and leave the service running.
 	Removal func(ctx context.Context, p principal.Principal, serviceID, environmentID string) error
+
+	// TargetRemovals reads whether the deployer completed removing one service
+	// from one address. It is supplied by the composition because service owns
+	// the target-set write and deploy owns the removal record.
+	TargetRemovals service.TargetRemovalReader
 
 	// AutoPassRates is the realized auto-pass rate at a threshold, one per
 	// factor set, computed in the same call that appends the version and frozen

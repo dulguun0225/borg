@@ -83,7 +83,7 @@ func (f *Factory) SetServiceTargets(ctx context.Context, actor record.Actor, ser
 		scope:     Scope{Kind: ScopeService, ID: serviceID},
 		list:      targets, authored: true,
 		apply: func(ctx context.Context, tx pgx.Tx) error {
-			return service.SetTargets(ctx, tx, serviceID, targets, environmentTargets)
+			return service.SetTargets(ctx, tx, serviceID, targets, environmentTargets, f.TargetRemovals)
 		},
 	})
 }

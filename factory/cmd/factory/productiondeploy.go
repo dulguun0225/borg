@@ -19,7 +19,7 @@ import (
 // productionDeploy is the Deploy to production row: the last row before a release
 // takes traffic, and the one that offers hold and no reject.
 //
-// The factory's own holds are computed first. Four of the five lift themselves — a
+// The factory's own holds are computed first. Five of the six lift themselves — a
 // dependency becomes current, a window closes, a revert ships — so the deploy waits,
 // nothing is written, and the next firing recomputes; a gate fired for one of them
 // would ask a human to approve through something the factory is about to clear on
@@ -339,7 +339,7 @@ func (p *path) recordPlatformCheck(ctx context.Context) error {
 // exhausted. It returns the words the first
 // one found is reported with, and nothing where none holds.
 //
-// None of the four is written anywhere. Each is computed from records that already
+// None of the five is written anywhere. Each is computed from records that already
 // exist — the deploy records of the dependencies' services, the open windows, the
 // newest rollback, the emission the objective is read over — and the design gives such
 // a hold no row: a record for it would be
@@ -355,6 +355,9 @@ func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.It
 	if held, err := p.windowHold(ctx, svc); err != nil || held != "" {
 		return held, err
 	}
+	if held, err := p.keptFleetHold(ctx, svc, it); err != nil || held != "" {
+		return held, err
+	}
 	if held, err := p.rollbackHold(ctx, svc, it); err != nil || held != "" {
 		return held, err
 	}
@@ -362,7 +365,7 @@ func (p *path) factoryHolds(ctx context.Context, svc service.Service, it item.It
 }
 
 // factoryHoldsAsRead is [path.factoryHolds] for a caller that writes nothing:
-// the same four holds in the same order, with the error budget read and the
+// the same five holds in the same order, with the error budget read and the
 // intent an exhausted budget calls for left unraised. Its caller is the item
 // view, which shows the hold standing at the row and offers approving through
 // it, and [views] writes nothing at all — so the chain is written out again
@@ -373,6 +376,9 @@ func (p *path) factoryHoldsAsRead(ctx context.Context, svc service.Service, it i
 		return held, err
 	}
 	if held, err := p.windowHold(ctx, svc); err != nil || held != "" {
+		return held, err
+	}
+	if held, err := p.keptFleetHold(ctx, svc, it); err != nil || held != "" {
 		return held, err
 	}
 	if held, err := p.rollbackHold(ctx, svc, it); err != nil || held != "" {

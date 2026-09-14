@@ -3,6 +3,7 @@ package score
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,6 +41,25 @@ const (
 	// against.
 	OutcomeBadly Outcome = "badly"
 )
+
+// LearningReaders supplies the recorded hosting hours the learning pass does
+// not own. Composition provides the readers; score only combines their values
+// with the outcomes it already reads.
+type LearningReaders interface {
+	EnvironmentHours(ctx context.Context, itemID string) (float64, error)
+	InstanceHours(ctx context.Context, releaseID string) (float64, error)
+}
+
+// NoLearningReaders is a composition with no hosting readers.
+type NoLearningReaders struct{}
+
+func (NoLearningReaders) EnvironmentHours(context.Context, string) (float64, error) {
+	return 0, nil
+}
+
+func (NoLearningReaders) InstanceHours(context.Context, string) (float64, error) {
+	return 0, nil
+}
 
 // Firing is one closed decision as the learning pass reads it: what the opening
 // row said about the change and what the close event decided. It is the pair and
@@ -88,7 +108,9 @@ type Evidence struct {
 	// marked is every release whose rollback a human marked as not caused by the
 	// release. It is read by everything here that learns and by nothing that
 	// acts.
-	marked map[string]bool
+	marked           map[string]bool
+	environmentHours map[string]float64
+	instanceHours    map[string]float64
 
 	releaseOfItem   map[string]release.Release
 	itemOfRelease   map[string]string
@@ -115,7 +137,8 @@ type Evidence struct {
 // ReadEvidence reads every outcome the score learns from. It reads the log
 // through token, appending one read event as the score's own component actor,
 // reads the marks through marks, and writes nothing else.
-func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks) (*Evidence, error) {
+func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, marks Marks,
+	readers ...LearningReaders) (*Evidence, error) {
 	e := newEvidence()
 
 	closed, err := decisionlog.NewReader(pool, token).ClosedDecisions(ctx, componentPrincipal)
@@ -157,6 +180,27 @@ func ReadEvidence(ctx context.Context, pool *pgxpool.Pool, token lease.Token, ma
 	if e.releases, err = release.All(ctx, pool); err != nil {
 		return nil, err
 	}
+	if len(readers) > 1 {
+		return nil, fmt.Errorf("score: ReadEvidence received %d learning readers", len(readers))
+	}
+	reader := LearningReaders(NoLearningReaders{})
+	if len(readers) == 1 && readers[0] != nil {
+		reader = readers[0]
+	}
+	for _, it := range e.items {
+		hours, err := reader.EnvironmentHours(ctx, it.ID)
+		if err != nil {
+			return nil, fmt.Errorf("score: reading environment-hours for item %s: %w", it.ID, err)
+		}
+		e.environmentHours[it.ID] = hours
+	}
+	for _, rel := range e.releases {
+		hours, err := reader.InstanceHours(ctx, rel.ID)
+		if err != nil {
+			return nil, fmt.Errorf("score: reading instance-hours for release %s: %w", rel.ID, err)
+		}
+		e.instanceHours[rel.ID] = hours
+	}
 	if e.marked, err = markedSet(ctx, marks); err != nil {
 		return nil, err
 	}
@@ -176,6 +220,8 @@ func newEvidence() *Evidence {
 	return &Evidence{
 		contents:           map[string]string{},
 		marked:             map[string]bool{},
+		environmentHours:   map[string]float64{},
+		instanceHours:      map[string]float64{},
 		releaseOfItem:      map[string]release.Release{},
 		itemOfRelease:      map[string]string{},
 		serviceOfItem:      map[string]string{},

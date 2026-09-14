@@ -44,7 +44,8 @@ func learnCommand(args []string) error {
 			fmt.Println("No score version has been appended yet")
 		}
 
-		learned, err := score.Learn(ctx, pool, token, marksOf(pool), inForce.Under())
+		hosting := scoreHosting{pool: pool}
+		learned, err := score.Learn(ctx, pool, token, marksOf(pool), inForce.Under(), hosting)
 		if err != nil {
 			return err
 		}
@@ -59,7 +60,7 @@ func learnCommand(args []string) error {
 			fmt.Println("\nNothing was appended: -dry reads the outcomes and writes nothing.")
 			return nil
 		}
-		appended, err := score.NewWriter(pool, token, marksOf(pool)).Ensure(ctx, scoreActor)
+		appended, err := score.NewWriter(pool, token, marksOf(pool), hosting).Ensure(ctx, scoreActor)
 		if err != nil {
 			return err
 		}

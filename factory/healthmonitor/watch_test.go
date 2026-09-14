@@ -102,6 +102,7 @@ type fakeDeployer struct {
 	// searchesEnded is the search deploys the health monitor asked the deployer
 	// to end, each search deploy ending with the window that measured it.
 	searchesEnded []healthmonitor.SearchDeployEnding
+	rollbackErr   error
 }
 
 func (d *fakeDeployer) StartControl(_ context.Context, c healthmonitor.Control) error {
@@ -124,6 +125,9 @@ func (d *fakeDeployer) TearDownKept(_ context.Context, k healthmonitor.Kept) err
 
 func (d *fakeDeployer) RollBack(_ context.Context, r healthmonitor.Rollback) error {
 	d.calls = append(d.calls, "roll back to "+r.ToReleaseID)
+	if d.rollbackErr != nil {
+		return d.rollbackErr
+	}
 	d.rolledTo = r.ToReleaseID
 	d.rollbacks = append(d.rollbacks, r)
 	return nil

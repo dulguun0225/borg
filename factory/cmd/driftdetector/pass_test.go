@@ -399,7 +399,7 @@ func withTargets(ctx context.Context, t *testing.T, pool *pgxpool.Pool,
 		t.Fatalf("beginning the transaction: %v", err)
 	}
 	defer tx.Rollback(ctx)
-	if err := service.SetTargets(ctx, tx, svc.ID, addresses, env.Addresses()); err != nil {
+	if err := service.SetTargets(ctx, tx, svc.ID, addresses, env.Addresses(), nil); err != nil {
 		t.Fatalf("SetTargets: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {

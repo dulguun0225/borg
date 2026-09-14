@@ -61,7 +61,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// ensure computes the supplied table from every outcome in the store and appends
 	// a version where it has moved.
 	marks := marksOf(d.pool)
-	scoreVersion, err := score.NewWriter(d.pool, d.token, marks).Ensure(ctx, scoreActor)
+	scoreVersion, err := score.NewWriter(d.pool, d.token, marks, scoreHosting{pool: d.pool}).Ensure(ctx, scoreActor)
 	if err != nil {
 		return nil, err
 	}
@@ -103,6 +103,7 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// deployer is composed here: package policy writes retired and reaches no
 	// deploy target itself.
 	p.factory.Removal = p.removeService
+	p.factory.TargetRemovals = targetRemovalReader{pool: d.pool}
 
 	// The install, where this composition is the one that installs. The
 	// factory-wide settings record exists before any project does; the project

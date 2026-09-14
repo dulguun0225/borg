@@ -78,7 +78,8 @@ else, and a factory whose sample never selects has a threshold that can fall and
                       a stage reached the limit above and which has no release, which is work spent and
                       thrown away — floored at 1 requirement. One way only: the other end of a bad size
                       is cost per feature and rework rate, and cost per feature needs features counted,
-                      which nothing here does.
+                      which nothing here does. The pass also reads recorded environment-hours per item
+                      and instance-hours per release from its composed readers beside the stalls.
 
   analysis window size   per service and per quantity, and the coarser of two numbers. What the evidence
                       asks for is the starting size halved per miss on a window that timed out —

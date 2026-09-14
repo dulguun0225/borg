@@ -1,5 +1,7 @@
 package score
 
+import "math"
+
 // The rollout strategy, which is the second of the three things one number
 // decides: the gate reads mostly likelihood against impact, the strategy reads
 // mostly impact against reversibility, and the boundary of the analysis window
@@ -91,6 +93,9 @@ var Whys = []string{
 // strategy rather than from this number.
 const ShippedControlBound = 0.5
 
+// ShippedStartingShare is the traffic share a controlled release starts with.
+const ShippedStartingShare = 0.10
+
 // Pick is the strategy one production deploy takes, and the schedule where the
 // row with a control was picked. The gate writes it onto the open event and the
 // production deploy record names the strategy the deployer performed beside it.
@@ -164,15 +169,15 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 	pick := Pick{Strategy: StrategyWithoutControl}
 	switch {
 	case r.KeepsAControl:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhySafeguarded}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: startingShare(a), Why: WhySafeguarded}
 	case r.HeldOut:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhyHeldOut}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: startingShare(a), Why: WhyHeldOut}
 	case r.Default == StrategyWithControl:
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth, Why: WhyAuthored}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: startingShare(a), Why: WhyAuthored}
 	case r.Default == StrategyWithoutControl:
 		pick = Pick{Strategy: StrategyWithoutControl, Why: WhyAuthored}
 	case a.DiscountedImpact >= boundOf(a):
-		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: ShippedBandWidth}
+		pick = Pick{Strategy: StrategyWithControl, Schedule: ScheduleWidened, Share: startingShare(a)}
 	}
 	// Why names the one thing that decided the row, so a reason already named is
 	// not overwritten: a held-out release in an irreversible area was decided by
@@ -182,6 +187,17 @@ func PickStrategy(a Assessment, r Rollout) Pick {
 		pick.Why = WhyIrreversible
 	}
 	return pick
+}
+
+func startingShare(a Assessment) float64 {
+	hazard := 0.0
+	for _, factor := range a.Vector {
+		if factor.Name == contextHazardSeverity.name && factor.Resolved == "" {
+			hazard = factor.Level
+			break
+		}
+	}
+	return math.Max(0.01, ShippedStartingShare*(1-hazard))
 }
 
 // boundOf is the bound the assessment was computed under, falling back to the

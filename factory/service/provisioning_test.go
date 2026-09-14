@@ -1,12 +1,19 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/secretref"
 	"github.com/dulguun0225/borg/factory/service"
 )
+
+type targetRemovals map[string]bool
+
+func (r targetRemovals) RemovalComplete(_ context.Context, _, address string) (bool, error) {
+	return r[address], nil
+}
 
 func ref(t *testing.T, name string) secretref.Ref {
 	t.Helper()
@@ -104,7 +111,7 @@ func TestSetTargetsRefusesATargetTheEnvironmentDoesNotHold(t *testing.T) {
 	environmentTargets := []string{"10.0.0.1:8080", "10.0.0.2:8080"}
 
 	tx := begin(ctx, t, pool)
-	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.1:8080"}, environmentTargets); err != nil {
+	if err := service.SetTargets(ctx, tx, created.ID, environmentTargets, environmentTargets, nil); err != nil {
 		t.Fatalf("SetTargets: %v", err)
 	}
 	commit(ctx, t, tx)
@@ -113,23 +120,36 @@ func TestSetTargetsRefusesATargetTheEnvironmentDoesNotHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if len(read.Targets) != 1 || read.Targets[0] != "10.0.0.1:8080" {
-		t.Errorf("Targets = %v, want [10.0.0.1:8080]", read.Targets)
+	if len(read.Targets) != 2 {
+		t.Errorf("Targets = %v, want both environment targets", read.Targets)
 	}
 
 	tx = begin(ctx, t, pool)
-	defer func() { _ = tx.Rollback(ctx) }()
-	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.9:8080"}, environmentTargets); !errors.Is(err, service.ErrTargetNotInEnvironment) {
+	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.9:8080"}, environmentTargets, nil); !errors.Is(err, service.ErrTargetNotInEnvironment) {
 		t.Errorf("SetTargets with a target the environment does not hold = %v, want ErrTargetNotInEnvironment", err)
 	}
-	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.1:8080\nextra"}, environmentTargets); !errors.Is(err, service.ErrTargetNotInEnvironment) {
+	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.1:8080\nextra"}, environmentTargets, nil); !errors.Is(err, service.ErrTargetNotInEnvironment) {
 		t.Errorf("SetTargets with a line ending embedded = %v, want ErrTargetNotInEnvironment", err)
 	}
+	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.2:8080"}, environmentTargets, nil); !errors.Is(err, service.ErrNoTargetRemovalReader) {
+		t.Errorf("SetTargets without a removal reader = %v, want ErrNoTargetRemovalReader", err)
+	}
+	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.2:8080"}, environmentTargets,
+		targetRemovals{"10.0.0.2:8080": false}); !errors.Is(err, service.ErrSoftwareStandsOnIt) {
+		t.Errorf("SetTargets before the deployer removal = %v, want ErrSoftwareStandsOnIt", err)
+	}
+	if err := service.SetTargets(ctx, tx, created.ID, []string{"10.0.0.2:8080"}, environmentTargets,
+		targetRemovals{"10.0.0.1:8080": true}); err != nil {
+		t.Errorf("SetTargets after the deployer removal: %v", err)
+	}
+	commit(ctx, t, tx)
 
 	// An empty list is a real value: the service runs on every target of the
 	// environment.
 	tx2 := begin(ctx, t, pool)
-	if err := service.SetTargets(ctx, tx2, created.ID, nil, environmentTargets); err != nil {
+	if err := service.SetTargets(ctx, tx2, created.ID, nil, environmentTargets, targetRemovals{
+		"10.0.0.2:8080": true,
+	}); err != nil {
 		t.Fatalf("SetTargets(nil): %v", err)
 	}
 	commit(ctx, t, tx2)

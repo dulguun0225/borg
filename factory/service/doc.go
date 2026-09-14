@@ -23,7 +23,10 @@
 // [SetProofTestRate], [SetMutantCap], [SetFailureRecordKeyCap],
 // [SetUnreliableBound] and [SetIncidentItemBound], which are authored the same way
 // and are not gate policy's. provisioning.go is [Provisioned], [CredentialShape],
-// [SetProvisioned], [SetTargets] and [Retire]. operations.go is [Objective],
+// [SetProvisioned], [SetTargets] and [Retire]. [SetTargets] refuses a removed
+// target while the deployer's removal still stands, as
+// ../../end-goal/how-the-factory-works/05-environments/01-records-and-one-long-lived-branch.md
+// (C1402) requires. operations.go is [Objective],
 // [PagingHours], [SetObjective], [SetPagingHours], [SetProductLicence] and
 // [SetSnapshotRetention]. threshold.go is [Threshold] and
 // [SetExplicitThreshold], the absolute number a safeguard sets per quantity

@@ -155,6 +155,11 @@
 // (C2040, C2041, C2046, C2047, C2048, C2049, C2050, C2051, C2053, C2062, C2067,
 // C2068, C2069, C2070, C2072, C2073, C2074, C2078, C2079) for the window
 // limit, the rollback's target, and what a rollback undoes;
+
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C0909); and
+// ../../end-goal/how-the-factory-works/10-fleet/05-an-account-that-runs-out-is-a-hold.md
+// (C2470).
 //
 // ../../end-goal/how-the-factory-works/08-operations/04-after-the-analysis-window.md
 // (C2080, C2081) for the intent a later crossing writes;

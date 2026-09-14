@@ -83,6 +83,35 @@ func Targets(ctx context.Context, pool *pgxpool.Pool, deployID string) ([]Target
 	return read, nil
 }
 
+// InstanceHoursForRelease sums the recorded target hours of every deploy that
+// delivered a release.
+func InstanceHoursForRelease(ctx context.Context, pool *pgxpool.Pool, releaseID string) (float64, error) {
+	var hours float64
+	err := pool.QueryRow(ctx, `select coalesce(sum(t.instance_hours), 0)
+		from `+TargetTable+` t join `+Table+` d on d.id = t.deploy_id
+		where d.release_id = $1`, releaseID).Scan(&hours)
+	if err != nil {
+		return 0, fmt.Errorf("deploy: reading instance-hours for release %s: %w", releaseID, err)
+	}
+	return hours, nil
+}
+
+// TargetRemovalComplete reports whether a completed removal deploy names the
+// service and address. It is the reader a service-target composition supplies
+// when the service writer removes an address (C1402).
+func TargetRemovalComplete(ctx context.Context, pool *pgxpool.Pool, serviceID, address string) (bool, error) {
+	var complete bool
+	err := pool.QueryRow(ctx, `select exists (
+		select 1 from `+Table+` d join `+TargetTable+` t on t.deploy_id = d.id
+		where d.service_id = $1 and d.release_id = '' and d.build_id = ''
+		and t.address = $2 and t.completion = $3
+	)`, serviceID, address, string(CompletionComplete)).Scan(&complete)
+	if err != nil {
+		return false, fmt.Errorf("deploy: reading removal of %s from %s: %w", serviceID, address, err)
+	}
+	return complete, nil
+}
+
 // CompleteOnEvery reports whether the deploy is marked complete on every one of
 // those addresses. It is the rule every reader of the current release
 // evaluates, and it is the strictest one: a release is current only once every
@@ -288,6 +317,22 @@ func ByRelease(ctx context.Context, pool *pgxpool.Pool, environmentID, releaseID
 	}
 	return query(ctx, pool, "the deploys of release "+releaseID, selectDeploy+`
 		where environment_id = $1 and release_id = $2 order by number, id`, environmentID, releaseID)
+}
+
+// KeptFleets is the number of deploy records with a kept fleet still standing
+// for one service in one environment. A fleet is counted once per deploy, not
+// once per target, and only target rows whose kept instances have not been torn
+// down answer the read.
+func KeptFleets(ctx context.Context, pool *pgxpool.Pool, serviceID, environmentID string) (int, error) {
+	var count int
+	err := pool.QueryRow(ctx, `select count(distinct d.id) from `+Table+` d
+		join `+TargetTable+` t on t.deploy_id = d.id
+		where d.service_id = $1 and d.environment_id = $2
+		and d.release_id <> '' and t.kept_instances > 0 and t.kept_torn_down_at = ''`, serviceID, environmentID).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("deploy: reading kept fleets of %s in %s: %w", serviceID, environmentID, err)
+	}
+	return count, nil
 }
 
 // ForEnvironment is every deploy into one environment, oldest first. It is what

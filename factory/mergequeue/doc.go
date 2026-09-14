@@ -117,7 +117,7 @@
 //
 // ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
 // (C2066) for the backlog cap's stop;
-//
+
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
 // (C0576, C0578) for the intent's state, which permits membership or stops the
 // item with a wait the queue opens and closes;

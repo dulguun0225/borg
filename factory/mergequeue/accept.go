@@ -119,7 +119,7 @@ func (q *Queue) AcceptCommit(ctx context.Context, human record.Actor, serviceID,
 			commit, serviceID, read.Stopped, read.Head)
 	}
 
-	verified, err := q.repo.VerifyCommit(ctx, serviceID, commit)
+	verified, err := q.reverifyCommit(ctx, serviceID, commit)
 	if err != nil {
 		return accepted, fmt.Errorf("mergequeue: re-verifying the accepted commit %s of %s: %w",
 			commit, serviceID, err)

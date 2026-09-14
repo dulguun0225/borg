@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -104,7 +105,9 @@ func TestHeldOutReleaseTakesAControlOnATrafficShiftingTarget(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the target's traffic file: %v", err)
 	}
-	if !strings.Contains(string(traffic), dep.BuildID+" 0.1") {
+	opening := openingOf(t, ctx, d, secondCandidate.deployGate.opening)
+	pickedShare := fmt.Sprintf("%s %.17g", dep.BuildID, opening.Strategy.Share)
+	if !strings.Contains(string(traffic), pickedShare) {
 		t.Fatalf("traffic file is %q, want the held-out build at the picked share", traffic)
 	}
 }

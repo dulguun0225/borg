@@ -114,3 +114,16 @@ func TestTheAuthoredDefaultIsTheValueInForceAndTheNumberSuppliesNoneOverIt(t *te
 		t.Errorf("the pick at the bound with nothing authored is %+v, want the row with a control", pick)
 	}
 }
+
+func TestTheControlledShareHasItsOwnStartingBoundAndReadsHazardSeverity(t *testing.T) {
+	r := Rollout{ReplacesReleaseID: "rel", EveryTargetServesAShare: true}
+	a := Assessment{ControlBound: ShippedControlBound, DiscountedImpact: ShippedControlBound,
+		Vector: []Factor{{Name: contextHazardSeverity.name, Level: 0.5}}}
+	pick := PickStrategy(a, r)
+	if pick.Share != ShippedStartingShare*0.5 {
+		t.Fatalf("controlled share = %v, want the shipped starting share lowered by hazard severity", pick.Share)
+	}
+	if pick.Share == ShippedBandWidth && ShippedStartingShare != ShippedBandWidth {
+		t.Fatal("controlled share is coupled to the score band width")
+	}
+}
