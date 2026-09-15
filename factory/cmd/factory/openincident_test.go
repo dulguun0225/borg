@@ -3,10 +3,8 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/localtarget"
@@ -23,7 +21,8 @@ import (
 func TestAnOpenIncidentWithNoOpenWindowPages(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	if _, err := run(ctx, d, of(theStatement)); err != nil {
+	_, err := run(ctx, d, of(theStatement))
+	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	d.decide = scriptedAtWork(approvals).decide
@@ -40,16 +39,12 @@ func TestAnOpenIncidentWithNoOpenWindowPages(t *testing.T) {
 	// raises the incident the page is about. The path is composed before the
 	// emission is written, so the units are not aged past the recent history the
 	// reading is taken over.
+	if _, err := d.targets.at(d.dir).Stop(ctx, deployerPrincipal, theService, d.credential); err != nil {
+		t.Fatalf("stopping the running release: %v", err)
+	}
 	path := p(ctx, t, d)
 	signal := localtarget.SignalFile(d.dir, c.reverifiedBuildID)
-	var failing strings.Builder
-	for n := range 400 {
-		at := time.Now().Add(-2 * time.Second).Add(time.Duration(n) * 5 * time.Millisecond)
-		failing.WriteString(at.UTC().Format(time.RFC3339Nano) + "\terror\n")
-	}
-	if err := os.WriteFile(signal, []byte(failing.String()), 0o644); err != nil {
-		t.Fatalf("writing what the running build emits: %v", err)
-	}
+	writeFailureEmissions(t, signal, c.reverifiedBuildID, c.deployID, theService, d.dir)
 
 	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)

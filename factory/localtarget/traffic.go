@@ -27,6 +27,9 @@ var (
 )
 
 func (l *Local) validateDeployment(p principal.Principal, d targetseam.Deployment) error {
+	if err := l.signalError(); err != nil {
+		return err
+	}
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return err
 	}
@@ -73,12 +76,14 @@ func (l *Local) Reconfigure(ctx context.Context, p principal.Principal, r target
 	if err := r.Validate(); err != nil {
 		return targetseam.Placement{}, err
 	}
+	deployment := targetseam.Deployment{Service: r.Service, Build: r.Build, Credential: r.Credential,
+		Configuration: r.Configuration, WayInAddress: r.WayInAddress}
+	if err := deployment.Validate(); err != nil {
+		return targetseam.Placement{}, err
+	}
 	kept := KeptFile(l.dir, r.Service)
 	if _, err := os.Stat(kept); errors.Is(err, os.ErrNotExist) {
-		return l.Deploy(ctx, p, targetseam.Deployment{
-			Service: r.Service, Build: r.Build, Credential: r.Credential,
-			Configuration: r.Configuration, WayInAddress: r.WayInAddress,
-		})
+		return l.Deploy(ctx, p, deployment)
 	} else if err != nil {
 		return targetseam.Placement{}, fmt.Errorf("localtarget: checking the kept process for service %q: %w", r.Service, err)
 	}
@@ -88,10 +93,7 @@ func (l *Local) Reconfigure(ctx context.Context, p principal.Principal, r target
 	if err := l.StopKept(ctx, p, r.Service); err != nil {
 		return targetseam.Placement{}, err
 	}
-	if err := l.start(targetseam.Deployment{
-		Service: r.Service, Build: r.Build, Credential: r.Credential,
-		Configuration: r.Configuration, WayInAddress: r.WayInAddress,
-	}, kept); err != nil {
+	if err := l.start(deployment, kept); err != nil {
 		return targetseam.Placement{}, err
 	}
 	content, err := os.ReadFile(kept)
@@ -107,6 +109,9 @@ func (l *Local) Reconfigure(ctx context.Context, p principal.Principal, r target
 // ShiftTraffic writes the build and share both processes read. Existing control
 // and kept processes are reused, including after a full shift.
 func (l *Local) ShiftTraffic(ctx context.Context, p principal.Principal, s targetseam.Shift) error {
+	if err := l.signalError(); err != nil {
+		return err
+	}
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return err
 	}
@@ -218,10 +223,14 @@ func (l *Local) startMain(d targetseam.Deployment, replacement targetseam.Replac
 
 func (l *Local) start(d targetseam.Deployment, file string) error {
 	cmd := exec.Command(filepath.Join(l.dir, d.Build))
-	cmd.Env = append(os.Environ(), SignalEnv+"="+SignalFile(l.dir, d.Build),
-		ExchangeEnv+"="+ExchangeFile(l.dir, d.Build), TrafficEnv+"="+TrafficFile(l.dir, d.Service),
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("localtarget: connecting build %s output: %w", d.Build, err)
+	}
+	deploy := deployID(d.Configuration)
+	cmd.Env = append(os.Environ(), ExchangeEnv+"="+ExchangeFile(l.dir, d.Build), TrafficEnv+"="+TrafficFile(l.dir, d.Service),
 		BuildEnv+"="+d.Build,
-		DeployEnv+"="+deployID(d.Configuration))
+		DeployEnv+"="+deploy, TargetEnv+"="+l.dir)
 	if d.WayInAddress != "" {
 		cmd.Env = append(cmd.Env, wayin.StoreEnv+"="+d.WayInAddress,
 			wayin.ListenEnv+"="+WayInSocket(l.dir, d.Service))
@@ -232,6 +241,7 @@ func (l *Local) start(d targetseam.Deployment, file string) error {
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("localtarget: starting side-by-side build %s for service %q: %w", d.Build, d.Service, err)
 	}
+	l.startSignalReader(output, SignalFile(l.dir, d.Build), deploy)
 	go func() { _ = cmd.Wait() }()
 	if err := os.WriteFile(file, []byte(d.Build+" "+strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
 		return fmt.Errorf("localtarget: recording the side-by-side build for service %q: %w", d.Service, err)

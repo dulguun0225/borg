@@ -177,6 +177,10 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Servic
 // every target it is not on.
 func (h *HealthMonitor) compare(ctx context.Context, w Watching, win window.Window,
 	baseline release.Release, hasBaseline bool, into *Watched) error {
+	noControl := true
+	if dep, err := deploy.Get(ctx, h.pool, win.DeployID); err == nil {
+		noControl = dep.StrategyPerformed == deploy.StrategyWithoutControl
+	}
 	for _, target := range win.Targets {
 		reading := Reading{
 			ServiceName: w.Name,
@@ -190,9 +194,18 @@ func (h *HealthMonitor) compare(ctx context.Context, w Watching, win window.Wind
 			OperationsReadAlone: win.OperationsReadAlone,
 		}
 		if hasBaseline {
-			reading.Baseline = h.baselineArm(ctx, win, baseline)
+			reading.Baseline = h.baselineArm(ctx, w.EnvironmentID, target, win, baseline)
 		}
-		series, err := h.emission.Read(ctx, reading)
+		var series Series
+		var err error
+		if hasBaseline && noControl {
+			// Without a control the fallback is the release a rollback would return
+			// to, read against that release's own recent history.
+			series, err = h.emission.History(ctx, History{ServiceName: w.Name, Target: target,
+				Of: reading.Release, Against: reading.Baseline, OperationsReadAlone: win.OperationsReadAlone})
+		} else {
+			series, err = h.emission.Read(ctx, reading)
+		}
 		if err != nil {
 			return fmt.Errorf("healthmonitor: reading %s on %s: %w", w.Name, target, err)
 		}
@@ -207,15 +220,25 @@ func (h *HealthMonitor) compare(ctx context.Context, w Watching, win window.Wind
 }
 
 // baselineArm is the other arm of the comparison. Under a strategy that keeps a
-// control it is the control the deployer started beside this release: the
-// control was placed by this deploy and the long-lived instances of the same
-// build by an earlier one, so the deploy is what tells the two apart. Without a
-// control it is the build of the release below wherever it runs, which is the
-// weak fallback and carries the confound a started control exists to remove.
-func (h *HealthMonitor) baselineArm(ctx context.Context, win window.Window, baseline release.Release) Arm {
+// control it is the control the deployer started beside this release, under the
+// window's deploy. Without a control it is the build of the release below under
+// the deploy that placed that release, which is the weak fallback.
+func (h *HealthMonitor) baselineArm(ctx context.Context, environmentID, target string, win window.Window, baseline release.Release) Arm {
 	dep, err := deploy.Get(ctx, h.pool, win.DeployID)
 	if err == nil && dep.StrategyPerformed == deploy.StrategyWithControl {
-		return Arm{BuildID: baseline.BuildID, DeployID: win.DeployID}
+		targets, err := deploy.Targets(ctx, h.pool, win.DeployID)
+		if err == nil {
+			for _, one := range targets {
+				if one.Address == target && one.ControlBuildID != "" {
+					return Arm{BuildID: one.ControlBuildID, DeployID: win.DeployID}
+				}
+			}
+		}
+		return Arm{BuildID: baseline.BuildID}
+	}
+	deploys, err := deploy.ByRelease(ctx, h.pool, environmentID, baseline.ID)
+	if err == nil && len(deploys) > 0 {
+		return Arm{BuildID: baseline.BuildID, DeployID: deploys[len(deploys)-1].ID}
 	}
 	return Arm{BuildID: baseline.BuildID}
 }
@@ -325,10 +348,9 @@ func (h *HealthMonitor) endSearchDeploy(ctx context.Context, w Watching, win win
 // rather than only where the record says one is.
 //
 // It reads the record rather than the window because the record is what says a
-// control is there: the count of control instances on each target's row, and the
-// release that target's own control runs — there is one control per production
-// target the release has reached and the deploy record names each rather than
-// naming one control for the whole deploy, so two targets can name two builds.
+// control is there: the count of control instances on each target's row. The
+// deploy record names one control target and release for the deploy, while the
+// target rows say where instances are present.
 //
 // A search's window tears nothing down at any exit. What its deploy was
 // compared against is the instances of the rollback's target, which the search

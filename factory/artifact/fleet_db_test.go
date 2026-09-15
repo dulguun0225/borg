@@ -114,6 +114,49 @@ func TestEnterShippedRefusesAnEmptyShippedBundleIdentity(t *testing.T) {
 	}
 }
 
+// TestEnterChangedShippedComparesEveryFleetKind is the first-start comparison:
+// a changed shipped skill or selection rule enters a pending upgrade row, while
+// unchanged words in any fleet chain enter nothing again.
+func TestEnterChangedShippedComparesEveryFleetKind(t *testing.T) {
+	ctx, pool, s := newStore(t)
+	shipped := []artifact.Shipped{
+		{Kind: artifact.KindRolePrompt, Role: "spec_author", Content: "role v1"},
+		{Kind: artifact.KindSkill, Subject: "payments", Content: "skill v1"},
+		{Kind: artifact.KindSelectionRule, Content: "rule v1"},
+	}
+	entered, err := s.EnterChangedShipped(ctx, artifact.FactoryStart, "bundle-1", shipped)
+	if err != nil {
+		t.Fatalf("installing shipped fleet artifacts: %v", err)
+	}
+	if len(entered) != len(shipped) {
+		t.Fatalf("install entered %d fleet artifacts, want %d", len(entered), len(shipped))
+	}
+
+	upgrade := []artifact.Shipped{
+		shipped[0],
+		{Kind: artifact.KindSkill, Subject: "payments", Content: "skill v2"},
+		shipped[2],
+	}
+	entered, err = s.EnterChangedShipped(ctx, artifact.FactoryStart, "bundle-2", upgrade)
+	if err != nil {
+		t.Fatalf("entering changed shipped fleet artifacts: %v", err)
+	}
+	if len(entered) != 1 || entered[0].Kind != artifact.KindSkill {
+		t.Fatalf("upgrade entered %v, want only the changed skill", entered)
+	}
+
+	changed, found, err := artifact.Newest(ctx, pool, artifact.KindSkill, "", "payments")
+	if err != nil || !found {
+		t.Fatalf("reading changed skill: found %v, %v", found, err)
+	}
+	if changed.EnteredBy != artifact.EnteredByUpgradeFirstStart {
+		t.Errorf("changed skill entered by %q, want upgrade first start", changed.EnteredBy)
+	}
+	if inForce, found, err := artifact.InForce(ctx, pool, artifact.KindSkill, "", "payments", nil); err != nil || !found || inForce.Content != "skill v1" {
+		t.Errorf("changed skill in force = %+v, %v; want the install's skill before its gate", inForce, err)
+	}
+}
+
 // TestAHumanBackstopsAStageAndTheseRecordsBelongToNone: a role prompt, a
 // skill and the selection rule reach past any one stage, so the writers are
 // the agent that authors a version and the gate where a human takes Edit in

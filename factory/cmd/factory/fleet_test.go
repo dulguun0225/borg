@@ -241,13 +241,12 @@ func TestAProviderIsReadOffTheCredentialAnEntryNames(t *testing.T) {
 	}
 }
 
-// TestASecondStartOnOneVersionEntersNothing is
+// TestASecondStartWithUnchangedShippedWordsEntersNothing is
 // ../../../end-goal/how-the-factory-works/10-fleet/03-what-an-agent-is-told/README.md's
 // "at the factory's first start on the new version, what shipped enters the
-// chain": the trigger is the version's identity, so once an agent has authored
-// a version over what shipped, a later start under the same identity enters
-// nothing — the words differing from the head of the chain is not an upgrade.
-func TestASecondStartOnOneVersionEntersNothing(t *testing.T) {
+// chain": a new product identity with unchanged shipped words enters nothing,
+// even after an agent has authored a version over what shipped.
+func TestASecondStartWithUnchangedShippedWordsEntersNothing(t *testing.T) {
 	ctx, d, _ := newPath(t, "")
 	store := artifact.NewStore(d.pool, d.token)
 	role := dispatch.RoleSpecAuthor
@@ -264,12 +263,12 @@ func TestASecondStartOnOneVersionEntersNothing(t *testing.T) {
 		t.Fatalf("authoring a version over what shipped: %v", err)
 	}
 
-	_, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, artifact.FactoryStart, "bundle-1")
+	_, entered, err := enterShippedPrompts(ctx, store, d.pool, d.token, artifact.FactoryStart, "bundle-2")
 	if err != nil {
 		t.Fatalf("enterShippedPrompts: %v", err)
 	}
 	if len(entered) != 0 {
-		t.Errorf("a second start on one version entered %v, and the version's own entry is already in the chain", entered)
+		t.Errorf("a start with unchanged shipped words entered %v", entered)
 	}
 
 	head, found, err := artifact.Newest(ctx, d.pool, artifact.KindRolePrompt, string(role), "")

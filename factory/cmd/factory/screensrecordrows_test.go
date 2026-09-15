@@ -39,6 +39,26 @@ func TestTheUpgradesShippedPromptIsDecidedAtFactory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("entering the install's own prompt: %v", err)
 	}
+	// The install entered every shipped role. Keep the other role chains at
+	// their install heads so this upgrade changes only the role under test;
+	// an empty chain on a later start is pending too, rather than an install.
+	for _, other := range dispatch.Roles {
+		if other == role {
+			continue
+		}
+		var content string
+		for _, shipped := range shippedPrompts() {
+			if shipped.Role == string(other) {
+				content = shipped.Content
+				break
+			}
+		}
+		if _, err := artifact.NewStore(d.pool, d.token).EnterShipped(ctx, artifact.FactoryStart,
+			artifact.KindRolePrompt, string(other), "", content,
+			artifact.EnteredByInstall, "an earlier bundle"); err != nil {
+			t.Fatalf("entering the installed %s prompt: %v", other, err)
+		}
+	}
 
 	s := newScreens(t, ctx, d, out)
 	head, found, err := artifact.Newest(ctx, d.pool, artifact.KindRolePrompt, string(role), "")

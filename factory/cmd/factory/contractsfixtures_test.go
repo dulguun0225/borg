@@ -204,10 +204,9 @@ func mirrorFiles(producer, interfaceName string, fields ...field) []agent.File {
 }
 
 // contractMainGo is the program every one of these fakes writes: the long-lived process that
-// exercises itself, appends one line per unit of work to the file BORG_SIGNAL names —
-// the time the unit finished, a tab, and the outcome, which is the second emission
-// version's shape — and, where it publishes an interface, one JSON document per unit
-// to the file BORG_EXCHANGE names.
+// exercises itself, writes its signal line to standard output for the target to accept,
+// and, where it publishes an interface, one JSON document per unit to the file
+// BORG_EXCHANGE names.
 //
 // The document is marshalled from the contract's own type, so its keys are the
 // element names the derivation read out of the same source. Two spellings of one name
@@ -217,14 +216,14 @@ func contractMainGo(exchange string) []agent.File {
 		"package main",
 		"",
 		"import (",
+		"\t\"fmt\"",
 		"\t\"os\"",
 		"\t\"time\"",
 		")",
 		"",
 		"func main() {",
-		"\tsignal := os.Getenv(\"BORG_SIGNAL\")",
 		"\tfor {",
-		"\t\temit(signal, time.Now().UTC().Format(time.RFC3339Nano)+\"\\tok\\n\")",
+		"\t\tfmt.Println(time.Now().UTC().Format(time.RFC3339Nano)+\"\\tok\")",
 		"\t\twriteExchange()",
 		"\t\ttime.Sleep(time.Millisecond)",
 		"\t}",

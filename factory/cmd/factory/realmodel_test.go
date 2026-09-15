@@ -36,6 +36,7 @@ import (
 
 	"github.com/dulguun0225/borg/factory/agent"
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/release"
@@ -296,7 +297,7 @@ func TestTheDemonstrationAgainstARealModel(t *testing.T) {
 		t.Errorf("the window closed %q, and a first release can end at the cap and nowhere else", w.Exit)
 	}
 
-	units, failures, err := countSignal(localtarget.SignalFile(d.dir, rel.BuildID))
+	units, failures, err := localtarget.CountSignal(localtarget.SignalFile(d.dir, rel.BuildID))
 	if err != nil {
 		t.Fatalf("reading the quantity build %s emitted: %v", rel.BuildID, err)
 	}

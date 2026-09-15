@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 
 	"github.com/dulguun0225/borg/factory/boundary"
+	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/gatepolicy"
 	"github.com/dulguun0225/borg/factory/service"
 	"github.com/dulguun0225/borg/factory/window"
@@ -33,7 +35,18 @@ func (h *HealthMonitor) readBeside(ctx context.Context, w Watching, svc service.
 	}
 
 	if into.HasBaseline {
-		control := h.baselineArm(ctx, win, into.Baseline)
+		dep, depErr := deploy.Get(ctx, h.pool, win.DeployID)
+		if depErr != nil {
+			return depErr
+		}
+		if dep.StrategyPerformed == deploy.StrategyWithoutControl {
+			goto threshold
+		}
+		target := ""
+		if len(win.Targets) > 0 {
+			target = win.Targets[0]
+		}
+		control := h.baselineArm(ctx, w.EnvironmentID, target, win, into.Baseline)
 		into.ControlCrossing, err = h.ownHistory(ctx, w, win, control,
 			win.OwnHistorySize, win.OwnHistoryRunLength, win.Targets, KindOwnHistory)
 		if err != nil {
@@ -41,6 +54,7 @@ func (h *HealthMonitor) readBeside(ctx context.Context, w Watching, svc service.
 		}
 	}
 
+threshold:
 	crossing, err = h.threshold(ctx, w, svc, win)
 	if err != nil {
 		return err
@@ -65,7 +79,8 @@ func (h *HealthMonitor) ownHistory(ctx context.Context, w Watching, win window.W
 	if len(sizes) == 0 || runLength <= 1 || !of.Named() {
 		return nil, nil
 	}
-	comparisons := max(len(targets), 1) * len(sizes)
+	operations := len(win.OperationsReadAlone) + 1
+	comparisons := max(len(targets), 1) * operations * len(sizes)
 	boundaryFor := func(q gatepolicy.Quantity) (boundary.Boundary, bool) {
 		size, carried := sizes[q]
 		if !carried {
@@ -77,7 +92,8 @@ func (h *HealthMonitor) ownHistory(ctx context.Context, w Watching, win window.W
 
 	var read Evaluated
 	for _, target := range targets {
-		series, err := h.emission.History(ctx, History{ServiceName: w.Name, Target: target, Of: of})
+		series, err := h.emission.History(ctx, History{ServiceName: w.Name, Target: target, Of: of,
+			OperationsReadAlone: win.OperationsReadAlone})
 		if err != nil {
 			return nil, fmt.Errorf("healthmonitor: reading %s against its own recent history on %s: %w", w.Name, target, err)
 		}
@@ -114,14 +130,25 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 	}
 	allowed := map[gatepolicy.Quantity]float64{}
 	for quantity, threshold := range svc.ExplicitThreshold {
-		if _, named := win.ThresholdSize[quantity]; named {
-			allowed[quantity] = threshold.Number
+		if quantity != gatepolicy.QuantityLatency {
+			if _, named := win.ThresholdSize[quantity]; named {
+				allowed[quantity] = threshold.Number
+			}
 		}
 	}
-	if len(allowed) == 0 {
+	latencyLimit, hasLatency := svc.ExplicitThreshold[gatepolicy.QuantityLatency]
+	if _, named := win.ThresholdSize[gatepolicy.QuantityLatency]; !named {
+		hasLatency = false
+	}
+	if len(allowed) == 0 && !hasLatency {
 		return nil, nil
 	}
-	comparisons := max(len(win.Targets), 1) * len(win.ThresholdSize)
+	thresholds := len(allowed)
+	if hasLatency {
+		thresholds++
+	}
+	operations := len(win.OperationsReadAlone) + 1
+	comparisons := max(len(win.Targets), 1) * operations * max(thresholds, 1)
 	boundaryFor := func(q gatepolicy.Quantity) (boundary.Boundary, bool) {
 		size, carried := win.ThresholdSize[q]
 		if !carried {
@@ -135,7 +162,8 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 	for _, target := range win.Targets {
 		series, err := h.emission.History(ctx, History{
 			ServiceName: w.Name, Target: target,
-			Of: Arm{BuildID: win.BuildID, DeployID: win.DeployID},
+			Of:                  Arm{BuildID: win.BuildID, DeployID: win.DeployID},
+			OperationsReadAlone: win.OperationsReadAlone,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("healthmonitor: reading %s against its threshold on %s: %w", w.Name, target, err)
@@ -143,12 +171,75 @@ func (h *HealthMonitor) threshold(ctx context.Context, w Watching, svc service.S
 		if series, err = h.asRead(ctx, w.ID, series); err != nil {
 			return nil, err
 		}
-		if err := evaluate(boundaryFor, win.Power, target, against(series, allowed),
-			KindExplicitThreshold, &read); err != nil {
-			return nil, err
+		if hasLatency {
+			if crossing := latencyThreshold(series, target, latencyLimit.Number, latencyLimit.Size,
+				win.ThresholdRunLength, comparisons); crossing != nil {
+				return crossing, nil
+			}
+		}
+		if len(allowed) > 0 {
+			if err := evaluate(boundaryFor, win.Power, target, against(series, allowed),
+				KindExplicitThreshold, &read); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return read.Crossed, nil
+}
+
+func latencyThreshold(series Series, target string, limit, size, runLength float64, comparisons int) *Crossing {
+	bucket := sort.SearchFloat64s(histogramBoundaries, limit)
+	boundaryAtRunLength, err := boundary.AtRunLength(size, runLength, comparisons, boundary.WorseHigher)
+	if err != nil {
+		return nil
+	}
+	for _, operation := range series.Operations {
+		observed := latencyThresholdObserved(operation.Histogram, bucket)
+		if len(observed.Intervals) == 0 {
+			continue
+		}
+		reading, err := boundaryAtRunLength.Evaluate(observed)
+		if err != nil || !reading.Failed {
+			continue
+		}
+		if reading.Failed {
+			return &Crossing{Kind: KindExplicitThreshold, Quantity: gatepolicy.QuantityLatency,
+				Target: target, Operation: operation.Operation,
+				Boundary: boundaryAtRunLength, Reading: reading}
+		}
+	}
+	return nil
+}
+
+// latencyThresholdObserved turns the release histogram into the same paired
+// boundary used by every other threshold. The bucket containing the stated
+// duration and every bucket above it is the release tail; the other arm is the
+// threshold's allowed tail share, one minus the fixed 99th-percentile share.
+func latencyThresholdObserved(histograms []Histogram, bucket int) boundary.Observed {
+	byInterval := map[string]boundary.Counts{}
+	for _, histogram := range histograms {
+		counts := byInterval[histogram.Interval]
+		for n, count := range histogram.Buckets {
+			counts.Units += count
+			if n >= bucket {
+				counts.Count += count
+			}
+		}
+		byInterval[histogram.Interval] = counts
+	}
+	intervals := make([]string, 0, len(byInterval))
+	for interval := range byInterval {
+		intervals = append(intervals, interval)
+	}
+	sort.Strings(intervals)
+	observed := boundary.Observed{}
+	for _, interval := range intervals {
+		counts := byInterval[interval]
+		counts.BaselineUnits = counts.Units
+		counts.BaselineCount = int64(math.Round((1 - histogramQuantile) * float64(counts.Units)))
+		observed.Intervals = append(observed.Intervals, counts)
+	}
+	return observed
 }
 
 // against replaces the other arm of every interval with the threshold itself:
@@ -179,6 +270,8 @@ func against(series Series, allowed map[gatepolicy.Quantity]float64) Series {
 		}
 		stated.Operations = append(stated.Operations, OperationSeries{
 			Operation: operation.Operation, Quantities: quantities,
+			LatencyBucketShare: operation.LatencyBucketShare, LatencyQuantile: operation.LatencyQuantile,
+			Histogram: operation.Histogram,
 		})
 	}
 	return stated

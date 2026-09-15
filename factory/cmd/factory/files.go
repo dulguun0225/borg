@@ -205,7 +205,7 @@
 //     that credential as the owner's own where the People declaration does not
 //     already hold it; readiness, the readiness reading per role;
 //     rolePrompts, the role prompt version in force per role;
-//     shippedPromptFor and enterShippedPrompts, the install's first-start step
+//     shippedPrompts and enterShippedPrompts, the install's first-start step
 //     for what an agent is told; intentLimits, the [dispatch.Limits] that reads
 //     a stage's limit through package policy and an intent's rounds through
 //     intentAttemptLimit; and gateEscalation, which is what performs an
@@ -282,11 +282,8 @@
 //     watch pass make; reportWatched, reportAfter, pagesHeldToTheHours,
 //     driftDetectorPages, escalated, approveThrough; terminal, where a delivery
 //     goes; and Observed, readExchange, raiseRemovals for contractcheck.
-//   - emission.go — signalFiles, [healthmonitor.Emission] over the file each
-//     deployed process writes; the two emission versions the factory has
-//     shipped and the interval resolution the second is cut by; readSignal,
-//     emitted.intervals and paired beneath them; and the two readings this
-//     platform cannot give.
+//   - compose.go — the local target's signal-path function passed to
+//     [healthmonitor.NewFileEmission], and the rest of the composition.
 //   - rollback.go — [healthmonitor.Deployer]: StartControl, TearDownControl,
 //     TearDownKept, RollBack and DeploySearch, with artifactsOf, the digest a
 //     rollback is verified against.

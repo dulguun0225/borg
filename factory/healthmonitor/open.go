@@ -180,17 +180,20 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 	}
 
 	releaseArm := Arm{BuildID: rel.BuildID, DeployID: dep.ID}
-	o.EmissionVersionRelease, err = h.emission.Shape(ctx, releaseArm)
+	o.EmissionVersionRelease, err = h.emissionShape(ctx, releaseArm)
 	if err != nil {
 		return window.OpenEvent{}, err
 	}
 	if o.EmissionVersionRelease == "" {
-		o.EmissionVersionRelease = newestEmissionVersion()
+		o.EmissionVersionRelease = EmissionShapes[len(EmissionShapes)-1].Version
 	}
 	if hasTarget {
 		baseline := Arm{BuildID: target.BuildID, DeployID: dep.ID}
-		if o.EmissionVersionControl, err = h.emission.Shape(ctx, baseline); err != nil {
+		if o.EmissionVersionControl, err = h.emissionShape(ctx, baseline); err != nil {
 			return window.OpenEvent{}, err
+		}
+		if o.EmissionVersionControl == "" {
+			o.EmissionVersionControl = EmissionShapes[len(EmissionShapes)-1].Version
 		}
 	}
 	if o.EmissionVersionControl != "" {
@@ -205,6 +208,10 @@ func (h *HealthMonitor) opening(ctx context.Context, w Watching, svc service.Ser
 		}
 	}
 	return o, nil
+}
+
+func (h *HealthMonitor) emissionShape(ctx context.Context, arm Arm) (string, error) {
+	return h.emission.Shape(ctx, arm)
 }
 
 // startControls asks the deployer for one control per target the rollout is
@@ -299,10 +306,6 @@ func unmeasurable(svc service.Service) string {
 	}
 	return ""
 }
-
-// newestEmissionVersion is what a build the factory builds today emits, which is
-// what a window names for an arm the store holds no record for yet.
-func newestEmissionVersion() string { return EmissionShapes[len(EmissionShapes)-1].Version }
 
 // Room is whether the service may open another window, how many it holds open,
 // and what the window limit is. An open window blocks nothing until as many as

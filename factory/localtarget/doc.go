@@ -7,7 +7,7 @@
 // [Local.Deploy], [Local.PlaceMutant], [Local.Stop], [Local.ReadRunning] and [Local.Reconfigure], the
 // controlled placement [Local.DeployWithControl], the files
 // [RunningFile], [ControlFile], [KeptFile], [TrafficFile], [SignalFile], [ExchangeFile]
-// and [WayInSocket] with the [SignalEnv], [ExchangeEnv], [TrafficEnv], [BuildEnv]
+// and [WayInSocket] with the [TargetEnv], [ExchangeEnv], [TrafficEnv], [BuildEnv]
 // and [DeployEnv]
 // variables that name what a started process is told, and [ErrBuildNotLocal] and
 // [ErrServiceNotLocal]. store.go is the service's store: [DataDir],
@@ -98,14 +98,28 @@
 // of one place and a restarted factory process reads what its predecessor
 // started.
 //
-// [SignalFile] and [ExchangeFile] are the two files the started process writes,
-// named to it through the [SignalEnv] and [ExchangeEnv] environment variables:
-// one line per unit of work into the first — the time the unit finished, a tab,
-// and the outcome, which is a shape this package neither writes nor reads — and
-// one document per unit of work
+// [SignalFile] and [ExchangeFile] are the target's two per-build files. The
+// process writes its emission objects to standard output; this target receives
+// each line through a pipe, wraps it with the acceptance time on the target's
+// own clock, appends that stored line to the signal file, and flushes it before
+// accepting the next line. Legacy lines are wrapped the same way, which gives
+// emission/1 and emission/2 their acceptance time. Acceptance belongs to this
+// target (C1957). The reader's interval and deadline are healthmonitor's.
+// Acceptance runs in a factory-process goroutine. The first acceptance error
+// is retained for the next seam operation; later acceptance errors are counted
+// and reported with it, never silently dropped. A factory restart leaves a
+// running instance accepted by nothing. The design's store is outside the
+// factory, so this is an unresolved stand-in departure.
+// One document per unit of work goes
 // into the second. One file per build of each, so a release's counts are told
 // apart from those of the build that ran there before it. The health monitor
-// and enforcement each read one through an interface knowing neither. Beside
+// and enforcement each read one through an interface knowing neither. The
+// acceptance goroutine receives the deploy identity at placement and stamps
+// every accepted line with it; it reads neither a per-build marker nor the
+// process's own deploy field (C1953). Acceptance belongs to this target (C1957),
+// and [CountSignal] is the count over the signal file the composition's
+// adoption read takes. The claim that read implements is cited where the
+// deployer's fields are written. Beside
 // them the process is told the deploy record's identity through [DeployEnv],
 // which is what tells the instances one deploy placed from the instances of the
 // same build another placed.

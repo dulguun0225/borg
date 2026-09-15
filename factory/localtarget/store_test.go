@@ -32,6 +32,7 @@ import (
 const holderSource = `package main
 
 import (
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -41,7 +42,7 @@ import (
 func main() {
 	ending := make(chan os.Signal, 1)
 	signal.Notify(ending, syscall.SIGTERM)
-	_ = os.WriteFile(os.Getenv("BORG_SIGNAL"), []byte("holding\n"), 0o644)
+	fmt.Println("holding")
 	<-ending
 	time.Sleep(2500 * time.Millisecond)
 	_ = os.WriteFile(os.Getenv("HOLDER_FINISHED"), []byte("finished\n"), 0o644)

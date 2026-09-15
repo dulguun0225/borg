@@ -15,8 +15,9 @@
 // [Store.SubmitConsumerContract] — [Store.DeriveConsumerContractAgain], the
 // first-start step's derivation, and insertVersion, which every submission
 // goes through. fleet.go is [Store.SubmitFleet] and [Store.EnterShipped], the
-// two calls that write a [FleetKinds] version. query.go is [Get], [Newest], [NewestShipped],
-// [InForce] and [ForItem]. author.go is
+// two calls that write a [FleetKinds] version; shipped.go is
+// [Store.EnterChangedShipped], the first-start comparison for every fleet kind.
+// query.go is [Get], [Newest], [NewestShipped], [InForce] and [ForItem]. author.go is
 // [NewestOfKind], [IDsByAuthor] and [ItemsByAuthor]. redact.go is [Span],
 // [Store.Redact], [Store.RedactionPass] and [Store.Replay]. schema.go is
 // [Table], [IDPrefix] and [DDL].
@@ -84,10 +85,13 @@
 // [Store.EnterShipped] is the fourth call named in "One entrance for every
 // artifact": at install, and at a first start on an upgrade that changed
 // shipped words, the factory calls it to enter what shipped, with the
-// factory's own start as the actor. It writes a [FleetKinds] version with
-// [By.Empty] true — authorship and author both empty, the one pair the DDL's
-// author_pair_together CHECK admits as a partial one — and names
-// shippedBundleIdentity, the release of the product that entered it.
+// factory's own start as the actor. The install's start is the one that finds
+// no shipped entry, and it enters all of its shipped words in one transaction,
+// so an interrupted install enters all of them ungated or none. It writes a
+// [FleetKinds] version with [By.Empty] true — authorship and author both
+// empty, the one pair the DDL's author_pair_together CHECK admits as a partial
+// one — and names shippedBundleIdentity, the release of the product that
+// entered it.
 //
 // The actor is [FactoryStart] and no other, on this call and on
 // [Store.DeriveConsumerContractAgain]. Nothing else on such a row says who
@@ -111,10 +115,11 @@
 // [EnteredByUpgradeFirstStart]'s enter awaiting the gate every version fires.
 // Both write the same columns and either can write version 1 of a chain, so
 // the column is what [InForce] reads and what keeps the caller from having to
-// know which start wrote each row. The install step and the first-start step
-// are the command-line interface's, and it makes both at every start: what
-// decides whether either writes is [NewestShipped], the newest entry a start
-// wrote, against the shipped-bundle identity this build carries.
+// know which start wrote each row. [Store.EnterChangedShipped] is the
+// first-start comparison for every fleet kind: it compares shipped words with
+// the newest shipped entry, and an upgrade entry always awaits its gate. The
+// install's entries alone are ungated. This is the artifact-store mechanism
+// described by C2443–C2446.
 //
 // # In force
 //
@@ -128,14 +133,12 @@
 //
 // [Newest] is the head of a fleet chain whatever decided it. [NewestShipped] is
 // the head of what a start entered rather than anybody authored, which is what
-// the first-start step reads: it carries the shipped-bundle identity it entered
-// under, so a start under that identity enters nothing however many versions
-// have been authored over it, and an upgrade whose words are the ones that entry
-// carries enters nothing either. [InForce] is the newest version of a chain that is
-// either among the version ids the caller names as approvedVersionIDs or an
-// entry [EnteredByInstall] wrote — approval and withdrawal are the decision
-// log's facts, which this package does not import, so the caller supplies them
-// already combined, and the install's ungated entries are read off the row.
+// the first-start step reads: it compares the shipped words. An upgrade's entry
+// waits for its gate. [InForce] is the newest version of a chain that is either
+// among the version ids the caller names as approvedVersionIDs or an entry
+// [EnteredByInstall] wrote — approval and withdrawal are the decision log's
+// facts, which this package does not import, so the caller supplies them already
+// combined, and the install's ungated entries are read off the row.
 //
 // # Redaction
 //

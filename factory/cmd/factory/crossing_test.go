@@ -3,12 +3,12 @@
 package main
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/incident"
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/localtarget"
@@ -23,7 +23,8 @@ import (
 func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 	ctx, d, out := newPath(t, theAnswer+"\n"+approvals)
 
-	if _, err := run(ctx, d, of(theStatement)); err != nil {
+	_, err := run(ctx, d, of(theStatement))
+	if err != nil {
 		t.Fatalf("the first run stopped: %v\noutput so far:\n%s", err, out)
 	}
 	d.decide = scriptedAtWork(approvals).decide
@@ -40,32 +41,23 @@ func TestACrossingAfterTheWindowClosedRaisesAnIntent(t *testing.T) {
 		t.Fatalf("the window is still open, and this test is about what happens after it closes:\n%s", out)
 	}
 
-	// The software starts failing after its window has closed. A test writes what the
-	// running program would have emitted, which is the one thing here that is not the
-	// factory's own doing — the quantity is the build's, and this stands in for a build
-	// that got worse.
-	//
-	// Each line carries the time the unit of work finished, which is the second
-	// emission version's shape and what the factory assigns a unit to an interval
-	// by. They are spread over the last two seconds, so the reading against the
-	// service's own recent past has intervals to read a spread between rather than
-	// one interval holding four hundred failures — a window closes on the count of
-	// intervals and never on the volume inside one.
-	// The path is composed before the emission is written, not after: a
-	// composition runs every component's restart, and the units this writes are
-	// stamped relative to now — so composing between the write and the pass
-	// would age them past the recent history the reading is taken over.
-	path := p(ctx, t, d)
-
+	if _, err := d.targets.at(d.dir).Stop(ctx, deployerPrincipal, theService, d.credential); err != nil {
+		t.Fatalf("stopping the running release: %v", err)
+	}
 	signal := localtarget.SignalFile(d.dir, c.reverifiedBuildID)
-	var failing strings.Builder
-	for n := range 400 {
-		at := time.Now().Add(-2 * time.Second).Add(time.Duration(n) * 5 * time.Millisecond)
-		failing.WriteString(at.UTC().Format(time.RFC3339Nano) + "\terror\n")
-	}
-	if err := os.WriteFile(signal, []byte(failing.String()), 0o644); err != nil {
-		t.Fatalf("writing what the running build emits: %v", err)
-	}
+	writeFailureEmissions(t, signal, c.reverifiedBuildID, c.deployID, theService, d.dir)
+	time.Sleep(1100 * time.Millisecond)
+	fresh := time.Now().UTC().Add(-100 * time.Millisecond)
+	appendEmissionRecords(t, signal, []healthmonitor.EmissionRecord{
+		{Version: "emission/3", Kind: healthmonitor.RecordArrival,
+			Time: fresh, Service: theService, Build: c.reverifiedBuildID, Deploy: c.deployID,
+			Target: d.dir, Operation: "checkout", Deadline: time.Second},
+		{Version: "emission/3", Kind: healthmonitor.RecordCompletion,
+			Time: fresh.Add(time.Millisecond), Service: theService, Build: c.reverifiedBuildID,
+			Deploy: c.deployID, Target: d.dir, Operation: "checkout", Outcome: "failure",
+			Duration: time.Millisecond},
+	})
+	path := p(ctx, t, d)
 
 	if _, err := path.watchPass(ctx, theServiceRecord(t, ctx, path)); err != nil {
 		t.Fatalf("the pass stopped: %v\noutput so far:\n%s", err, out)

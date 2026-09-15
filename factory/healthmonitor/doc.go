@@ -78,6 +78,36 @@
 // would return to, ended at the close of the last window that could return to
 // them and never at an exit of their own.
 //
+// file.go is [FileEmission], [NewFileEmission] and [EmissionRecord], the
+// target-file reader for the complete versioned emission: arrival and
+// completion records, kept failure counts, unfinished handling, operation and
+// target series, and fixed latency histograms. Where no build record carries
+// the emission version, open.go reads the newest shipped emission version;
+// that is the reading until the build record carries the version it emits.
+// The one-file-per-build path
+// under a target is this platform's local stand-in for the outside store named
+// by the design, and nothing more. file_legacy.go retains the earlier formats;
+// emission/1 and emission/2 cannot name a version on a line, so the reader
+// assigns the version it recognises from the line shape. Their failure reading
+// remains the legacy outcome departure (C1973, C1976). file_spend.go reads the
+// same accepted records for objective spend. The store covers the requested
+// period for an operation only when it has an accepted record for that operation
+// at or before the period's cutoff; records after the cutoff supply the period's
+// arrivals and completions. A completion is failed when it names a failure class
+// and each error count is bounded by arrivals because each error is counted per
+// arrival. Each arrival carries the service's deadline: closed intervals supply
+// request rate and duration immediately; only the error-rate interval remains
+// unread until that deadline has passed since the interval ended.
+//
+// The comparison's latency threshold reads the release tail in the histogram
+// bucket holding the stated duration and above against the threshold's allowed
+// tail share. The objective reads non-failed completions over arrivals for each
+// operation over its authored period.
+// Request rate is each arm's share of the two arms' interval arrivals. A hazardous operation is its
+// count over that count plus the arm's arrivals. The history reading pairs
+// intervals by rank through [alignIntervals] where the records carry no usable
+// common time.
+//
 // target.go is [HealthMonitor.TargetBelow] and [HealthMonitor.LastKnownGood]:
 // the newest release below the one under watch whose window closed passed or
 // timed out, descending past a release whose deploy stopped before its build
@@ -136,6 +166,15 @@
 // since stopped the crossing — the window closes failed with the release
 // returned and no incident, a crossing being held nowhere but in the pass that
 // took it.
+//
+// The hazard severity that supplies a hazardous operation, its count per
+// interval, and the crossing read are
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md
+// (C0695).
+// The emitted records, interval quantities, histogram, failure records,
+// hazardous-operation series, and emission version are
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1954, C1955, C1958, C1959, C1961, C1962, C1963, C1971).
 //
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md

@@ -1,6 +1,4 @@
-// The fake model the tests run against: the statements and criteria it
-// answers with by role, the program it has the implementer write, and the
-// wrappers that make one candidate's merge conflict or its implementer's reply refuse.
+// The fake model preserves the shipped role interfaces; its generated service is the M11 demonstration.
 package main
 
 import (
@@ -13,23 +11,20 @@ import (
 	"github.com/dulguun0225/borg/factory/principal"
 )
 
-// The statements the tests give the run, and the spec and the criterion the fake
-// spec author authors for each. Keyed by the statement so that two candidates
-// authored in one run author two different promises, which is what makes them two
-// candidates rather than one change twice.
+// The statements the tests give the run, and the spec and criterion the fake spec
+// author authors for each. Keyed by the statement so that two candidates authored
+// in one run author two different promises, which makes them two candidates rather than one change twice.
 const (
-	theStatement       = "The demo service needs a health check."
-	theSecondStatement = "The demo service needs a version endpoint."
-	theThirdStatement  = "The demo service needs a readiness endpoint."
-	theFourthStatement = "The demo service needs an uptime endpoint."
-	theQuestion        = "What does a healthy response say?"
-	theAnswer          = "ok"
-
+	theStatement            = "The demo service needs a health check."
+	theSecondStatement      = "The demo service needs a version endpoint."
+	theThirdStatement       = "The demo service needs a readiness endpoint."
+	theFourthStatement      = "The demo service needs an uptime endpoint."
+	theQuestion             = "What does a healthy response say?"
+	theAnswer               = "ok"
 	criterionSentence       = "When asked for its health, the system shall respond ok."
 	secondCriterionSentence = "When asked for its version, the system shall respond two."
 	thirdCriterionSentence  = "When asked for its readiness, the system shall respond ready."
 	fourthCriterionSentence = "When asked for its uptime, the system shall respond forever."
-
 	// theScreenStatement is the one statement whose spec declares a screen's
 	// state machine, for the tests over the transition check and the drivers.
 	theScreenStatement      = "The demo service needs a login screen."
@@ -37,8 +32,6 @@ const (
 )
 
 // theSpecs is what the fake spec author writes for each statement. Both sentences
-// of every pair classify as the event pattern in the pattern's response form,
-// which is what theResponse reads the encoding's expected value out of.
 var theSpecs = map[string]struct{ spec, criterion string }{
 	theStatement:       {"The demo service answers a health check with ok.", criterionSentence},
 	theSecondStatement: {"The demo service answers a version request with two.", secondCriterionSentence},
@@ -47,17 +40,12 @@ var theSpecs = map[string]struct{ spec, criterion string }{
 	theScreenStatement: {"The demo service shows a login screen with a start and an active state.", screenCriterionSentence},
 }
 
-// screenDeclaration is the three lines the spec author's protocol declares a
-// screen's state machine in, appended to [theScreenStatement]'s spec alone: a
-// machine of two states, one event, and one transition, well formed by
-// [screenstatemachine.Validate]'s three rules — no two transitions on one
-// event from one state, every declared state reachable from the initial one,
-// and every state either terminal or answering an event.
+// screenDeclaration is the spec protocol's two-state, one-event machine,
+// appended to [theScreenStatement]'s spec and checked by screenstatemachine.
 const screenDeclaration = "SCREEN start: start, active\nTRANSITION start begin: active\nTERMINAL: active"
 
 // rolePromptCriterion picks the criteria out of a role's user prompt: one line per
-// criterion, its id then its sentence, which is the shape both prompts render
-// and the id shape the criterion package's encoding check matches.
+// criterion, its id then its sentence.
 var rolePromptCriterion = regexp.MustCompile(`(?m)^(cr_[0-9a-f]{32}): (.*)$`)
 
 // rolePromptRequirement picks the requirements this item answers out of the spec
@@ -82,12 +70,12 @@ type fakeModel struct {
 	// interviewCalls is how many times the role put on the intent has been
 	// called, the first of which asks the interview's one question.
 	interviewCalls int
-	// failEvery is how often the program this fake writes emits a failure rather
-	// than an ok: nothing at zero, every unit at one, every other unit at two. It is
-	// what a deliberately bad deploy is — an implementation that passes every
-	// criterion in force and fails a share of the work it does, which is the shape of
-	// defect the criteria cannot see and the analysis window exists for.
+	// failEvery controls synthetic failures: zero succeeds, one always fails, and
+	// larger values fail matching request numbers; slow changes duration only.
 	failEvery int
+	// slow makes the named operation slow without changing its outcomes. It is
+	// the M11 demonstration's deliberately bad release.
+	slow bool
 	// apart is words a report carrying them is put in a group of its own for,
 	// whatever it was grouped with before, and empty where nothing is. It is
 	// how a test makes the role change its mind between two passes, which is
@@ -191,7 +179,7 @@ func (m *fakeModel) Complete(_ context.Context, _ principal.Principal, call agen
 		if len(named) == 0 {
 			return agent.Reply{}, fmt.Errorf("fake model: the implementer's prompt names no criterion")
 		}
-		text, err := implementerReply(named, m.failEvery)
+		text, err := implementerReply(named, m.failEvery, m.slow)
 		if err != nil {
 			return agent.Reply{}, err
 		}
@@ -279,21 +267,22 @@ func answers(user string) string {
 
 // implementerReply is the implementer's whole reply for the criteria the role prompt
 // named: a module file, a main function that stays alive so the deployed process
-// answers ReadRunning, and one source file plus one encoding per criterion. Every
+// answers ReadRunning, and implementation source files plus one encoding per criterion. Every
 // criterion in force is encoded because the check over the build rejects one that
 // is not, so a candidate's reply carries the encodings of the criteria already in
 // force again.
 //
-// Each pair of files is named by the criterion's id and its content is derived
+// Each set of files is named by the criterion's id and its content is derived
 // from that criterion's sentence, never from the code it checks. Naming them by
 // the id rather than by position is what lets two candidates of one service merge:
 // each adds the files of the criterion it introduced and rewrites the files of the
 // criteria already in force with the same bytes, so no two sides of the merge
 // change one file differently.
-func implementerReply(named [][]string, failEvery int) (string, error) {
+func implementerReply(named [][]string, failEvery int, slow bool) (string, error) {
 	files := append([]string{
 		"=== FILE go.mod ===", "module demo", "", "go 1.24", "=== END ===",
-	}, mainGo(failEvery)...)
+	}, mainGo(failEvery, slow)...)
+	files = append(files, "=== FILE store.checkout.go ===", "package main", "", "type CheckoutStore struct { HazardousCount int64 }", "var checkoutStore = CheckoutStore{HazardousCount: 1}", "func hazardousCount() int64 { return checkoutStore.HazardousCount }", "=== END ===")
 	for _, match := range named {
 		id, sentence := match[1], match[2]
 		response := theResponse.FindStringSubmatch(sentence)
@@ -318,6 +307,11 @@ func implementerReply(named [][]string, failEvery int) (string, error) {
 			"\t}",
 			"}",
 			"=== END ===",
+			"=== FILE instrumentation_"+id+".go ===",
+			"package main",
+			"",
+			"func instrumentation_"+id+"() {}",
+			"=== END ===",
 		)
 	}
 	return strings.Join(files, "\n"), nil
@@ -331,59 +325,80 @@ func interviewed(failEvery int) *fakeModel {
 	return &fakeModel{interviewCalls: 1, failEvery: failEvery}
 }
 
-// mainGo is the program every one of these fakes writes, and it is the one place
-// this test does what the implementer's standing instruction asks: the program runs
-// as a long-lived process, exercises its own behaviour over and over, and appends one
-// line per exercise to the file the environment names. Without that the health monitor
-// reads nothing, every window ends at its cap, and the whole of this milestone is
-// untestable — which is the instruction earning its place rather than decorating the
-// prompt.
-//
-// failEvery is what makes a deploy deliberately bad: nothing at zero, every other
-// unit at two. The failure is in no criterion's path, so a build with it passes every
-// criterion in force and is failed by its window instead — which is the shape of
-// defect the criteria cannot see.
-//
-// Each line is the time the exercise finished, a tab, and the outcome, which is
-// the second emission version's shape: the time is what the factory assigns a
-// unit of work to an interval by, and without it a service can be read against
-// another build and never against its own past.
-//
-// The source depends on failEvery and on nothing else, so two good candidates
-// of one service write identical bytes and their merge does not conflict, and a run
-// that writes the good version over the bad one is a real revert.
-func mainGo(failEvery int) []string {
-	emit := `"ok"`
+// mainGo builds the long-lived source used by the command-level fakes. The
+// source writes two emission/3 records per exercise and one hazardous-operation
+// count per interval because localtarget accepts, stamps, and appends them to
+// the per-build signal file.
+func mainGo(failEvery int, slow bool) []string {
+	emit := `"success"`
 	if failEvery == 1 {
-		emit = `"error"`
+		emit = `"failure"`
 	} else if failEvery > 1 {
-		emit = fmt.Sprintf("map[bool]string{true: \"error\", false: \"ok\"}[n%%%d == 0]", failEvery)
+		emit = fmt.Sprintf("map[bool]string{true: \"failure\", false: \"success\"}[n%%%d == 0]", failEvery)
+	}
+	duration := "0"
+	exerciseSleep := ""
+	if slow {
+		duration = "200*time.Millisecond"
+		exerciseSleep = "\t time.Sleep(duration)"
 	}
 	return []string{
 		"=== FILE main.go ===",
 		"package main",
 		"",
-		`import (`,
-		`	"os"`,
-		`	"strconv"`,
-		`	"strings"`,
-		`	"time"`,
-		`)`,
+		"import (\n\t\"encoding/json\"\n\t\"os\"\n\t\"strconv\"\n\t\"strings\"\n\t\"time\"\n)",
 		"",
 		"func main() {",
-		"\tsignal := os.Getenv(\"BORG_SIGNAL\")",
+		"\ttarget := os.Getenv(\"BORG_TARGET\")",
 		"\tbuild := os.Getenv(\"BORG_BUILD\")",
+		"\tdeploy := os.Getenv(\"BORG_DEPLOY\")",
 		"\ttraffic := os.Getenv(\"BORG_TRAFFIC\")",
+		"\tlastHazard := int64(-1)",
 		"\tfor n := 1; ; n++ {",
-		"\t\tif signal != \"\" && serves(traffic, build) {",
-		"\t\t\tf, err := os.OpenFile(signal, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)",
-		"\t\t\tif err == nil {",
-		"\t\t\t\t_, _ = f.WriteString(time.Now().UTC().Format(time.RFC3339Nano) + \"\\t\" + " + emit + " + \"\\n\")",
-		"\t\t\t\t_ = f.Close()",
-		"\t\t\t}",
+		"\t\tif target != \"\" && serves(traffic, build) {",
+		"\t\t\tat := time.Now().UTC()",
+		"\t\t\tinterval := at.UnixNano() / int64(50*time.Millisecond)",
+		"\t\t\tif interval != lastHazard { writeRecord(emission{Version: \"emission/3\", Kind: \"hazardous_operation\", Time: at, Service: \"demo\", Build: build, Deploy: deploy, Target: target, Operation: \"checkout\", HazardousCount: hazardousCount()}); lastHazard = interval }",
+		"\t\t\tarrival := emission{Version: \"emission/3\", Kind: \"arrival\", Time: at, Service: \"demo\", Build: build, Deploy: deploy, Target: target, Operation: \"checkout\", Deadline: 500*time.Millisecond}",
+		"\t\t\tcompletion := arrival",
+		"\t\t\tcompletion.Kind = \"completion\"",
+		"\t\t\tcompletion.Deadline = 0",
+		"\t\t\tcompletion.Time = at.Add(" + duration + ")",
+		"\t\t\tcompletion.Outcome = " + emit + "",
+		"\t\t\tcompletion.Duration = " + duration + "",
+		"\t\t\tif completion.Outcome == \"failure\" { completion.FailureClass = \"synthetic\"; completion.CodeLocation = \"checkout\" }",
+		"\t\t\texercise(arrival, completion, " + duration + ")",
 		"\t\t}",
 		"\t\ttime.Sleep(time.Millisecond)",
 		"\t}",
+		"}",
+		"",
+		"func exercise(arrival, completion emission, duration time.Duration) {",
+		"\twriteRecord(arrival)",
+		exerciseSleep,
+		"\twriteRecord(completion)",
+		"}",
+		"",
+		"type emission struct {",
+		"\tVersion string `json:\"version\"`",
+		"\tKind string `json:\"kind\"`",
+		"\tTime time.Time `json:\"time\"`",
+		"\tService string `json:\"service\"`",
+		"\tBuild string `json:\"build\"`",
+		"\tDeploy string `json:\"deploy\"`",
+		"\tTarget string `json:\"target\"`",
+		"\tOperation string `json:\"operation\"`",
+		"\tOutcome string `json:\"outcome,omitempty\"`",
+		"\tDuration time.Duration `json:\"duration,omitempty\"`",
+		"\tDeadline time.Duration `json:\"deadline,omitempty\"`",
+		"\tFailureClass string `json:\"failure_class,omitempty\"`",
+		"\tCodeLocation string `json:\"code_location,omitempty\"`",
+		"\tHazardousCount int64 `json:\"hazardous_count,omitempty\"`",
+		"}",
+		"",
+		"func writeRecord(one emission) {",
+		"\tdata, err := json.Marshal(one)",
+		"\tif err == nil { _, _ = os.Stdout.Write(append(data, 10)) }",
 		"}",
 		"",
 		"func serves(path, build string) bool {",

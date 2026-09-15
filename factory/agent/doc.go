@@ -110,10 +110,15 @@
 // [ShippedImplementerPrompt] carries, beside the four rules, the place an
 // encoding declares — the build or the candidate environment, written as the
 // suffix package criterion's extractor matches — the standing instruction that
-// the program appends one line per unit of work to the file its environment
-// names, with the count of the area's hazardous operation where one is named,
-// the marker a driver names its screen and state by and the file a screen's own
-// transition function is written in, both of which package
+// the program emits two emission/3 records per exercise to standard output and,
+// where named, one hazardous-operation count per interval. The local target
+// accepts those records and stores them with its own clock. That shipped
+// emission instruction is
+// ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/03-hazard-severity.md
+// (C0693, C0694) and
+// ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
+// (C1950, C1951, C1952, C0539, C1969, C1974). The marker a driver names its screen and state
+// by and the file a screen's own transition function is written in, both of which package
 // screenstatemachine's extractor matches, and the file-name conventions a
 // contract is derived from: a published interface is one exported struct type
 // in a file named for it, an interface this service reads is a mirror in a file
@@ -161,7 +166,7 @@
 // the interviewer runs, its rounds, and the reading written as a set of
 // statements in the six patterns are
 // ../../end-goal/how-the-factory-works/02-intent-into-items/02-the-interview.md
-// (C0524, C0525, C0526, C0539, C0544, C0549, C0550, C0559), and what the
+// (C0524, C0525, C0526, C0544, C0549, C0550, C0559), and what the
 // decomposer would cut is
 // ../../end-goal/how-the-factory-works/02-intent-into-items/03-decomposition/README.md
 // (C0710, C0712, C0713, C0750, C0752, C0763, C0764, C0765, C0772). The role
@@ -175,7 +180,12 @@
 // ../../end-goal/how-the-factory-works/02-intent-into-items/01-intake/02-reports.md
 // (C0381, C0394). The units a provider returns per kind are
 // ../../end-goal/how-the-factory-works/10-fleet/01-what-an-agent-runs-on.md
-// (C2358, C2364, C2365, C2367, C2386).
+// (C2358, C2364, C2365, C2367, C2386). The implementer's instruction carries
+// the software-emitted arrival and completion records and the per-interval
+// hazardous count (C0693, C0694, C1950, C1951, C1952); a failed
+// completion names its failure class and the code location from which it was
+// raised, while the
+// health monitor keeps the failure as an interval count (C1969).
 // The implementer's rule that an encoding's expected behaviour is derived from
 // the criterion's sentence and never from the code it checks is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md

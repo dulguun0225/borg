@@ -27,8 +27,7 @@ import (
 	"github.com/dulguun0225/borg/factory/window"
 )
 
-// The watch: the health monitor read until every window it holds open has
-// closed, and everything downstream of a deploy beside it. What the health
+// The watch: the health monitor read until every window it holds open has closed, and everything downstream of a deploy beside it. What the health
 // monitor reads is emission.go, what performs a rollback is rollback.go, and
 // where a delivery goes is the terminal below — each an interface in the
 // package that needs it, so neither the health monitor nor the notifier knows

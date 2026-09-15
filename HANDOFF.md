@@ -1,8 +1,189 @@
 # Task
 
-M10 is built: the nine steps of the plan are committed on `main`, every one of the seventy-five claims marked `unbuilt M10` is `built`, and `cmd/tracecheck`, the consistency commands, the Go suite, and the client's lint, unit, build and browser suites pass. No step remains. M11 starts from a fresh plan: run `prompts/plan-milestone.md` with `MILESTONE` set to `M11` through `tools/codex-step.sh`, check its coverage table, and replace this file's task with it, keeping the two lists below. What remains for the owner: the drift-reviewer findings below on claims built before M10, each a place the code and the design disagree, and the readings taken where the design left two. Each row names the package, the claim, and what the reviewer saw; none has a disposition. Delete a row when the code or the design settles it, and this file when both lists are empty.
+Milestone M11 — The watch reads what the software emits. Build [the health monitor](end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md) over an emission the implementer is told to produce: two records per request, `unfinished` among the outcomes, the emission version, a histogram at fixed boundaries, and kept failure counts — so that request rate, error rate and latency are read per operation and per target, and a fourth quantity for an `irreversible` area's hazardous operation, where M4 read one count of units failed. The values the service record already carries and nothing reads — the fraction the replaced build keeps, the proof test, the recent-history size the composition hands the health monitor as a constant — are read by what the design says reads them; the drift detector reads a standing mitigation as intended state; and the [window limit](end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md), the search, and the [brownout](end-goal/how-the-factory-works/07-contracts/08-deprecation.md)'s window are demonstrated over a control M10 made available rather than over the confounded comparison alone. Demonstrated by M4's deliberately bad release caught on latency at one operation while its error rate stays flat, on a target keeping a control.
 
-The client's browser suites run on this machine with `CHROME_BIN` pointing at Playwright's Chromium under `~/.cache/ms-playwright` and `psql` reached through the database container; neither is on the path by default.
+Build ordered steps, one commit per step titled `factory: M11 step N — <name>`, straight to `main`.
+
+# Base commit
+
+`a4f04c9a00fd328162ae0c03efda0a24727fbc59`
+
+# Rules for a step session
+
+- Read `CLAUDE.md`, then `HANDOFF.md`, then only the design files and packages the step
+  names.
+- First, in `end-goal/claims.txt`, change the step's claims from `unbuilt` to `built`, so
+  each package's `doc.go` can cite the claims it implements and `cmd/tracecheck` holds.
+  That is the one edit to `end-goal/` a step makes.
+- A `doc.go` cites a claim only where the package holds the claim's mechanism; a package
+  the claim's subject passes through cites it nowhere, and `cmd/` composes and holds no
+  mechanism. A mechanism found in `cmd/` at review moves to its package.
+- Before coding, estimate the step's size. Over about 1,000 changed lines, split it in
+  the plan into `Na`, `Nb`, … with their own claim lists, and do `Na` alone.
+- Run `go vet`, `depscheck`, `tracecheck`, and the step's focused tests; the coordinator
+  alone runs the whole suite, which takes most of an hour, and runs it detached from any
+  session limit.
+- Do not commit and do not push. The coordinator runs `drift-reviewer` on every directory
+  whose `doc.go` or screen `README.md` changed, sends the **Not implemented** and
+  **Implemented differently** lists back to the same worker session as the next round,
+  and commits when **Not implemented** is empty and the suite is green.
+- A finding on a claim built before this milestone is recorded in `HANDOFF.md` under a
+  heading for the owner and not fixed in the step, unless the step's own change
+  introduced it.
+- Before returning, record under **Completed** the step, the directories changed, and
+  every check run with its result, and move the step's entry out of **Steps**. Keep
+  **Unresolved** current.
+- A doubt about what the design means is recorded under **Unresolved** with the two
+  readings, and the more conservative one is built.
+
+# Completed
+
+## 1. Versioned emissions and operation quantities
+
+- Directories changed: `factory/agent`, `factory/artifact`, `factory/healthmonitor`, `factory/localtarget` (each with its `doc.go`); `factory/cmd/factory` (its `emission.go` moved into `healthmonitor`; tests, fake model, and fixtures); `HANDOFF.md`; the sixteen flips in `end-goal/claims.txt`.
+- Claims built: C0693, C0694, C0695, C1950, C1951, C1952, C1954, C1955, C1957, C1958, C1959, C1961, C1962, C1963, C1971, C1974. C0693, C0694, C1950, C1951, C1952 and C1974 are cited in `agent` (the implementer's standing instruction is what the software emits); the reading claims in `healthmonitor`; acceptance (C1957) and the deploy identity on the record (C1953) in `localtarget`.
+- What was built: the software emits two JSON records per request, arrival and completion, naming service, build, deploy, target, operation and the emission version; a failed completion names its failure class and code location; a hazardous operation's count is emitted per interval from the service's store; the arrival carries the service's `unfinished` deadline. The local target is the store's stand-in: it reads the process's standard output and appends each record to the signal file with the acceptance time by its own clock and the deploy fixed at placement. The health monitor reads intervals per operation and target at the shipped resolution, keeps counts and fixed-boundary histograms per outcome, reads `unfinished` once the deadline has passed since the interval ended, and puts every quantity to the boundary as a proportion of counts. `artifact` compares the shipped prompt text of every kind at each start and enters a changed text awaiting its gate. Demonstration: `cmd/factory/emission_test.go`, the M4 bad release slow on one operation with its error rate flat, caught on a target keeping a control, over records the running software emitted.
+- Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; the focused tests passed; the bad-release family passed three consecutive runs; the coordinator's full suite, `go test -count=1 -timeout 60m ./...`, passed (58 packages).
+- Drift review, ten rounds: every **Not implemented** list empty; **Implemented differently** items remaining are recorded under **Unresolved** or **Pre-existing drift**.
+
+# Steps
+
+## 2. The emission gate
+
+Claim ids: C1120, C1121.
+
+Design files to read: `end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md`; `end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md`.
+
+Packages to read: `factory/criterion`, `factory/healthmonitor`, and `factory/cmd/factory`.
+
+Mechanism ownership: `criterion` derives the emission artifact from the build and rejects a missing, extra, or hazardous-operation emission against a readable-shape input supplied by the composition; its `doc.go` cites C1120 and C1121. The caller passes the shipped shape from `healthmonitor`; it does not duplicate the vocabulary and does not make `cmd/factory` the owner. No new dependency edge is needed because the check takes the shape through its existing caller seam.
+
+Size bound: about 450 changed lines.
+
+Proof: criterion tests accept the complete build-derived emission declaration and reject a build that omits the required number, names an unreadable number, or omits a hazardous operation. A focused factory candidate test proves the gate rejects the build before the run continues.
+
+Focused checks: from `factory/`, `go test -count=1 ./criterion ./cmd/factory -run 'Test.*Emission|Test.*Encoding'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+
+## 3. Brownout rollback capacity
+
+Claim ids: C1842, C1843, C1844, C2057.
+
+Design files to read: `end-goal/how-the-factory-works/07-contracts/08-deprecation.md`; `end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md`; `end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md`.
+
+Packages to read: `factory/contractcheck`, `factory/healthmonitor`, `factory/deploy`, `factory/targetseam`, and `factory/cmd/factory`.
+
+Mechanism ownership: `contractcheck` owns the brownout window's cap and evidence-point state and cites C1842 and C1843. `healthmonitor` owns the failed brownout exit, ordinary rollback/hold sequencing, and cites C1844. `deploy` owns the rollback operation order and scales each target's kept instances to the recorded full count before shifting traffic, citing C2057. `targetseam` remains the operation carrier and `cmd/factory` remains composition; neither cites these claims. No new dependency edge is needed.
+
+Size bound: about 650 changed lines.
+
+Proof: contractcheck tests keep a brownout open to its cap, fail it when another service breaks, and prevent removal after an early boundary; healthmonitor tests assert rollback and hold after a failed brownout; deploy tests assert scale-before-shift and page/error behavior on scale-out failure.
+
+Focused checks: from `factory/`, `go test -count=1 ./contractcheck ./healthmonitor ./deploy ./targetseam -run 'Test.*Brownout|Test.*Rollback|Test.*Scale|Test.*Shift'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+
+## 4. Kept-fleet drift
+
+Claim ids: C2059, C2162, C2163, C2164.
+
+Design files to read: `end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md`; `end-goal/how-the-factory-works/08-operations/08-drift-detection.md`.
+
+Packages to read: `factory/driftdetector`, `factory/deploy`, `factory/targetseam`, `factory/localtarget`, `factory/cmd/driftdetector`, and `factory/cmd/factory`.
+
+Mechanism ownership: `driftdetector` extends the target comparison input and mismatch decision for actual instances versus the deploy record's kept count, exempts a standing mitigation as intended state, holds production deploys on an ordinary mismatch, and cites all four claim ids. `deploy` supplies its existing per-target kept count; `targetseam` and `localtarget` carry and report the running count; both are non-owning carriers and cite no M11 claim. The two command packages compose the pass and hold no mechanism. No new dependency edge is needed; keep the existing pass and target interfaces.
+
+Size bound: about 700 changed lines.
+
+Proof: driftdetector tests cover fewer instances, a matching kept fleet, and an active instance-count mitigation; command tests prove the mismatch is recorded, pages while a release remains to protect, and does not stop anything when the fleet is present but traffic cannot shift.
+
+Focused checks: from `factory/`, `go test -count=1 ./driftdetector ./cmd/driftdetector ./targetseam ./localtarget ./cmd/factory -run 'Test.*Instance|Test.*Kept|Test.*Drift|Test.*Mitigation'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+
+## 5. Schema history and configuration drift
+
+Claim ids: C2165, C2166, C2170.
+
+Design files to read: `end-goal/how-the-factory-works/08-operations/08-drift-detection.md`.
+
+Packages to read: `factory/driftdetector`, `factory/deploy`, `factory/targetseam`, `factory/localtarget`, `factory/cmd/driftdetector`, and `factory/cmd/factory`.
+
+Mechanism ownership: `driftdetector` compares the target's schema history and configuration digest with the current release build and deploy record, raises the ordinary holding mismatch for each difference, and cites C2165, C2166, and C2170. `deploy` remains the source of the recorded deploy data; `targetseam` adds the running configuration digest to `Running`; `localtarget` reads it from the target; the command packages compose inputs and hold no mechanism. These carrier packages cite no M11 claim. No new dependency edge is needed.
+
+Size bound: about 700 changed lines.
+
+Proof: driftdetector tests cover an extra history row, a checksum mismatch, a missing declared change, and a matching history; target and local-target tests cover reporting the configuration digest; command tests show each mismatch holds and pages production deploys.
+
+Focused checks: from `factory/`, `go test -count=1 ./driftdetector ./cmd/driftdetector ./targetseam ./localtarget ./cmd/factory -run 'Test.*Schema|Test.*Configuration|Test.*Digest|Test.*Drift'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+
+## 6. Values the service record carries, and the demonstrations over a control
+
+Claim ids: none flipped; the claims below are `built` and their mechanism is drifted or absent. The roadmap entry names them for M11.
+
+Design files to read: `end-goal/how-the-factory-works/06-releases/05-the-deploy-record/02-what-stands-for-a-rollback.md`; `end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md`; `end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md`; `end-goal/how-the-factory-works/07-contracts/08-deprecation.md`.
+
+Packages to read: `factory/service`, `factory/deploy`, `factory/healthmonitor`, `factory/contractcheck`, and `factory/cmd/factory`.
+
+Mechanism ownership: `deploy` reads `kept_fraction` off the service record when it sets the per-target kept count (C1681; closes the pre-existing drift row on it) and reads the proof test (C2058) to shift a share of traffic onto the rollback target's instances and back inside an open window. `healthmonitor` reads the recent-history size off the service record through the reader the composition supplies, in place of the constant `cmd/factory` hands it (C1941, C2006, C2014). `service` already holds the values and cites nothing new. `cmd/factory` composes and holds no mechanism. No new dependency edge is needed.
+
+Size bound: about 600 changed lines.
+
+Proof: deploy tests cover the kept count as capacity times the authored fraction, the default when none is authored, and one proof-test shift and return; healthmonitor tests cover the size read from the record. Three `cmd/factory` end-to-end tests, each on a target keeping a control: the window limit reached over a control, the search over a control, and a brownout window over a control. These are the roadmap's demonstrations and depend on steps 1, 3 and 4.
+
+Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run 'Test.*Fraction|Test.*Kept|Test.*Proof|Test.*History'`; `go test -count=1 -timeout 60m ./cmd/factory -run 'Test.*Control|Test.*Brownout|Test.*Limit|Test.*Search'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+
+# Coverage
+
+| Claim id | Step | Package that cites it |
+|---|---:|---|
+| C0693 | 1 | `agent` |
+| C0694 | 1 | `agent` |
+| C0695 | 1 | `healthmonitor` |
+| C1120 | 2 | `criterion` |
+| C1121 | 2 | `criterion` |
+| C1842 | 3 | `contractcheck` |
+| C1843 | 3 | `contractcheck` |
+| C1844 | 3 | `healthmonitor` |
+| C1950 | 1 | `agent` |
+| C1951 | 1 | `agent` |
+| C1952 | 1 | `agent` |
+| C1953 | 1 | `localtarget` |
+| C1954 | 1 | `healthmonitor` |
+| C1955 | 1 | `healthmonitor` |
+| C1957 | 1 | `localtarget` |
+| C1958 | 1 | `healthmonitor` |
+| C1959 | 1 | `healthmonitor` |
+| C1961 | 1 | `healthmonitor` |
+| C1962 | 1 | `healthmonitor` |
+| C1963 | 1 | `healthmonitor` |
+| C1971 | 1 | `healthmonitor` |
+| C1974 | 1 | `agent` |
+| C2057 | 3 | `deploy` |
+| C2059 | 4 | `driftdetector` |
+| C2099 | owner | — |
+| C2162 | 4 | `driftdetector` |
+| C2163 | 4 | `driftdetector` |
+| C2164 | 4 | `driftdetector` |
+| C2165 | 5 | `driftdetector` |
+| C2166 | 5 | `driftdetector` |
+| C2170 | 5 | `driftdetector` |
+
+# Unresolved
+
+- Step 1 leaves three readings the last drift review still listed: the newest-record time on the last check is taken over the windows a pass evaluated, so a pass with no open window writes none (C1977, `watch.go`); the objective's `Spent` read does not pass through the staleness rule the other reads do (C1977, `objective.go`, pre-existing); an emission/3 arm whose arrivals name no deadline has its error rate read as no volume, where the instruction requires every arrival to name one. And C1974's version is a literal in the prompt in force, so after an upgrade a service moves to the new version when the upgrade's prompt passes its gate, not at its next build.
+- C0693 has two readings: the design's service-owned store is one count every instance on every target reads, while this local target exposes one file per target and build. The conservative implementation keeps the per-target/build count and does not claim a service-wide aggregate; a service-owned shared store remains unresolved.
+- C1973 has two readings: legacy emission/1 and emission/2 lines cannot name their version or carry the current record fields; the reader retains those formats by inferring the version from the recognised line shape and using the outcome line as their only failure signal, while emission/3 names its version and carries failure fields on its completion. The legacy departure remains unresolved.
+- The localtarget stand-in accepts process stdout in a factory-process goroutine. A factory restart can leave a running instance accepted by nothing; the design's store is outside the factory. This departure remains unresolved.
+- C1964 has two readings: a latency safeguard is a point quantile comparison, or its release tail in the bucket holding the stated duration and above is compared with the threshold's allowed tail share through the boundary. The latter is built; the objective is the separate non-failed-completions-over-arrivals reading stated in `doc.go`.
+- C1960 has two readings: request rate is each arm's share of the two arms' interval arrivals, or a per-instance share. The local stand-in builds the former; unequal fleets would require the per-target instance counts carried by the deploy record.
+- C0695 has two readings: the hazardous reading is the operation count over the count plus that arm's arrivals, or a rate over another denominator. The bounded count-plus-arrivals proportion is built.
+- The history reading has two readings: intervals pair by rank where records have no usable common time, or by timestamps synthesized from their order. Rank pairing through `alignIntervals` is built.
+- C2099 is not built in this milestone and is not `stated`: it is a sentence the design contradicts. `02-reports.md` defines a redaction as naming one of three targets — a report, the statement summarizing it, or an artifact version quoting it — and `redaction.TargetKinds` and its database constraint ship those three; `06-incidents.md` says the failure records copied onto an incident are removable by a redaction. The two readings: a fourth target kind, the incident's copied failure records, is added to the three in `02-reports.md` and the code follows; or `06-incidents.md` stops naming redaction and the failure records go with the incident on retention. Neither is the more conservative, because each edits a design file, and a step edits none. The owner decides; the claim stays `unbuilt M11` until then.
+- The designs do not specify the exact wire encoding for arrival, completion, failure, histogram, and hazardous-operation records. Inference: retain the existing versioned signal-file boundary and define the smallest versioned record shape that carries the named fields; the service-side writer and fixture format remain for the implementer to choose.
+- The designs do not state whether emission declarations are a separate build artifact or fields on the existing encoding derivation. Inference: keep the derivation and rejection in `criterion`, with the command passing the health monitor's readable shape.
+- The health monitor currently receives `NamesAHazardousOperation` from composition, while the design says the area names the hazardous operation. Inference: add the area-derived operation mapping at the existing composition seam and do not make healthmonitor import the area package.
+- The designs require fixed histogram boundaries and resolution but do not give their values. Inference: use one factory-shipped constant shape for all builds and reject a declaration that differs from it.
+- The target seam currently reports instances and schema history but not configuration digest. Inference: add the digest to `targetseam.Running` and have each target implementation report it; the deploy record's digest already exists and remains the comparison source.
+- The design says a brownout reads all services' own history while open but does not specify the exact composition callback for that set. Inference: extend the existing `contractcheck.Check.IsBrownout` input seam and keep the health monitor as the only window closer.
+- C1969 has two readings: the service record itself enforces the cap on distinct failure-record keys and supplies an overflow bucket, or the outside store enforces that cap while the service only names failure class and raised code location. The local stand-in is the latter and does not enforce the cap; it keeps the count per interval.
+- Open's emission-version fallback has two readings: the build record names the emission version it emits, or, until that field exists, open reads the newest shipped emission version. The conservative current reading is the newest shipped version, and the build-record reading remains unresolved until build records carry it.
+- C2446 has two readings: the composition tells the store whether a start is the install or an upgrade, or the store infers install from finding no shipped entry. The store builds the latter and enters all install words atomically; the composition reading remains unresolved.
 
 # Pre-existing drift
 
@@ -15,7 +196,23 @@ The client's browser suites run on this machine with `CHROME_BIN` pointing at Pl
 - service C2042 — an unauthored window limit resolves to this package's constant for readers outside gate policy rather than a value the score supplies.
 - environment C1525 — the composition is stored one line per interface address, so a dependency with two addresses reads back as two entries.
 - mergequeue C1432, C1543 — the queue's rejection sends the item back with `ReturnTo`, which counts nothing, so no attempt is counted at Implementation.
-- healthmonitor C1977 — the last check's newest time is taken only from series the pass's open windows read.
+- healthmonitor `quantities.go:241-249` — when no health-monitor last-check row exists, staleness falls back to the composed pass interval. This fallback predates M11 step 1 and remains unresolved because the design does not state the case.
+- healthmonitor `quantities.go:241-249` — when a last-check row exists with a non-positive interval, staleness falls back to the composed pass interval. This fallback predates M11 step 1 and remains unresolved because the design does not state the case.
+- healthmonitor `quantities.go:403-408` — when a quantity carries no authored power, `powerFor` returns zero rather than the design's one-half fallback. This fallback predates M11 step 1 and remains unresolved because the design does not state the case.
+- healthmonitor `objective.go:175-190` — the service is held and raised on whichever operation has the least budget left, with no sentence naming which per-operation reading stands for the service. This predates M11 step 1 and remains unresolved.
+- artifact `schema.go` — the claimed-nowhere `redacted_content_digest` field and its redaction behavior are pre-existing schema mechanism, outside this step.
+- artifact `schema.go` — the claimed-nowhere unauthored-item-kind bound is pre-existing DDL mechanism, outside this step.
+- artifact `schema.go` — the claimed-nowhere `format_version` value is pre-existing schema mechanism, outside this step.
+- artifact lease fencing — the claimed-nowhere lease token is pre-existing store mechanism, outside this step.
+- agent C2430 — seven shipped prompts and none for the role that argues a fleet proposal.
+- agent C0525, C0559, C1043, C1082, C0765, C0772 — the interviewer's one-question cap; a criterion authored with no requirement id where the user message lists none; `DraftCriterion` carrying two sources and the default where the sentence has three; the screen machine's states not required to include empty, loading and failed; the `ANSWERS` line naming no requirement; and an unanswerable requirement's reason as free text.
+- agent C2386 — `anthropic.go` reads the provider's returned unit fields through its existing response decoding, but the provider-shape reading predates this step and remains unresolved.
+- localtarget `ExchangeEnv` — the environment variable is still a platform spelling rather than the design's exchanged record contract.
+- localtarget way-in socket — the socket remains bound by the operating system's path limit.
+- localtarget `Reconfigure` — the local target's refresh behavior predates this step and remains its existing stand-in.
+- localtarget `SetInstanceCount` — the local platform remains bounded to one instance.
+- localtarget `ArtifactDigest` — the target's artifact digest behavior predates this step.
+- localtarget one `Local` per target — the local target remains one value per target rather than the design's outside target arrangement.
 - score C1377 — a service's first release takes a control when the rollout is an adoption.
 - notifier C2110 — `FirstAcceptedAt` is preserved across attempts where the sentence has the record overwritten at each attempt.
 - healthmonitor C1983 — the search's deploy record names a release in its delivered-release field where the sentence says it names none.
@@ -24,7 +221,7 @@ The client's browser suites run on this machine with `CHROME_BIN` pointing at Pl
 - score C1262 — whether the diff destroys stored data arrives as a measurement field independent of the exposure extractor, so an unreadable extractor leaves reversibility valued.
 - score C2034 — an incident with no rollback behind it moves the window's size and power.
 - deploy C1875 — backfill completion is gated on a caller-supplied row count rather than every old-form row being present in the new.
-- healthmonitor C2598, C2001, C2136, C2114, C2135, C1964 — the explicit-threshold reading closes with the window; a failed exit resumed after a stop skips intake's step and pages a rollback as outstanding though it ran; the failed-with-no-rollback wait names no duty and never widens; no quantile is fixed with the histogram boundaries on any shipped emission version.
+- healthmonitor C2598, C2001, C2136, C2114, C2135 — the explicit-threshold reading closes with the window; a failed exit resumed after a stop skips intake's step and pages a rollback as outstanding though it ran; the failed-with-no-rollback wait names no duty and never widens.
 - release C1557 — the next number is one above the higher of the service's highest record and a caller-supplied floor, serialised by an advisory lock rather than the queue's ordering.
 - mergequeue C0721 — `FastForward` has no case for the first fast-forward creating a master that does not exist.
 - mergequeue C1606 — where the intent's state stops an item the queue opens a wait and leaves its own unfinished merge's record write owing.
@@ -98,19 +295,17 @@ The client's browser suites run on this machine with `CHROME_BIN` pointing at Pl
 - localtarget C0914 — `DeployWithControl` reports a drain while the replaced instance is left alive as the control.
 - deploy C1738 — the deploy package's own notifier seam still pages only at the snapshot and artifact-digest exits; `cmd/factory` now pages a rollback target refusal through the credential wait after the rollback record exists.
 
-- Step 8, operational and Factory read models. No split. Directories changed: `factory/cmd/factory` (**doc.go changed**), `factory/criterion` (**doc.go changed**), `factory/deploy` (**doc.go changed**), `factory/environment` (**doc.go changed**), `factory/policy`, `factory/screens` (**doc.go changed**), and `HANDOFF.md`, plus the six claims flipped to `built` in `end-goal/claims.txt`. Factory now exposes recorded composition time and candidate environment-hours, platform room counts, per-item hosting and per-release instance-hours with explicit pricing presence, mutation scores, criteria counts grouped by withdrawal author, kept-fleet stops, and independent target, platform, service, and drift last-check scopes. Production fleet replacement and control/kept teardown persist instance-hours at the service rate in force; candidate teardown persists environment-hours at its rate. Reviewer follow-up makes production's authored room the only composition ceiling, reads deploy completion through the supplied environment-target reader, groups all addresses of a dependency in one composition row, validates dependency releases and candidate state, and removes C2641 from criterion's documentation. Pre-existing drift is recorded above. Checks: `go test -count=1 ./environment ./deploy ./criterion ./screens ./mergequeue` passed (`ok github.com/dulguun0225/borg/factory/environment 9.228s`, `ok github.com/dulguun0225/borg/factory/deploy 4.564s`, `ok github.com/dulguun0225/borg/factory/criterion 3.197s`, `ok github.com/dulguun0225/borg/factory/screens 0.160s`, `ok github.com/dulguun0225/borg/factory/mergequeue 14.737s`); `go test -count=1 -timeout 60m ./cmd/factory -run 'Candidate|Environment|Composition|Room|Remove|Retire|View|Screen|Hours'` passed (`ok github.com/dulguun0225/borg/factory/cmd/factory 333.522s`); `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `git diff --check` passed; `graphify update .` passed; all changed source and test files are under 500 lines.
 
 - environment C1522 — with no composition reader supplied, `validComposition` skips both checks.
 - environment C1397, C1398 — the only post-creation write of the ordered target field appends; no write reorders it.
 - criterion C1484 — nothing refuses a candidate-run result for a criterion the build's own process decided; `Latest` lets the run's result stand over the build's.
-- Step 9, Work, Ops, and Factory presentation. No split. Directories changed: `factory/screens` (**doc.go changed**), `factory/cmd/factory`, `factory/client/src/app/api`, `factory/client/src/app/work` (**README changed**), and `factory/client/src/app/factory` (**README changed**), plus `HANDOFF.md` and the three claims flipped to `built` in `end-goal/claims.txt`. Work now reads and presents merge-queue rows with their standing waits and open analysis-window rows; Factory presents mutation score per service and criteria withdrawn per service and author beside in-force and unreliable counts. The server keeps these read models in the existing screen and composition packages, and screen handler tests cover the added Work and Factory response shapes. The empty `/work/all` state now renders the shared queue and window sections, including their named headings and empty messages. Checks: `go vet ./...` passed; `go run ./cmd/depscheck` passed; `go run ./cmd/tracecheck` passed; `go test -count=1 ./screens` passed; `go test -count=1 ./cmd/factory -run '^TestQueueWaitsKeepOnlyQueuePayloads$'` passed; `npm ci` passed; `npm run lint` passed; `npm test` passed (87 of 87); `npm run build` passed; `npm run e2e` passed (9 of 9); `graphify update .` passed. The first focused `go test -count=1 ./screens ./cmd/factory` attempt timed out in the existing database-backed test and is retained in the session record; the coordinator's full suite remains responsible for that package.
 
 - Factory screen C1080, C0865 — no share of criteria in the unwanted-condition pattern; no per-human count of rows acknowledged and decided by another holder.
 - Factory screen C0472, C0825, C1289, C0684, C0895, C2607, C2650, C2993 — two store-kept report counters where the design has one; the fleet table shows configuration and not what each agent does; a waiting policy version sits apart from its threshold; area severity per row rather than a count naming none; the approved/undone pair carries no split by cause; no skill version in force; the browser run decides only that the screen is served.
 - Work screen C0536, C0609, C0880, C1106, C2570, C0788, C2680, C2683, C2714, C2993 — the intent is not a timeline entry; a question is answered by typing its id; a row waiting on another holder refuses nothing; a version renders as an id; one decomposition decision has no address over its timelines; the empty predicate folds readiness rows in; two screens have no spec over their declared states; the browser run drives no subscription write-back.
 - screens C2601, C2605 — the emission version is reported beside no span; one mitigation pointer per service hides a second target's.
 
-# Unresolved
+# Unresolved from M10
 
 - Step 8 platform room has two readings: an external platform adapter could report the held count and room, or the available seam can report only the factory's standing candidate count. The conservative implementation keeps the platform pass shape, mirrors the standing count for held capacity, and leaves room unreported until that adapter exists.
 

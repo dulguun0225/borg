@@ -98,9 +98,13 @@ type Reading struct {
 // deploy rather than against instances running beside it. It runs whether or not
 // a window is open and nothing tears it down.
 type History struct {
-	ServiceName string
-	Target      string
-	Of          Arm
+	ServiceName         string
+	Target              string
+	Of                  Arm
+	OperationsReadAlone []string
+	// Against names the release below used by a no-control fallback. When it is
+	// present, only that build and deploy supplies the recent history.
+	Against Arm
 }
 
 // Spend is what one of a service's operations consumed of its objective over
@@ -126,7 +130,7 @@ type Spend struct {
 
 // FailureRecord is one kept count of failures: how often a failure class was
 // raised from one point in the code, in one interval, for one service, build,
-// deploy and target. Those seven names are the key the store keeps the count
+// deploy and target, at one emission version. Those eight names are the key the store keeps the count
 // under, and every one of them is here, because the incident carries a copy of
 // the record rather than a link to the store and a copy missing part of the key
 // is a count a reader cannot place.
@@ -134,6 +138,7 @@ type Spend struct {
 // The health monitor copies these onto an incident at the crossing, a field of
 // it rather than a link to the store.
 type FailureRecord struct {
+	Version string `json:"version"`
 	// Interval is the interval the count is over, named by the time that
 	// interval starts at in [record.TimeLayout]. The store keeps a count per
 	// interval, so two records differing only here are two counts and never one.
@@ -371,10 +376,6 @@ type Readings struct {
 	// record, and its size is that objective's distance from what the service is
 	// doing.
 	ThresholdRunLength float64
-	// Interval is how long the store's own interval is, which is the unit the
-	// boundary's variance is estimated over. It is fixed by the factory and
-	// shipped with the instrumentation.
-	Interval time.Duration
 	// PassInterval is how often the health monitor's own pass runs, which is what
 	// it writes onto its last check per service.
 	PassInterval time.Duration

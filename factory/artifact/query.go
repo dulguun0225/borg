@@ -40,9 +40,9 @@ func Get(ctx context.Context, pool *pgxpool.Pool, id string) (Artifact, error) {
 // NewestShipped is the newest version of one fleet chain that a start entered
 // rather than anybody authored — [EnteredBys] naming the two events — and false
 // where no start has entered one. It is what the first-start step reads: the
-// entry carries the shipped-bundle identity it entered under, so a start whose
-// bundle is already on it is not a first start on that version and enters
-// nothing, however many versions have been authored over it since.
+// entry carries the words it entered, so a first-start comparison can avoid
+// repeating unchanged shipped words. The bundle identity records which product
+// start entered it; it is not the comparison trigger.
 //
 // It reads one fleet chain, and [fleetKey] is what says which: a kind outside
 // [FleetKinds] is [ErrFleetKindUnknown] here rather than the newest row of that

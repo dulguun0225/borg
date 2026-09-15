@@ -27,6 +27,7 @@ import (
 	"github.com/dulguun0225/borg/factory/intent"
 	"github.com/dulguun0225/borg/factory/item"
 	"github.com/dulguun0225/borg/factory/lastcheck"
+	"github.com/dulguun0225/borg/factory/localtarget"
 	"github.com/dulguun0225/borg/factory/mergequeue"
 	"github.com/dulguun0225/borg/factory/notifier"
 	"github.com/dulguun0225/borg/factory/policy"
@@ -272,10 +273,9 @@ func compose(ctx context.Context, d deps) (*path, error) {
 	// one.
 	p.healthMonitor, err = healthmonitor.New(d.pool, window.NewWriter(d.pool, d.token),
 		incident.NewWriter(d.pool, d.token), p.checks, p.intake, p.policy, p.notifier,
-		signalFiles{dir: d.dir}, p, nil, mismatches, p, healthmonitor.Readings{
+		healthmonitor.NewFileEmission(d.dir, healthmonitor.SignalPath(localtarget.SignalFile)), p, nil, mismatches, p, healthmonitor.Readings{
 			OwnHistorySize:      ownHistorySize(),
 			OwnHistoryRunLength: ownHistoryRunLength,
-			Interval:            intervalResolution,
 			PassInterval:        atLeastASecond(d.watchEvery),
 		})
 	if err != nil {

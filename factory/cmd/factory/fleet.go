@@ -266,29 +266,18 @@ func (r *rolePrompts) approvedVersions(ctx context.Context) ([]string, error) {
 // event names dispatch and not the owner: no human asked.
 var rolePromptReader = principal.OfComponent("dispatch")
 
-// shippedPromptFor is the words the product ships for one role. It is the one
-// place package agent's seven constants are read: what a run reads is the
-// version in force, and these are only what the first start enters. There is
-// one per role, the decomposer's and the grouper's included, whose words no
-// run of this interface reads — package agent's doc.go says why.
-func shippedPromptFor(role dispatch.Role) (string, error) {
-	switch role {
-	case dispatch.RoleInterviewer:
-		return agent.ShippedInterviewerPrompt, nil
-	case dispatch.RoleDecomposer:
-		return agent.ShippedDecomposerPrompt, nil
-	case dispatch.RoleGrouper:
-		return agent.ShippedGrouperPrompt, nil
-	case dispatch.RoleSpecAuthor:
-		return agent.ShippedSpecAuthorPrompt, nil
-	case dispatch.RoleImplementationPlanner:
-		return agent.ShippedPlannerPrompt, nil
-	case dispatch.RoleTaskAuthor:
-		return agent.ShippedTaskAuthorPrompt, nil
-	case dispatch.RoleImplementer:
-		return agent.ShippedImplementerPrompt, nil
-	default:
-		return "", fmt.Errorf("%w: %q", dispatch.ErrRoleUnknown, role)
+// shippedPrompts is the product's prompt inventory. The artifact store owns
+// comparing these words with the version in force and entering changes; this
+// package only supplies the inventory and the in-force reader.
+func shippedPrompts() []artifact.Shipped {
+	return []artifact.Shipped{
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleInterviewer), Content: agent.ShippedInterviewerPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleDecomposer), Content: agent.ShippedDecomposerPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleGrouper), Content: agent.ShippedGrouperPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleSpecAuthor), Content: agent.ShippedSpecAuthorPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleImplementationPlanner), Content: agent.ShippedPlannerPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleTaskAuthor), Content: agent.ShippedTaskAuthorPrompt},
+		{Kind: artifact.KindRolePrompt, Role: string(dispatch.RoleImplementer), Content: agent.ShippedImplementerPrompt},
 	}
 }
 
@@ -297,46 +286,20 @@ func shippedPromptFor(role dispatch.Role) (string, error) {
 // product, the factory itself calls the artifact store to enter what shipped,
 // with the factory's own start as the actor and the author pair empty.
 //
-// What says whether this is a first start is the version's identity and not the
-// words: the newest entry a start wrote carries the shipped-bundle identity it
-// entered under, so a start under that same identity enters nothing, however
-// many versions an agent has authored over it since. Keyed on the words instead,
-// every start after the first authored version would re-enter what shipped.
-//
-// A version whose shipped words are the ones the last entry carried enters
-// nothing either: an upgrade that changed nothing moves nothing. A version whose
-// words differ gets an entry awaiting the gate every version fires, and nothing
-// here puts it in force — the words the install ran on stand until that row is
-// decided, and this interface fires none.
+// The artifact store compares each item's shipped words with its newest shipped
+// entry. An unchanged item is not entered again; an upgrade's changed entry
+// awaits the gate, and nothing here puts it in force. The install's entries are
+// the only ones that stand ungated.
 func enterShippedPrompts(ctx context.Context, store *artifact.Store, pool *pgxpool.Pool,
 	token lease.Token, actor record.Actor, bundle string) (*rolePrompts, []string, error) {
 	prompts := &rolePrompts{pool: pool, token: token}
-	var entered []string
-	for _, role := range dispatch.Roles {
-		shipped, err := shippedPromptFor(role)
-		if err != nil {
-			return nil, nil, err
-		}
-		last, found, err := artifact.NewestShipped(ctx, pool, artifact.KindRolePrompt, string(role), "")
-		if err != nil {
-			return nil, nil, err
-		}
-		if found && (last.ShippedBundleIdentity == bundle || last.Content == shipped) {
-			continue
-		}
-		// No entry of a start at all is an install, and its entry is in force
-		// ungated; an entry under another identity carrying other words is an
-		// upgrade that changed them, and its entry awaits the gate every
-		// version fires.
-		enteredBy := artifact.EnteredByInstall
-		if found {
-			enteredBy = artifact.EnteredByUpgradeFirstStart
-		}
-		if _, err := store.EnterShipped(ctx, actor, artifact.KindRolePrompt, string(role), "",
-			shipped, enteredBy, bundle); err != nil {
-			return nil, nil, err
-		}
-		entered = append(entered, string(role))
+	shipped, err := store.EnterChangedShipped(ctx, actor, bundle, shippedPrompts())
+	if err != nil {
+		return nil, nil, err
+	}
+	entered := make([]string, 0, len(shipped))
+	for _, one := range shipped {
+		entered = append(entered, one.Role)
 	}
 	return prompts, entered, nil
 }

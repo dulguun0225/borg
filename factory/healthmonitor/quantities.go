@@ -25,8 +25,8 @@ const PooledOperation = "pooled"
 // EmissionShape is one version of what the software the factory writes emits
 // and what the store keeps: the names on a record, the outcome set, the
 // interval resolution, the histogram boundaries and the quantile, the failure
-// record's key set, and the unfinished deadline are one shape, carried here
-// together rather than the quantity list alone — which is, among them, what
+// record's key set, and the service deadline carried on arrival records are one
+// shape, carried here together rather than the quantity list alone — which is, among them, what
 // the health monitor reads off it as the quantities a series at that version
 // carries.
 //
@@ -51,27 +51,19 @@ type EmissionShape struct {
 	IntervalResolution time.Duration
 	// HistogramBoundaries is the latency histogram's own bucket edges in
 	// seconds, and Quantile is which quantile the software reports against
-	// them — both fixed at this version. The share of completions at or past
-	// the bucket the quantile currently falls in is data the traffic decides,
-	// so it arrives per read on [Series.LatencyBucketShare] rather than living
-	// here; this platform's own store does not yet keep a histogram, so both
-	// are empty on every version it has shipped.
+	// them — both fixed at this version.
 	HistogramBoundaries []float64
 	Quantile            float64
 	// FailureRecordKeySet is the field names composing a failure record's key
 	// at this version — [FailureRecord]'s own fields but the count.
 	FailureRecordKeySet []string
-	// UnfinishedDeadline is how long after an interval ends before an arrival
-	// with no completion counted against it is unfinished, and zero at a
-	// version whose records carry no time to hold a deadline against.
-	UnfinishedDeadline time.Duration
 }
 
 // failureRecordKeySet is [FailureRecord]'s own fields but the count, which
 // every version shares: the shape a version adds to is the record the store
 // keeps, and the incident's copy is this package's own and does not move with
 // it.
-var failureRecordKeySet = []string{"interval", "service", "failure_class", "code_location", "target", "build_id", "deploy_id"}
+var failureRecordKeySet = []string{"version", "interval", "service", "failure_class", "code_location", "target", "build_id", "deploy_id"}
 
 // EmissionShapes is every emission version the factory has shipped, oldest
 // first. A version adds a name or a quantity beside what the version before
@@ -83,27 +75,31 @@ var EmissionShapes = []EmissionShape{{
 	// One line per unit of work, the outcome and nothing else: there is no time
 	// to assign a record to an interval by, so it carries one interval per unit
 	// of work and no resolution or deadline of its own.
-	Names:      []string{"outcome"},
-	OutcomeSet: []string{"unfinished"},
-	Quantities: []gatepolicy.Quantity{
-		gatepolicy.QuantityRequestRate, gatepolicy.QuantityErrorRate,
-		gatepolicy.QuantityLatency, gatepolicy.QuantityHazardousOperation,
-	},
+	Names:               []string{"outcome"},
+	OutcomeSet:          []string{"unfinished"},
+	Quantities:          []gatepolicy.Quantity{gatepolicy.QuantityErrorRate},
 	FailureRecordKeySet: failureRecordKeySet,
 }, {
-	// The second adds the time of each unit of work, which is what the store
-	// assigns a record to an interval by. It is an addition and not a removal:
-	// the quantities are the same four, and a series kept at the version before
-	// is read as it was — one interval per unit of work, which is all a record
-	// with no time in it distinguishes.
-	Version:    "emission/2",
-	Names:      []string{"time", "outcome"},
+	// The second adds time, but still carries only the error-rate series. The
+	// older line formats do not carry the records needed for the other series.
+	Version:             "emission/2",
+	Names:               []string{"time", "outcome"},
+	OutcomeSet:          []string{"unfinished"},
+	Quantities:          []gatepolicy.Quantity{gatepolicy.QuantityErrorRate},
+	IntervalResolution:  50 * time.Millisecond,
+	FailureRecordKeySet: failureRecordKeySet,
+}, {
+	Version: "emission/3",
+	Names: []string{"version", "kind", "time", "service", "build", "deploy", "target", "operation",
+		"outcome", "duration", "deadline", "failure_class", "code_location", "hazardous_count"},
 	OutcomeSet: []string{"unfinished"},
 	Quantities: []gatepolicy.Quantity{
 		gatepolicy.QuantityRequestRate, gatepolicy.QuantityErrorRate,
 		gatepolicy.QuantityLatency, gatepolicy.QuantityHazardousOperation,
 	},
-	IntervalResolution:  50 * time.Millisecond,
+	IntervalResolution:  intervalResolution,
+	HistogramBoundaries: histogramBoundaries,
+	Quantile:            histogramQuantile,
 	FailureRecordKeySet: failureRecordKeySet,
 }}
 
@@ -132,6 +128,15 @@ func QuantitiesAt(version string) ([]gatepolicy.Quantity, bool) {
 // naming no shape at all — the table [ShapeAt] reads lacking it — refuses the
 // read rather than answering with the quantity list alone.
 func ReadableAcross(release, baseline string) (both, outside []gatepolicy.Quantity, err error) {
+	if release == "" && baseline == "" {
+		return nil, nil, nil
+	}
+	if release == "" && baseline != "" {
+		if _, known := ShapeAt(baseline); !known {
+			return nil, nil, fmt.Errorf("healthmonitor: the other arm is at emission version %q, which this factory never shipped", baseline)
+		}
+		return []gatepolicy.Quantity{gatepolicy.QuantityRequestRate}, nil, nil
+	}
 	ofRelease, known := QuantitiesAt(release)
 	if !known {
 		return nil, nil, fmt.Errorf("healthmonitor: the release's arm is at emission version %q, which this factory never shipped", release)
@@ -143,14 +148,30 @@ func ReadableAcross(release, baseline string) (both, outside []gatepolicy.Quanti
 	if !known {
 		return nil, nil, fmt.Errorf("healthmonitor: the other arm is at emission version %q, which this factory never shipped", baseline)
 	}
-	for _, q := range ofRelease {
-		if slices.Contains(ofBaseline, q) {
+	newer := ofRelease
+	if emissionVersionIndex(baseline) > emissionVersionIndex(release) {
+		newer = ofBaseline
+	}
+	for _, q := range append(append([]gatepolicy.Quantity{}, ofRelease...), ofBaseline...) {
+		if slices.Contains(both, q) || slices.Contains(outside, q) {
+			continue
+		}
+		if slices.Contains(ofRelease, q) && slices.Contains(ofBaseline, q) {
 			both = append(both, q)
-		} else {
+		} else if slices.Contains(newer, q) {
 			outside = append(outside, q)
 		}
 	}
 	return both, outside, nil
+}
+
+func emissionVersionIndex(version string) int {
+	for n, shape := range EmissionShapes {
+		if shape.Version == version {
+			return n
+		}
+	}
+	return -1
 }
 
 // Series is what the emission returns for one arm pair on one target: the
@@ -164,11 +185,13 @@ type Series struct {
 	// is older than the interval that last check carries is read as no volume and
 	// never as a low one.
 	Newest string
-	// LatencyBucketShare is the share of completions the histogram bucket the
-	// latency quantile falls in holds. It is the floor under the latency size: a
-	// change smaller than a bucket is a change the kept series cannot show.
+	// LatencyBucketShare is the pooled quantile bucket's share of completions.
+	// It is the floor under the latency size on the statistic's share scale.
 	LatencyBucketShare float64
-	Operations         []OperationSeries
+	// LatencyQuantile is the upper boundary in seconds of the bucket containing
+	// the fixed latency quantile.
+	LatencyQuantile float64
+	Operations      []OperationSeries
 }
 
 // OperationSeries is one operation's intervals, per quantity. The operation is
@@ -177,6 +200,15 @@ type Series struct {
 type OperationSeries struct {
 	Operation  string
 	Quantities map[gatepolicy.Quantity]boundary.Observed
+	// LatencyBucketShare is the pooled quantile bucket's share of completions
+	// for this operation, the latency floor on the statistic's share scale.
+	LatencyBucketShare float64
+	// LatencyQuantile is the upper boundary in seconds of the bucket containing
+	// this operation's fixed latency quantile.
+	LatencyQuantile float64
+	// Histogram is the fixed-boundary latency count per interval for this
+	// operation.
+	Histogram []Histogram
 }
 
 // Evaluated is one window's whole reading over every target, operation and
@@ -312,12 +344,15 @@ type Crossing struct {
 func evaluate(boundaryFor func(gatepolicy.Quantity) (boundary.Boundary, bool),
 	power map[gatepolicy.Quantity]float64,
 	target string, series Series, kind CrossingKind, into *Evaluated) error {
+	if series.Newest > into.Newest {
+		into.Newest = series.Newest
+	}
+	if series.EmissionVersionRelease == "" && series.EmissionVersionBaseline == "" {
+		return nil
+	}
 	readable, _, err := ReadableAcross(series.EmissionVersionRelease, series.EmissionVersionBaseline)
 	if err != nil {
 		return err
-	}
-	if series.Newest > into.Newest {
-		into.Newest = series.Newest
 	}
 	if into.Read.Quantities == nil {
 		into.Read.Quantities = map[gatepolicy.Quantity]boundary.Counts{}
@@ -335,7 +370,6 @@ func evaluate(boundaryFor func(gatepolicy.Quantity) (boundary.Boundary, bool),
 			if !carried {
 				continue
 			}
-			b.Size = boundary.Coarsest(b.Size, floorFor(quantity, series))
 			reading, err := b.Evaluate(observed)
 			if err != nil {
 				return fmt.Errorf("healthmonitor: reading %s of %s on %s: %w", quantity, operation.Operation, target, err)
@@ -349,8 +383,11 @@ func evaluate(boundaryFor func(gatepolicy.Quantity) (boundary.Boundary, bool),
 			if reading.Intervals > 0 {
 				into.Volume = true
 				finest, err := b.FinestSize(reading.Deviation, powerFor(power, quantity), reading.Intervals)
-				if err == nil && (into.FinestSizeReached[quantity] == 0 || finest < into.FinestSizeReached[quantity]) {
-					into.FinestSizeReached[quantity] = finest
+				if err == nil {
+					finest = boundary.Coarsest(finest, floorFor(quantity, series, operation))
+					if into.FinestSizeReached[quantity] == 0 || finest < into.FinestSizeReached[quantity] {
+						into.FinestSizeReached[quantity] = finest
+					}
 				}
 			}
 			if !reading.Passed {
@@ -368,22 +405,22 @@ func evaluate(boundaryFor func(gatepolicy.Quantity) (boundary.Boundary, bool),
 }
 
 // floorFor is the floor under a quantity's size that the kept series puts there.
-// Only the latency quantile has one: it is read as the share of completions at
-// or past the bucket the quantile falls in, so a change smaller than that bucket
-// holds is a change the histogram cannot show.
-func floorFor(quantity gatepolicy.Quantity, series Series) float64 {
+// Only the latency quantile has one: it is read in histogram-rank share units,
+// so a change smaller than one retained bucket cannot be shown.
+func floorFor(quantity gatepolicy.Quantity, series Series, operation OperationSeries) float64 {
 	if quantity == gatepolicy.QuantityLatency {
+		if operation.LatencyBucketShare > 0 {
+			return operation.LatencyBucketShare
+		}
 		return series.LatencyBucketShare
 	}
 	return 0
 }
 
-// powerFor is the power in force for one quantity, and a half where the window
-// carries none — which reads the finest size at even odds rather than refusing
-// to report one.
+// powerFor is the power in force for one quantity.
 func powerFor(power map[gatepolicy.Quantity]float64, quantity gatepolicy.Quantity) float64 {
 	if p, authored := power[quantity]; authored && p > 0 && p < 1 {
 		return p
 	}
-	return 0.5
+	return 0
 }

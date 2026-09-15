@@ -12,7 +12,8 @@ import (
 
 // TestEmissionShapeCarriesTheWholeVersionedShape is C1973: the names on a
 // record, the outcome set, the interval resolution, the histogram boundaries
-// and the quantile, the failure record's key set, and the unfinished deadline
+// and the quantile, the failure record's key set, and the service deadline on
+// each arrival
 // are one shape carried per emission version — not the quantity list alone.
 func TestEmissionShapeCarriesTheWholeVersionedShape(t *testing.T) {
 	for _, one := range []struct {
@@ -58,7 +59,7 @@ func TestAReadNamingAnUnshippedEmissionVersionIsRefused(t *testing.T) {
 		t.Error("ReadableAcross read a baseline arm at a version this factory never shipped")
 	}
 	both, outside, err := healthmonitor.ReadableAcross("emission/1", "emission/1")
-	if err != nil || len(outside) != 0 || len(both) != len(gatepolicy.Quantities) {
-		t.Errorf("ReadableAcross(emission/1, emission/1) = %v, %v, %v; want every quantity and nothing outside", both, outside, err)
+	if err != nil || len(outside) != 0 || len(both) != 1 || both[0] != gatepolicy.QuantityErrorRate {
+		t.Errorf("ReadableAcross(emission/1, emission/1) = %v, %v, %v; want error rate and nothing outside", both, outside, err)
 	}
 }

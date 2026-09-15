@@ -32,16 +32,15 @@ import (
 // What is running is on disk and not in this value, which is what lets a second
 // process read it.
 type Local struct {
-	dir string
+	dir    string
+	signal signalFailures
 }
 
 var _ targetseam.Target = (*Local)(nil)
 
-// SignalEnv is the environment variable each started process is told the file to
-// emit its quantity into. The health monitor reads that file, so the name is here — one
-// place, named by the platform that wires it, rather than agreed between the target
-// and whatever reads it.
-const SignalEnv = "BORG_SIGNAL"
+// TargetEnv names the target directory supplied to a process. Its standard
+// output is the signal stream; the process never opens the target's signal file.
+const TargetEnv = "BORG_TARGET"
 
 // SignalFile is where the build running in dir emits its quantity. One file per
 // build, so a release's own counts are told apart from the counts of the build that
@@ -53,7 +52,7 @@ func SignalFile(dir, build string) string { return filepath.Join(dir, build+".si
 func TrafficFile(dir, service string) string { return filepath.Join(dir, service+".traffic") }
 
 // ExchangeEnv is the environment variable each started process is told the file to
-// write its exchange documents into. It is here beside [SignalEnv] and for the same
+// write its exchange documents into. It is here beside [TargetEnv] and for the same
 // reason: the name belongs to the platform that wires it, not to an agreement
 // between the target and whatever reads it.
 const ExchangeEnv = "BORG_EXCHANGE"
@@ -145,10 +144,10 @@ func (l *Local) Dir() string { return l.dir }
 
 // Deploy replaces whatever runs for the service with dir/<build>, so a deploy
 // is a replacement and two builds of one service never run at once. The process
-// is started knowing two files: the one it emits its quantity into, which is what
-// makes the software the factory wrote observable at all, and the one it writes
-// its exchange documents into, which is what a consumer contract is
-// decided against. Beside them it is told the deploy record's own identity and,
+// writes its emission to standard output, which the target accepts into the
+// signal file that makes the software the factory wrote observable, and writes
+// its exchange documents to the exchange file it receives. Beside them it is
+// told the deploy record's own identity and,
 // where the deployment carries them, the way-in token with the entrance it is
 // presented at and the socket the way in listens on, and every value of the
 // resolved configuration.
@@ -183,6 +182,9 @@ func (l *Local) Deploy(ctx context.Context, p principal.Principal, d targetseam.
 // The running-file entry is target state only; no deploy record or build name
 // is created for this transient placement.
 func (l *Local) PlaceMutant(ctx context.Context, p principal.Principal, m targetseam.Mutant) (targetseam.Placement, error) {
+	if err := l.signalError(); err != nil {
+		return targetseam.Placement{}, err
+	}
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return targetseam.Placement{}, err
 	}
@@ -201,9 +203,13 @@ func (l *Local) PlaceMutant(ctx context.Context, p principal.Principal, m target
 	}
 	name := filepath.Base(m.Artifact)
 	cmd := exec.Command(m.Artifact)
-	cmd.Env = append(os.Environ(),
-		SignalEnv+"="+SignalFile(l.dir, name),
-		ExchangeEnv+"="+ExchangeFile(l.dir, name))
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		return targetseam.Placement{}, fmt.Errorf("localtarget: connecting mutant %s output: %w", m.Artifact, err)
+	}
+	deploy := deployID(m.Configuration)
+	cmd.Env = append(os.Environ(), ExchangeEnv+"="+ExchangeFile(l.dir, name), TargetEnv+"="+l.dir,
+		DeployEnv+"="+deploy)
 	if m.WayInAddress != "" {
 		cmd.Env = append(cmd.Env,
 			wayin.StoreEnv+"="+m.WayInAddress,
@@ -215,6 +221,7 @@ func (l *Local) PlaceMutant(ctx context.Context, p principal.Principal, m target
 	if err := cmd.Start(); err != nil {
 		return targetseam.Placement{}, fmt.Errorf("localtarget: starting mutant %s for service %q: %w", m.Artifact, m.Service, err)
 	}
+	l.startSignalReader(output, SignalFile(l.dir, name), deploy)
 	go func() { _ = cmd.Wait() }()
 	if err := os.WriteFile(RunningFile(l.dir, m.Service), []byte(name+" "+strconv.Itoa(cmd.Process.Pid)), 0o644); err != nil {
 		return targetseam.Placement{}, fmt.Errorf("localtarget: recording mutant for service %q: %w", m.Service, err)
@@ -328,6 +335,9 @@ func (l *Local) forget(service string) error {
 // started by an earlier factory run and since crashed can read as running until
 // something reaps it.
 func (l *Local) ReadRunning(_ context.Context, p principal.Principal, service string, credential secretref.Ref) (targetseam.Running, error) {
+	if err := l.signalError(); err != nil {
+		return targetseam.Running{}, err
+	}
 	if err := targetseam.CheckPrincipal(p); err != nil {
 		return targetseam.Running{}, err
 	}

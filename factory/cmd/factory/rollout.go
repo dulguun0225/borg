@@ -231,7 +231,7 @@ func (p *path) adopt(ctx context.Context, svc service.Service, dep deploy.Deploy
 	if err != nil {
 		return err
 	}
-	units, _, err := countSignal(localtarget.SignalFile(address, dep.BuildID))
+	units, _, err := localtarget.CountSignal(localtarget.SignalFile(address, dep.BuildID))
 	if err != nil {
 		return err
 	}
