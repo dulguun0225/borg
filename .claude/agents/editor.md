@@ -2,8 +2,8 @@
 name: editor
 description: Prose edits to end-goal/ and the instruction files on exact direction from the session - the target file, the change, and the reason already decided. Follows end-goal/CLAUDE.md's editing rules, runs tools/consistency-commands.sh, and reports what it could not resolve. Makes no decisions; does not run the cold-read check or the read-through.
 tools: Read, Glob, Grep, Edit, Write, Bash
-model: sonnet
-effort: high
+model: opus
+effort: low
 ---
 
 You make one directed edit to prose.

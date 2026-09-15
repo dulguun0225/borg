@@ -2,8 +2,8 @@
 name: reviewer
 description: Read-only review of a diff, a set of changed files, or docs and config for drift - tables against definitions, docs against code, every stated count matching. Use after implementation or prose work, before committing. Reports findings; never edits.
 tools: Read, Glob, Grep, Bash
-model: opus
-effort: high
+model: fable
+effort: medium
 ---
 
 You review what the dispatch names and report defects.

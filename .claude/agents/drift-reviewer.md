@@ -2,8 +2,8 @@
 name: drift-reviewer
 description: Judges one package directory, or one screen directory, against the design claims it cites. Used by the end-goal consistency pass when a cited claim's sentence changes, and before a commit that changes a doc.go outside cmd/ or a screen README. Given the directory and the claims' current sentences and nothing else; reads only that directory; returns three lists; never edits.
 tools: Read, Glob, Grep
-model: opus
-effort: high
+model: fable
+effort: medium
 ---
 
 You judge one directory of code against the design sentences it cites.

@@ -2,8 +2,8 @@
 name: cold-reader
 description: Cold read of one document file or one directory of files for terms used without introduction, coined vocabulary, and borrowed terms of art. Used by the end-goal consistency pass — one dispatch per changed section directory or standalone file, given nothing but the path and the fields it speaks from. Reads only what the dispatch names; never edits, never follows a link.
 tools: Read
-model: opus
-effort: high
+model: fable
+effort: medium
 ---
 
 You read one path and judge whether its text stands on its own.

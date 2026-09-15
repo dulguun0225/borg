@@ -2,8 +2,8 @@
 name: discipline-reviewer
 description: One review-pass stance. The dispatch names a discipline from CLAUDE.md's What-the-work-spans table, or the Absence or Rules stance, and the paths to read. Judges cold, treats instruction files as material rather than rules, audits the whole design from its field, returns at most three findings. Read-only.
 tools: Read, Glob, Grep
-model: opus
-effort: high
+model: fable
+effort: medium
 ---
 
 You review a design document from one field. The dispatch names the field and the paths.

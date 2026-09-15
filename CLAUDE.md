@@ -11,7 +11,7 @@ Code uses their frontmatter to launch agents. In Codex, read the chosen role's
 body and give it to a native subagent with the task's scope; the frontmatter's
 model, effort, and tool settings apply only to Claude Code. The delegation section
 below supplies the model and reasoning effort policy for each assistant. References
-to Opus elsewhere in the repository use the judgment-role model and effort policy
+to Fable or Opus elsewhere in the repository use the judgment-role model and effort policy
 below in Codex.
 
 Use the current assistant's available tools and installed skills. A Claude
@@ -179,11 +179,11 @@ multiple weak attempts on a task whose difficulty is already apparent. Use obser
 usage when available; do not claim exact quota savings from effort levels or batching.
 
 In Claude Code, workers that judge — `cold-reader`, `discipline-reviewer`,
-`reviewer`, `drift-reviewer` — run on Opus. Workers that execute a decided task —
-`coder`, `editor`, `scout` — run on Sonnet. A doubt resolves upward, and Opus is the
-cap. For a type outside the roster, pass `model:` explicitly: `"opus"` for
-judgment, `"sonnet"` for execution. Do not use a history fork that ignores this
-override.
+`reviewer`, `drift-reviewer` — run on Fable at medium effort. Workers that execute a
+decided task — `coder`, `editor` — run on Opus at low effort, and `scout` on Sonnet. A
+doubt resolves upward, and Fable is the cap. For a type outside the roster, pass
+`model:` explicitly: `"fable"` for judgment, `"opus"` for execution. Do not use a
+history fork that ignores this override.
 
 In Codex, the coordinator stays on `gpt-6-astra`; subagents may use any available
 model. Choose the model and effort expected to consume the least total usage while
@@ -394,7 +394,7 @@ are appended to `review-findings.md` as the batch finishes. A partial run — fe
 or a bounded path — must not speak for the whole design: its report names which agents ran
 and what they read, and a design those agents found sound is not a design found sound.
 Every stance is one dispatch of `discipline-reviewer` from `.claude/agents/`, the field or
-stance named in the dispatch text; it runs on Opus, the judgment tier
+stance named in the dispatch text; it runs on Fable, the judgment tier
 [_Delegation and usage_](#delegation-and-usage) sets.
 
 **Each review agent is dispatched cold**, in its own subagent, and told two things in its

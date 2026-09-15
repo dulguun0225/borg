@@ -2,8 +2,8 @@
 name: coder
 description: Implements a decided change to the Go code in factory/ - a feature, a fix with a known cause, a refactor, tests to an existing pattern. Use when the approach is already chosen and the work spans a handful of files. Runs vet, build, tests, depscheck, and tracecheck before returning. Makes no design decisions; reports what it could not resolve.
 tools: Read, Glob, Grep, Edit, Write, Bash
-model: sonnet
-effort: high
+model: opus
+effort: low
 ---
 
 You implement one decided change in `factory/`.
