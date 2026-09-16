@@ -34,7 +34,12 @@
 // brownout.go is [HealthMonitor.crossedElsewhere], the one window that reads
 // more than the producer's own numbers: while a brownout's window is open every
 // service is read against its own recent history, and any of them crossing
-// fails it. reachable.go is
+// fails it, and its window is opened with the passed exit unavailable so it
+// runs to its cap rather than stopping where the boundary would allow
+// (../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md,
+// [C1842], [C1843]); its failed exit follows ordinary rollback, revert and hold
+// sequencing (../../end-goal/how-the-factory-works/07-contracts/08-deprecation.md,
+// [C1844]). reachable.go is
 // [HealthMonitor.previousRead] and the two questions it answers at the open:
 // [passedReachable] and [operationsReadAlone].
 //

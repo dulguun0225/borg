@@ -78,12 +78,9 @@
 // window runs to its cap rather than stopping where the boundary would allow,
 // and it is the one window that reads more than the producer's own numbers, any
 // service crossing the reading against its own recent history while it is open
-// failing it. Both are the health monitor's to perform and it is not told which
-// release is one yet: what it needs is this reading at the open, handed to it
-// the way the held-out selection already is, so that the
-// passed exit is unavailable to such a window the way it is to a held-out
-// release, and again while it watches. cmd/factory reports the reading at the
-// production deploy meanwhile. Until the health monitor takes it, a brownout's
+// failing it; [BrownoutOf] carries the classification to the health monitor.
+// The health monitor performs the reading and exit, and cmd/factory reports
+// them at the production deploy. Before those rules are enforced, a brownout's
 // window can close passed before its cap, which is
 // [Brownout.EstablishesNothing]: [Check.Raise] reports that as [Raised.Stalled]
 // rather than passing over the element, no pass of the detector being able to

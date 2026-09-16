@@ -61,6 +61,10 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 	if err != nil {
 		return window.Window{}, false, err
 	}
+	brownout, err := h.brownout(ctx, releaseID)
+	if err != nil {
+		return window.Window{}, false, err
+	}
 	version, err := h.policy.Newest(ctx, componentPrincipal)
 	if err != nil {
 		return window.Window{}, false, err
@@ -113,7 +117,7 @@ func (h *HealthMonitor) Open(ctx context.Context, w Watching, deployID, releaseI
 	}
 	opening.DeployID, opening.ScoreVersion, opening.PolicyVersion = deployID, scoreVersion, version.ID
 	opening.HeldOut = heldOut
-	opening.PassedAvailable = opening.PassedAvailable && !heldOut
+	opening.PassedAvailable = opening.PassedAvailable && !heldOut && !brownout
 
 	opened, err := h.windows.Open(ctx, Actor, opening)
 	if err != nil {

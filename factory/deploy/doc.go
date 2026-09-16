@@ -142,7 +142,11 @@
 // build being replaced had, or the fraction of them an owner authored, kept
 // until the last window that could return to it closes, each closed by one of
 // the three teardown writes, and
-// [Target.InstanceHours] is the three added up.
+// [Target.InstanceHours] is the three added up. The fast rollback scales the
+// kept target back to its recorded full count before shifting traffic, and a
+// failed scale-out pages while the failed release still serves
+// (../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md,
+// [C2057]).
 //
 // The copy taken before a change that destroys stored data is deleted by the
 // deployer: [DeleteExpiredSnapshots] is its own pass at the end of the retention

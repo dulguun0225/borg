@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/deploy"
+	"github.com/dulguun0225/borg/factory/principal"
 	"github.com/dulguun0225/borg/factory/targetseam"
 )
 
@@ -16,6 +17,15 @@ type configurationSource struct {
 	digest string
 	values targetseam.ValueSet
 	read   string
+}
+
+type refusingScale struct {
+	targetseam.Target
+	err error
+}
+
+func (r refusingScale) SetInstanceCount(context.Context, principal.Principal, targetseam.InstanceCount) error {
+	return r.err
 }
 
 func (s *configurationSource) Configuration(_ context.Context, _, digest string) (targetseam.ValueSet, error) {
@@ -324,6 +334,10 @@ func TestTheFastRollbackShiftsTrafficOntoTheKeptInstances(t *testing.T) {
 	const serviceID = "svc_a"
 	below := mintRelease(t, ctx, pool, token, serviceID)
 	failed := mintRelease(t, ctx, pool, token, serviceID)
+	belowReaches, _ := twoFakes(true)
+	if _, err := deploy.Perform(ctx, w, performance(serviceID, below, belowReaches)); err != nil {
+		t.Fatalf("the deploy of the release returned to: %v", err)
+	}
 	reaches, fakes := twoFakes(true)
 	addresses := addressesOf(twoTargets)
 
@@ -353,11 +367,19 @@ func TestTheFastRollbackShiftsTrafficOntoTheKeptInstances(t *testing.T) {
 	}
 
 	for n, fake := range fakes {
-		var shifted, deployed int
-		for _, call := range fake.Calls() {
+		var scaled, shifted, deployed int
+		shiftAt, scaleAt := -1, -1
+		for callAt, call := range fake.Calls() {
 			switch call.Op {
+			case targetseam.OpSetInstanceCount:
+				scaled++
+				if call.Count != 2 {
+					t.Errorf("target %d was scaled to %d instances, want the recorded full count 2", n+1, call.Count)
+				}
+				scaleAt = callAt
 			case targetseam.OpShiftTraffic:
 				shifted++
+				shiftAt = callAt
 				if call.Build != below.BuildID || call.Share != 1 {
 					t.Errorf("target %d was shifted onto build %q at %v, want all of it onto the release returned to",
 						n+1, call.Build, call.Share)
@@ -368,6 +390,9 @@ func TestTheFastRollbackShiftsTrafficOntoTheKeptInstances(t *testing.T) {
 		}
 		if shifted != 1 {
 			t.Errorf("target %d took %d shift(s), want the one the rollback is", n+1, shifted)
+		}
+		if scaled != 1 || scaleAt < 0 || shiftAt < scaleAt {
+			t.Errorf("target %d took %d scale(s) at %d and shift at %d, want one scale before the shift", n+1, scaled, scaleAt, shiftAt)
 		}
 		if deployed != 1 {
 			t.Errorf("target %d was deployed to %d time(s), want the one the rollout did and nothing from the rollback",
@@ -405,5 +430,53 @@ func TestTheFastRollbackShiftsTrafficOntoTheKeptInstances(t *testing.T) {
 	returning.KeptBy = cold.ID
 	if _, err := deploy.ShiftBack(ctx, w, returning); !errors.Is(err, deploy.ErrNothingKeptToReturnTo) {
 		t.Errorf("a rollback onto a target keeping nothing = %v, want ErrNothingKeptToReturnTo", err)
+	}
+}
+
+// TestAFastRollbackPagesWhenScalingTheKeptFleetFails is the exposure the
+// authored saving buys: production stays on the failed release when the
+// rollback cannot restore the recorded full capacity.
+func TestAFastRollbackPagesWhenScalingTheKeptFleetFails(t *testing.T) {
+	ctx, pool, w, token := newTableWithToken(t)
+	const serviceID = "svc_a"
+	returnedTo := mintRelease(t, ctx, pool, token, serviceID)
+	failed := mintRelease(t, ctx, pool, token, serviceID)
+	belowReaches, _ := twoFakes(true)
+	if _, err := deploy.Perform(ctx, w, performance(serviceID, returnedTo, belowReaches)); err != nil {
+		t.Fatalf("the deploy of the release returned to: %v", err)
+	}
+	reaches, fakes := twoFakes(true)
+	shipped, err := deploy.Perform(ctx, w, performance(serviceID, failed, reaches))
+	if err != nil {
+		t.Fatalf("the deploy that kept the returned-to instances: %v", err)
+	}
+
+	cause := errors.New("capacity provider refused scale-out")
+	reaches[0].Target = refusingScale{Target: reaches[0].Target, err: cause}
+	paged := &pages{}
+	p := performance(serviceID, returnedTo, reaches)
+	p.Notifier = paged
+	rollback, err := deploy.ShiftBack(ctx, w, deploy.Returning{
+		Performance: p,
+		Undoing:     deploy.Undoing{FailedReleaseID: failed.ID, Source: deploy.SourceHealthMonitorAtFailed},
+		KeptBy:      shipped.ID,
+	})
+	if err == nil || !errors.Is(err, deploy.ErrTargetRefused) {
+		t.Fatalf("ShiftBack on a refused scale-out = %v, want ErrTargetRefused", err)
+	}
+	read, err := deploy.Get(ctx, pool, rollback.ID)
+	if err != nil {
+		t.Fatalf("Get failed rollback: %v", err)
+	}
+	if read.Status != deploy.StatusFailed || read.FailedStep != deploy.StepScaleOut {
+		t.Errorf("failed rollback is %s at %q, want failed at scale-out", read.Status, read.FailedStep)
+	}
+	if len(paged.reasons) != 1 {
+		t.Errorf("the scale-out failure paged %d times, want once: %v", len(paged.reasons), paged.reasons)
+	}
+	for _, call := range fakes[0].Calls() {
+		if call.Op == targetseam.OpShiftTraffic {
+			t.Error("traffic shifted after the scale-out was refused")
+		}
 	}
 }

@@ -38,7 +38,7 @@ Build ordered steps, one commit per step titled `factory: M11 step N — <name>`
 
 # Where the coordinator stopped
 
-Steps 1 and 2 are committed and pushed. Step 3 is next: `sed 's/MILESTONE/M11/g; s/STEPNUM/3/g' prompts/build-step.md > <tmp>/step3.md && tools/codex-step.sh <tmp>/step3.md <tmp> high`, then the loop below. Resume the worker's session for rounds 2 and 3; from round 4 on start a fresh session with a two-sentence preface pointing at the uncommitted tree and this file's Completed entry, which is cheaper and does not die at compaction (step 1's single session reached 4.4M tokens and did).
+Steps 1 to 3 are committed and pushed. Step 4 is next: `sed 's/MILESTONE/M11/g; s/STEPNUM/4/g' prompts/build-step.md > <tmp>/step4.md && tools/codex-step.sh <tmp>/step4.md <tmp> high`, then the loop below. Resume the worker's session for rounds 2 and 3; from round 4 on start a fresh session with a two-sentence preface pointing at the uncommitted tree and this file's Completed entry, which is cheaper and does not die at compaction (step 1's single session reached 4.4M tokens and did).
 
 The loop per step: when the worker returns, for each directory whose `doc.go` changed, collect the sentences — `ids=$(grep -o 'C[0-9]\{4\}' factory/<pkg>/doc.go | sort -u | paste -sd'|'); grep -P "^($ids)\t" end-goal/claims.txt | cut -f1,4 > <tmp>/<pkg>-claims.txt` — and dispatch `drift-reviewer` with the directory's absolute path, the claims file's path described as "the current sentence of every claim its doc.go cites, one per line: id, tab, sentence — read that file and the directory and nothing else", the ids cited for the first time in the step named for the closest reading, and "findings on claims whose mechanism is in a file other than <the step's changed files> are pre-existing and already recorded; list them by id only". Start the suite detached at the same time: from `factory/`, `setsid nohup bash -c "go test -count=1 -timeout 60m ./... > <tmp>/suite.log 2>&1; echo \"exit \$?\" >> <tmp>/suite.log" >/dev/null 2>&1 < /dev/null & disown`, and poll `tail -1` for `exit `. It takes 45–60 minutes; `cmd/factory` is nearly all of it. Do not `pkill` it with a pattern the polling shell's own command line contains — that killed the coordinator's shell twice. A round prompt states the rules in one line, lists the findings with `file:line` and the coordinator's decision on each, names pre-existing findings as *owner* items to record here and not fix, and ends with the focused test command to run. Commit when **Not implemented** is empty and the suite is green, condense the step's entry to the form step 1's has, and push.
 
@@ -62,23 +62,15 @@ What step 1 taught, for the rounds ahead: the worker cites claims where the read
 - Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; the focused tests passed; the bad-release test passed five consecutive runs alone; the coordinator's full suite, `go test -count=1 -timeout 60m ./...`, passed (58 packages).
 - Drift review, four worker rounds: every **Not implemented** list empty; the one **Implemented differently** item, C1120, is recorded under **Unresolved**.
 
-# Steps
-
 ## 3. Brownout rollback capacity
 
-Claim ids: C1842, C1843, C1844, C2057.
+- Directories changed: `factory/contractcheck` (its `doc.go`); `factory/healthmonitor` (its `doc.go`); `factory/deploy` (its `doc.go`); `factory/cmd/factory`; `HANDOFF.md`; the four flips in `end-goal/claims.txt`.
+- Claims built: C1842, C1843, C1844 in `healthmonitor`, where the reading and the exit are; C2057 in `deploy`. The plan had C1842 and C1843 in `contractcheck`, which only answers which release is a brownout.
+- What was built: the brownout seam stays one bool. The health monitor opens a brownout's window with the passed exit unavailable, the way a held-out release's is, so it runs to the cap; reads every service against its own recent history while it is open, any crossing failing it; and takes the ordinary failed exit. The fast rollback reads each target's full count from the returned-to release's own deploy record and the kept count from the record that kept it, scales a target back to full before shifting only where the kept count is below it, and a scale-out that fails pages with production still on the failed release named.
+- Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; `deploy`, `healthmonitor` and `contractcheck` passed whole; the end-to-end brownout, rollback, bad-release and revert tests passed; the coordinator's full suite passed on the round 2 tree except two `deploy` resume tests, which the below-full decision from the record fixed.
+- Drift review, two worker rounds and one coordinator edit: every **Not implemented** list empty; the remaining **Implemented differently** items are recorded under **Pre-existing drift**.
 
-Design files to read: `end-goal/how-the-factory-works/07-contracts/08-deprecation.md`; `end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md`; `end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md`.
-
-Packages to read: `factory/contractcheck`, `factory/healthmonitor`, `factory/deploy`, `factory/targetseam`, and `factory/cmd/factory`.
-
-Mechanism ownership: `contractcheck` owns the brownout window's cap and evidence-point state and cites C1842 and C1843. `healthmonitor` owns the failed brownout exit, ordinary rollback/hold sequencing, and cites C1844. `deploy` owns the rollback operation order and scales each target's kept instances to the recorded full count before shifting traffic, citing C2057. `targetseam` remains the operation carrier and `cmd/factory` remains composition; neither cites these claims. No new dependency edge is needed.
-
-Size bound: about 650 changed lines.
-
-Proof: contractcheck tests keep a brownout open to its cap, fail it when another service breaks, and prevent removal after an early boundary; healthmonitor tests assert rollback and hold after a failed brownout; deploy tests assert scale-before-shift and page/error behavior on scale-out failure.
-
-Focused checks: from `factory/`, `go test -count=1 ./contractcheck ./healthmonitor ./deploy ./targetseam -run 'Test.*Brownout|Test.*Rollback|Test.*Scale|Test.*Shift'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+# Steps
 
 ## 4. Kept-fleet drift
 
@@ -137,8 +129,8 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 | C0695 | 1 | `healthmonitor` |
 | C1120 | 2 | `criterion` |
 | C1121 | 2 | `criterion` |
-| C1842 | 3 | `contractcheck` |
-| C1843 | 3 | `contractcheck` |
+| C1842 | 3 | `healthmonitor` |
+| C1843 | 3 | `healthmonitor` |
 | C1844 | 3 | `healthmonitor` |
 | C1950 | 1 | `agent` |
 | C1951 | 1 | `agent` |
@@ -188,6 +180,16 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 
 # Pre-existing drift
 
+- contractcheck C1885 `brownout.go:81-127` — the removal is raised on the same evidence key as the brownout rather than on a link naming the brownout's window, and the walk stops at the intent's evidence rather than the contract version the item minted.
+- contractcheck `brownout.go:52-77` — a brownout window closed passed before its cap, skipped, or capped with no volume is reported as a stall where the sentences give that consequence only for a failed window.
+- contractcheck `brownout.go:232-241` — "received volume" is either arm counting anything across every quantity.
+- contractcheck `brownout.go:92-95,155-157` — the brownout's release is the oldest on the evidence key and the removal any later one.
+- contractcheck `check.go:141-157` — what is running is read over the targets the service record names or every target of the environment.
+- deploy C1347, C1689 — the score's instance-hours read and the Factory screen's report are not in `deploy`.
+- deploy C0938 `rollout.go:412-416` — a refused shift records "without control" and performs nothing further.
+- deploy `deploy.go:202-204` — `Backfill.Undecided`.
+- deploy `restore.go:99-101` — the fast rollback holds nowhere between targets.
+- deploy `restore.go:89-93` — the comment says a reconfiguration refusal falls back to `Restore` and nothing does.
 - screens C0418 — no field counts submissions under a shape the store could not read.
 - screens C0419, C2604, C2634, C2661, C2704, C2860 — the old-way-in list has no ordering; a drift mismatch renders beside the target rather than over it; the spend ceiling view carries no units spent or period; nothing refuses a People row that acts nowhere; a gate row closed by a sibling holder does not reach an open item screen; no fleet proposal ever waits at Factory.
 - deploy C0701 — any completed removal clears the current release regardless ordering.
@@ -296,6 +298,11 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 
 - localtarget C2052, deploy C1753 — the fast rollback goes through the seam's `Reconfigure`, which on the local target drains the kept process and starts the rollback build afresh with a newly minted way-in token; the design has the rollback as a traffic shift onto instances still running and warm, already holding their configuration. `Reconfigure` predates M10 and exists to re-key the way in; reconciling the two is the owner's.
 - localtarget C0914 — `DeployWithControl` reports a drain while the replaced instance is left alive as the control.
+- healthmonitor C1842 — `watch.go:126`, `open.go:64,120`: whether a window is a brownout's is re-read from contract enforcement on every pass rather than resolved at the open and named on the window, which carries only `PassedAvailable` false; a mark lifted mid-window stops the cross-service reading while the window still cannot pass. The window record has no brownout field; adding one is the owner's.
+- healthmonitor C1985, C1972, C2021 — `brownout.go:86-87`: the cross-service reading of a brownout's window reads every other service at the composition's own-history size and run length, with the full size map and the producer's operation set, rather than the values in force for that service; the mechanism predates M11 and step 6 changes where the size is read from.
+- healthmonitor C2096, C2098 — `rollback.go:241-243,341-347`: a crossing another service took during a brownout's window is recorded on the producer's incident as the producer's own-history reading, and the failure records copied are the producer's on that target rather than the crossing service's; `Crossing` carries no service. This predates M11.
+- healthmonitor `brownout.go:22-23,72-78` — a cross-service crossing attributes nothing across services and records no call, and a service running nothing or whose deploy has not completed reads as nothing crossing: conventions no sentence states.
+- deploy `restore.go:254-263` — a scale-out refused on a later target pages and leaves the rollback record started rather than failed, the pattern `refused` already takes for a later target.
 - deploy C1738 — the deploy package's own notifier seam still pages only at the snapshot and artifact-digest exits; `cmd/factory` now pages a rollback target refusal through the credential wait after the rollback record exists.
 
 

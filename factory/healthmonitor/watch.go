@@ -123,11 +123,15 @@ func (h *HealthMonitor) read(ctx context.Context, w Watching, svc service.Servic
 			return one, err
 		}
 	}
+	brownout, err := h.brownout(ctx, win.ReleaseID)
+	if err != nil {
+		return one, err
+	}
 	if one.Evaluated.Crossed == nil && win.ReleaseID != "" {
 		// The one window that reads more than the producer's own numbers is a
 		// brownout's, and what it reads beside them is every service's reading
 		// against its own recent history.
-		crossing, err := h.crossedElsewhere(ctx, w, win)
+		crossing, err := h.crossedElsewhere(ctx, w, win, brownout)
 		if err != nil {
 			return one, err
 		}

@@ -28,15 +28,8 @@ import (
 // service breaking for its own reasons fails a brownout that touched nothing of
 // its — and that rate is a number rather than an unknown: every service's
 // traffic over its own run length in force for as long as the window is open.
-func (h *HealthMonitor) crossedElsewhere(ctx context.Context, w Watching, win window.Window) (*Crossing, error) {
-	if h.brownouts == nil || win.ReleaseID == "" {
-		return nil, nil
-	}
-	isBrownout, err := h.brownouts.IsBrownout(ctx, win.ReleaseID)
-	if err != nil {
-		return nil, fmt.Errorf("healthmonitor: reading whether release %s is a brownout: %w", win.ReleaseID, err)
-	}
-	if !isBrownout {
+func (h *HealthMonitor) crossedElsewhere(ctx context.Context, w Watching, win window.Window, brownout bool) (*Crossing, error) {
+	if !brownout || win.ReleaseID == "" {
 		return nil, nil
 	}
 
@@ -57,6 +50,17 @@ func (h *HealthMonitor) crossedElsewhere(ctx context.Context, w Watching, win wi
 		}
 	}
 	return nil, nil
+}
+
+func (h *HealthMonitor) brownout(ctx context.Context, releaseID string) (bool, error) {
+	if h.brownouts == nil || releaseID == "" {
+		return false, nil
+	}
+	one, err := h.brownouts.IsBrownout(ctx, releaseID)
+	if err != nil {
+		return false, fmt.Errorf("healthmonitor: reading whether release %s is a brownout: %w", releaseID, err)
+	}
+	return one, nil
 }
 
 // ownHistoryOf is one service read against its own recent history, of the

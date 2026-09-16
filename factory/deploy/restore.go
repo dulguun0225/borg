@@ -49,8 +49,8 @@ var ErrSchemaChangeAtARollback = errors.New("deploy: a rollback applies no schem
 var ErrNothingKeptToReturnTo = errors.New("deploy: the target keeps no instances of the release the rollback returns to")
 
 // Returning is the fast rollback: the traffic of every target moved onto the
-// instances of the release being returned to, which the deploy that replaced it
-// kept running at the capacity that release had.
+// instances of the release being returned to, scaling them to the full count
+// recorded by the deploy that kept them before traffic moves.
 type Returning struct {
 	// Performance is the deploy this rollback is. Its What is the release being
 	// returned to and that release's build, and its SchemaChanges is empty on
@@ -121,17 +121,33 @@ func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
 	if err != nil {
 		return Deploy{}, err
 	}
+	full, err := recordedFullInstances(ctx, w, r.What.ReleaseID, r.KeptBy)
+	if err != nil {
+		return Deploy{}, err
+	}
 	standing := make(map[string]bool, len(kept))
+	keptCount := make(map[string]int, len(kept))
 	for _, target := range kept {
 		standing[target.Address] = target.Fleets.Kept.Instances > 0 && target.Fleets.Kept.TornDownAt == ""
+		keptCount[target.Address] = target.Fleets.Kept.Instances
 	}
 	for _, reach := range r.Reaches {
 		if !standing[reach.Address] {
 			return Deploy{}, fmt.Errorf("%w: %s of %s", ErrNothingKeptToReturnTo, reach.Address, r.KeptBy)
 		}
+		if full[reach.Address] <= 0 {
+			return Deploy{}, fmt.Errorf("%w: %s has no recorded full instance count", ErrNothingKeptToReturnTo, reach.Address)
+		}
 	}
 
 	p := r.Performance
+	// The kept count and the full count are the records', so whether a target
+	// is below full is decided from what the deploy that kept it wrote and not
+	// from what the caller passes.
+	for n := range p.Reaches {
+		p.Reaches[n].ReleaseInstances = full[p.Reaches[n].Address]
+		p.Reaches[n].KeptInstances = keptCount[p.Reaches[n].Address]
+	}
 	if err := p.check(); err != nil {
 		return Deploy{}, err
 	}
@@ -164,6 +180,13 @@ func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
 	for n, reach := range p.Reaches {
 		if err := w.ReachTarget(ctx, d.ID, reach.Address); err != nil {
 			return d, err
+		}
+		if reach.KeptInstances < reach.ReleaseInstances {
+			if err := reach.Target.SetInstanceCount(ctx, p.Principal, targetseam.InstanceCount{
+				Service: p.ServiceName, Build: p.What.BuildID, Count: reach.ReleaseInstances, Credential: p.Credential,
+			}); err != nil {
+				return d, scaleOutRefused(ctx, w, p, d, n, reach, err)
+			}
 		}
 		reconfigured, err := reach.Target.Reconfigure(ctx, p.Principal, targetseam.Reconfiguration{
 			Service: p.ServiceName, Build: p.What.BuildID, Configuration: configuration,
@@ -201,6 +224,50 @@ func ShiftBack(ctx context.Context, w *Writer, r Returning) (Deploy, error) {
 	}
 	d.Status = StatusComplete
 	return d, nil
+}
+
+func recordedFullInstances(ctx context.Context, w *Writer, releaseID, replacingID string) (map[string]int, error) {
+	full := map[string]int{}
+	replacing, err := Get(ctx, w.Pool(), replacingID)
+	if err != nil {
+		return nil, err
+	}
+	deploys, err := ByRelease(ctx, w.Pool(), replacing.EnvironmentID, releaseID)
+	if err != nil {
+		return nil, err
+	}
+	var placedID string
+	for _, one := range deploys {
+		if one.Number >= replacing.Number {
+			break
+		}
+		placedID = one.ID
+	}
+	if placedID == "" {
+		return full, nil
+	}
+	targets, err := Targets(ctx, w.Pool(), placedID)
+	if err != nil {
+		return nil, err
+	}
+	full = make(map[string]int, len(targets))
+	for _, target := range targets {
+		full[target.Address] = target.Fleets.Release.Instances
+	}
+	return full, nil
+}
+
+func scaleOutRefused(ctx context.Context, w *Writer, p Performance, d Deploy, n int, reach Reach, cause error) error {
+	wrapped := fmt.Errorf("%w: %s of %s: %w", ErrTargetRefused, reach.Address, d.ID, cause)
+	if n > 0 {
+		if p.Notifier != nil {
+			if err := p.Notifier.Page(ctx, p.ServiceID, StepScaleOut+": production is still serving the failed release: "+wrapped.Error()); err != nil {
+				return fmt.Errorf("%w (and paging: %v)", wrapped, err)
+			}
+		}
+		return wrapped
+	}
+	return fail(ctx, w, p, d, StepScaleOut, wrapped)
 }
 
 // Restoration is the slow rollback: a deploy of the release being returned to,

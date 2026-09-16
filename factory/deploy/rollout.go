@@ -23,9 +23,10 @@ type Reach struct {
 	Share            float64
 }
 
-// Notifier is what the deployer pages through at the two exits that page: a
-// snapshot it could not take and verify, and an artifact digest that differs at
-// a rollback. Both meet the page condition word for word — production is running
+// Notifier is what the deployer pages through at the three exits that page: a
+// snapshot it could not take and verify, an artifact digest that differs at a
+// rollback, and a fast rollback's scale-out failure. They meet the page
+// condition word for word — production is running
 // a release the factory has just failed, or is about to lose data it cannot put
 // back, and nothing the factory has will improve it.
 //
@@ -481,8 +482,12 @@ func fail(ctx context.Context, w *Writer, p Performance, d Deploy, step string, 
 	if err := w.MarkFailed(ctx, d.ID, step); err != nil {
 		return fmt.Errorf("%w (and marking it failed: %v)", cause, err)
 	}
-	if p.Notifier != nil && (step == StepSnapshot || step == StepArtifactDigest) {
-		if err := p.Notifier.Page(ctx, p.ServiceID, step+": "+cause.Error()); err != nil {
+	if p.Notifier != nil && (step == StepSnapshot || step == StepArtifactDigest || step == StepScaleOut) {
+		reason := step + ": " + cause.Error()
+		if step == StepScaleOut {
+			reason = step + ": production is still serving the failed release: " + cause.Error()
+		}
+		if err := p.Notifier.Page(ctx, p.ServiceID, reason); err != nil {
 			return fmt.Errorf("%w (and paging: %v)", cause, err)
 		}
 	}

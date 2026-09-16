@@ -227,18 +227,14 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 		opened.ID, dep.ID, opened.Size, opened.Confidence, opened.CapSeconds, passed)
 
 	// Which release is a brownout is package contractcheck's to answer, and the
-	// health monitor asks it through [path.IsBrownout] at every evaluation. What
-	// the run reports here is the half of a brownout's window that is built: it
-	// reads every service against its own recent history while it is open, any
-	// crossing failing it. The other half — such a window running to the cap
-	// rather than stopping where the boundary would allow — is not, and the line
-	// says so rather than claiming it.
+	// health monitor asks it through [path.IsBrownout] at every evaluation. The
+	// run reports both rules that apply to that answer.
 	of, isBrownout, err := p.contracts.IsBrownout(ctx, c.releaseID)
 	if err != nil {
 		return err
 	}
 	if isBrownout {
-		fmt.Fprintf(d.out, "Release %s is the brownout of %s, and window %s over it reads every service against its own recent history: any of them crossing fails this window, an element restored that nobody read. It can still end at the boundary, a brownout's window running to the cap not being built\n",
+		fmt.Fprintf(d.out, "Release %s is the brownout of %s, and window %s over it reads every service against its own recent history: any of them crossing fails this window, an element restored that nobody read. It runs to the cap rather than stopping where the boundary would allow\n",
 			c.releaseID, of.Element, opened.ID)
 	}
 	return nil
@@ -250,9 +246,9 @@ func (p *path) putOnProduction(ctx context.Context, c *candidate, pick gate.Pick
 // a component composed with a nil interface would read every release as no
 // brownout for the life of the process.
 //
-// One bit and not the element: what the health monitor does with it is read
-// every service against its own recent history while that window is open, which
-// the element's name does not enter.
+// The answer and not the element: what the health monitor does with it is read
+// every service against its own recent history and run to the cap, which the
+// element's name does not enter.
 func (p *path) IsBrownout(ctx context.Context, releaseID string) (bool, error) {
 	if p.contracts == nil {
 		return false, nil

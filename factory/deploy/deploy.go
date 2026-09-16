@@ -69,6 +69,9 @@ const (
 	// StepArtifactDigest is the slow rollback's verification: the artifact the
 	// build names no longer digests to what the build recorded. It pages.
 	StepArtifactDigest = "verifying the artifact's digest before redeploying it"
+	// StepScaleOut is a fast rollback's return to the recorded full capacity
+	// failing before traffic shifts. It pages with the failed release serving.
+	StepScaleOut = "scaling the rollback target back to its recorded full capacity"
 	// StepFirstTarget is the first target of the deploy refusing what it was
 	// asked, with none complete behind it.
 	StepFirstTarget = "reaching the first target of the environment"

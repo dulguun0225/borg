@@ -165,6 +165,33 @@ type aBrownout bool
 
 func (b aBrownout) IsBrownout(context.Context, string) (bool, error) { return bool(b), nil }
 
+// TestABrownoutsWindowRunsToTheCap is the second brownout exception: a reading
+// that would close an ordinary window passed cannot close this one before the
+// cap, because the cap is the evidence for the deprecation decision.
+func TestABrownoutsWindowRunsToTheCap(t *testing.T) {
+	ctx, g := newGraph(t)
+	shipOne(t, ctx, g, "in_below", window.ExitTimedOut)
+	under := shipOneWith(t, ctx, g, "in_under", "", func(o *window.OpenEvent) { o.PassedAvailable = false })
+
+	emission := crossingEmission{rate: 0.01, baselineRate: 0.01, intervals: 400, newest: record.FormatTime(time.Now())}
+	monitor := g.monitorComposed(t, emission, &fakeDeployer{}, &fakePager{}, nil, aBrownout(true), healthmonitor.Readings{})
+	watched, err := monitor.Watch(ctx, g.watching())
+	if err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if len(watched) != 1 || watched[0].Exit != "" {
+		var exit window.Exit
+		if len(watched) == 1 {
+			exit = watched[0].Exit
+		}
+		t.Fatalf("the brownout window closed %q for an uncrossed reading before its cap", exit)
+	}
+	open, found, err := window.ForRelease(ctx, g.pool, under.ID)
+	if err != nil || !found || !open.Open() {
+		t.Errorf("the stored brownout window is %+v (found %t, %v), want open before its cap", open, found, err)
+	}
+}
+
 // TestABrownoutsWindowFailsOnAnyServiceCrossingItsOwnHistory is the one window
 // that reads more than the producer's own numbers. A brownout's effect lands
 // wherever the hidden read is: a field a consumer parses and now fails on errs
