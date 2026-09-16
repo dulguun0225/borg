@@ -87,12 +87,9 @@
 // ../../end-goal/how-the-factory-works/05-environments/02-an-environment-per-candidate/03-room-and-what-an-environment-costs.md
 // (C1512).
 //
-// The fourth comparison (the instances a rollback would need against the count
-// the deploy record keeps), the fifth (the schema history in each service's
-// store) and the sixth (the configuration digest running on a target) are not
-// built: nothing here carries an instance count, a schema history, or a
-// configuration digest read off a target, and cmd/driftdetector performs none
-// of the three.
+// The fourth comparison reads the kept instance count for the rollback target
+// and exempts a standing instance-count mitigation. The schema-history and
+// configuration-digest comparisons remain outside this package's mechanism.
 //
 // [VerifyChain] is the second comparison: it reads the factory's log past
 // the head this store recorded last pass and confirms the chain still holds
@@ -134,10 +131,10 @@
 // What defines it:
 // ../../end-goal/how-the-factory-works/08-operations/08-drift-detection.md
 // (C2144, C2145, C2146, C2147, C2148, C2149, C2150, C2151, C2152, C2153, C2154,
-// C2156, C2157, C2158, C2160, C2161, C2167, C2168, C2169, C2171, C2172,
-// C2175) — the one
+// C2156, C2157, C2158, C2160, C2161, C2162, C2163, C2164, C2167, C2168,
+// C2169, C2171, C2172, C2175) — the one
 // process, the four records, the four readers, the six comparisons of which
-// three are built, the detector's own delivery, and what clearing requires —
+// four are built, the detector's own delivery, and what clearing requires —
 // and
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/08-deploy-to-production.md
 // (C1177, C1178) for the hold it sets, which is the one hold the factory
@@ -155,7 +152,9 @@
 // the exemption naming the open window on the build, a completed target never
 // exempt, unreached targets alone covered, and the window cap bounding it are
 // ../../end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md
-// (C1929, C1930, C1931, C1932).
+// (C1929, C1930, C1931, C1932). The kept-fleet reading over an open window is
+// ../../end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md
+// (C2059).
 //
 // [Writer.RecordHead] recording the chain head each pass, and [VerifyChain]
 // recomputing forward from it and comparing, as the two comparisons made from

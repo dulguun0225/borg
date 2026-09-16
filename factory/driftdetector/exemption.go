@@ -26,7 +26,8 @@ type OpenWindow struct {
 
 // WindowTarget is one target of an [OpenWindow]'s own deploy.
 type WindowTarget struct {
-	Address string
+	Address  string
+	DeployID string
 	// Complete is whether the deploy record marks this target complete.
 	Complete bool
 	// ControlBuildID is the build the control release on this target runs,
@@ -39,7 +40,8 @@ type WindowTarget struct {
 	// the caller assembling it guards: a rollback needs instances there to
 	// return to, and a target with none is no different from one running
 	// nothing.
-	KeptBuildID string
+	KeptBuildID   string
+	KeptInstances int
 }
 
 // Excused reports whether runningBuild on target is a build one of windows

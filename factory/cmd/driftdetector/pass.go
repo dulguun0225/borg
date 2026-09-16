@@ -75,7 +75,13 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		if err != nil {
 			return err
 		}
+		now := time.Now()
+		mitigations, err := standingInstanceCountMitigations(ctx, s.factory)
+		if err != nil {
+			return err
+		}
 		for _, address := range addresses {
+			keptBuild, keptInstances := driftdetector.InstanceCountExpectation(windows, address, mitigations, now)
 			recordedReleaseID, recordedBuildID, err := recordedFor(ctx, s.factory, svc.ID, production.ID, address)
 			if err != nil {
 				return err
@@ -103,7 +109,10 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 			} else {
 				p.Reached = true
 				p.RunningBuild = running.Build
+				p.RunningInstances = running.Instances
+				p.RunningKeptInstances = running.InstancesFor(keptBuild)
 				p.RunningDigest = running.ArtifactDigest
+				p.RecordedKeptInstances = keptInstances
 				// The deployer's last check is kept per persistent target and not
 				// per environment, so its subject is address and not production.ID —
 				// the exemption stops standing on this one target's own advance,
@@ -127,6 +136,22 @@ func pass(ctx context.Context, s stores, out io.Writer, credential secretref.Ref
 		fmt.Fprintln(out, "The factory has no production environment record; there is nothing to check")
 	}
 	return nil
+}
+
+func standingInstanceCountMitigations(ctx context.Context, pool *pgxpool.Pool) ([]driftdetector.InstanceCountMitigation, error) {
+	standing, err := deploy.StandingMitigations(ctx, pool)
+	if err != nil {
+		return nil, err
+	}
+	read := make([]driftdetector.InstanceCountMitigation, 0, len(standing))
+	for _, mitigation := range standing {
+		if mitigation.Operation == deploy.OperationSetInstanceCount {
+			read = append(read, driftdetector.InstanceCountMitigation{
+				Address: mitigation.Address, DeployID: mitigation.DeployID, Count: mitigation.Count,
+			})
+		}
+	}
+	return read, nil
 }
 
 // runsOn is which of a production environment's targets one service runs on: the
@@ -234,9 +259,11 @@ func openWindows(ctx context.Context, pool *pgxpool.Pool, serviceID, environment
 			}
 			wt = append(wt, driftdetector.WindowTarget{
 				Address:        t.Address,
+				DeployID:       w.DeployID,
 				Complete:       t.Completion == deploy.CompletionComplete,
 				ControlBuildID: t.ControlBuildID,
 				KeptBuildID:    keptBuildID,
+				KeptInstances:  t.Fleets.Kept.Instances,
 			})
 		}
 		var builds []string

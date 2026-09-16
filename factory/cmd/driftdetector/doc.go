@@ -10,13 +10,14 @@
 //	driftdetector clear <mismatch-id> -human <name> -why <reason>
 //	driftdetector install -address <address>
 //
-// pass runs three of the six comparisons: the first, over what each target
+// pass runs four of the six comparisons: the first, over what each target
 // runs and the digest it reports; the second, over the log's chain against the
 // head this store recorded; and the third, over the factory's own last check
 // records, which is what makes a stopped factory component reach a human. The
 // fourth (the instances a rollback would need against the count the deploy
-// record keeps), the fifth (the schema history in each service's store) and the
-// sixth (the configuration digest running on a target) are not built here. show
+// record keeps) is wired here; the fifth (the schema history in each service's
+// store) and the sixth (the configuration digest running on a target) are not
+// built here. show
 // prints every mismatch and the last check per target, which is what makes
 // a stopped drift detector visible rather than silent — no mismatches is
 // not health if the last check is a week old. clear clears one mismatch on

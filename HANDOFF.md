@@ -38,7 +38,9 @@ Build ordered steps, one commit per step titled `factory: M11 step N — <name>`
 
 # Where the coordinator stopped
 
-Steps 1 to 3 are committed and pushed. Step 4 is next: `sed 's/MILESTONE/M11/g; s/STEPNUM/4/g' prompts/build-step.md > <tmp>/step4.md && tools/codex-step.sh <tmp>/step4.md <tmp> high`, then the loop below. Resume the worker's session for rounds 2 and 3; from round 4 on start a fresh session with a two-sentence preface pointing at the uncommitted tree and this file's Completed entry, which is cheaper and does not die at compaction (step 1's single session reached 4.4M tokens and did).
+The owner stopped the session during step 4's commit gate. Steps 1 to 3 are committed and pushed. Step 4's tree is committed as the commit after `bd2d1a4` with this note, on these facts: its drift review of `factory/driftdetector` on the final tree returned **Not implemented** empty, and its remaining findings are recorded under **Pre-existing drift**; `go vet`, `depscheck`, `tracecheck`, `git diff --check`, the five focused packages, and the end-to-end drift, rollback, mitigation and bad-release tests passed; the coordinator's full suite was started on the final tree and stopped by the owner before `cmd/factory` finished, with every package that had completed green. The next session runs the full suite first — from `factory/`, detached as below — and, if it is green, moves on; if not, the failure is step 4's and is sent to a fresh worker session as round 3 with a two-sentence preface pointing at the committed tree and step 4's Completed entry.
+
+Step 5 is next: `sed 's/MILESTONE/M11/g; s/STEPNUM/5/g' prompts/build-step.md > <tmp>/step5.md && tools/codex-step.sh <tmp>/step5.md <tmp> high`, then the loop below. Resume the worker's session for rounds 2 and 3; from round 4 on start a fresh session with a two-sentence preface pointing at the uncommitted tree and this file's Completed entry, which is cheaper and does not die at compaction (step 1's single session reached 4.4M tokens and did). A worker's report may claim a drift review it did not run; strike the claim, since the coordinator alone runs them. `git push` from a headless session needs `git -c credential.helper='!f() { echo username=dulguun0225; echo "password=$(gh auth token)"; }; f' push`.
 
 The loop per step: when the worker returns, for each directory whose `doc.go` changed, collect the sentences — `ids=$(grep -o 'C[0-9]\{4\}' factory/<pkg>/doc.go | sort -u | paste -sd'|'); grep -P "^($ids)\t" end-goal/claims.txt | cut -f1,4 > <tmp>/<pkg>-claims.txt` — and dispatch `drift-reviewer` with the directory's absolute path, the claims file's path described as "the current sentence of every claim its doc.go cites, one per line: id, tab, sentence — read that file and the directory and nothing else", the ids cited for the first time in the step named for the closest reading, and "findings on claims whose mechanism is in a file other than <the step's changed files> are pre-existing and already recorded; list them by id only". Start the suite detached at the same time: from `factory/`, `setsid nohup bash -c "go test -count=1 -timeout 60m ./... > <tmp>/suite.log 2>&1; echo \"exit \$?\" >> <tmp>/suite.log" >/dev/null 2>&1 < /dev/null & disown`, and poll `tail -1` for `exit `. It takes 45–60 minutes; `cmd/factory` is nearly all of it. Do not `pkill` it with a pattern the polling shell's own command line contains — that killed the coordinator's shell twice. A round prompt states the rules in one line, lists the findings with `file:line` and the coordinator's decision on each, names pre-existing findings as *owner* items to record here and not fix, and ends with the focused test command to run. Commit when **Not implemented** is empty and the suite is green, condense the step's entry to the form step 1's has, and push.
 
@@ -70,23 +72,15 @@ What step 1 taught, for the rounds ahead: the worker cites claims where the read
 - Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; `deploy`, `healthmonitor` and `contractcheck` passed whole; the end-to-end brownout, rollback, bad-release and revert tests passed; the coordinator's full suite passed on the round 2 tree except two `deploy` resume tests, which the below-full decision from the record fixed.
 - Drift review, two worker rounds and one coordinator edit: every **Not implemented** list empty; the remaining **Implemented differently** items are recorded under **Pre-existing drift**.
 
-# Steps
-
 ## 4. Kept-fleet drift
 
-Claim ids: C2059, C2162, C2163, C2164.
+- Directories changed: `factory/driftdetector` (its `doc.go`); `factory/cmd/driftdetector` (its `doc.go`); `factory/targetseam`; `factory/localtarget`; `factory/deploy`; `HANDOFF.md`; and the four flips in `end-goal/claims.txt`.
+- Claims built: C2059, C2162, C2163 and C2164, cited by `driftdetector` where the kept-fleet comparison and standing instance-count mitigation are decided.
+- What was built: the target seam reports served and side-by-side builds with per-build instance counts, and localtarget reads its running, control and kept process files. The detector selects the kept build and effective count only from open, incomplete windows, compares the reported kept count separately from the served build's count, and persists both counts on an ordinary mismatch. A standing instance-count mitigation carries the count it set and replaces the deploy record's expected count; deploy persists and reads that value.
+- Checks on the final tree: `go test -count=1 ./driftdetector ./cmd/driftdetector ./targetseam ./localtarget ./deploy` passed; `go test -count=1 -timeout 30m ./cmd/factory -run 'Test.*Drift|Test.*Rollback|Test.*Mitigation|Test.*Bad.*'` passed; `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, and `git diff --check` passed.
+- Drift review, two worker rounds: every **Not implemented** list empty; the remaining **Implemented differently** items are recorded under **Pre-existing drift**.
 
-Design files to read: `end-goal/how-the-factory-works/08-operations/03-overlapping-windows.md`; `end-goal/how-the-factory-works/08-operations/08-drift-detection.md`.
-
-Packages to read: `factory/driftdetector`, `factory/deploy`, `factory/targetseam`, `factory/localtarget`, `factory/cmd/driftdetector`, and `factory/cmd/factory`.
-
-Mechanism ownership: `driftdetector` extends the target comparison input and mismatch decision for actual instances versus the deploy record's kept count, exempts a standing mitigation as intended state, holds production deploys on an ordinary mismatch, and cites all four claim ids. `deploy` supplies its existing per-target kept count; `targetseam` and `localtarget` carry and report the running count; both are non-owning carriers and cite no M11 claim. The two command packages compose the pass and hold no mechanism. No new dependency edge is needed; keep the existing pass and target interfaces.
-
-Size bound: about 700 changed lines.
-
-Proof: driftdetector tests cover fewer instances, a matching kept fleet, and an active instance-count mitigation; command tests prove the mismatch is recorded, pages while a release remains to protect, and does not stop anything when the fleet is present but traffic cannot shift.
-
-Focused checks: from `factory/`, `go test -count=1 ./driftdetector ./cmd/driftdetector ./targetseam ./localtarget ./cmd/factory -run 'Test.*Instance|Test.*Kept|Test.*Drift|Test.*Mitigation'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+# Steps
 
 ## 5. Schema history and configuration drift
 
@@ -158,6 +152,7 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 
 # Unresolved
 
+- Where more than one open window names the same target and kept build, the kept-fleet expectation uses the largest kept count; the design does not state that case.
 - Step 1 leaves three readings the last drift review still listed: the newest-record time on the last check is taken over the windows a pass evaluated, so a pass with no open window writes none (C1977, `watch.go`); the objective's `Spent` read does not pass through the staleness rule the other reads do (C1977, `objective.go`, pre-existing); an emission/3 arm whose arrivals name no deadline has its error rate read as no volume, where the instruction requires every arrival to name one. And C1974's version is a literal in the prompt in force, so after an upgrade a service moves to the new version when the upgrade's prompt passes its gate, not at its next build.
 - C0693 has two readings: the design's service-owned store is one count every instance on every target reads, while this local target exposes one file per target and build. The conservative implementation keeps the per-target/build count and does not claim a service-wide aggregate; a service-owned shared store remains unresolved.
 - C1973 has two readings: legacy emission/1 and emission/2 lines cannot name their version or carry the current record fields; the reader retains those formats by inferring the version from the recognised line shape and using the outcome line as their only failure signal, while emission/3 names its version and carries failure fields on its completion. The legacy departure remains unresolved.
@@ -181,6 +176,10 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 # Pre-existing drift
 
 - contractcheck C1885 `brownout.go:81-127` — the removal is raised on the same evidence key as the brownout rather than on a link naming the brownout's window, and the walk stops at the intent's evidence rather than the contract version the item minted.
+- driftdetector C2164 `instances.go:11-15` — whether an instance-count mitigation still stands is decided by the composition, which hands the detector only standing ones, not by the package; the mitigation record is `deploy`'s and the detector does not import it.
+- driftdetector C2163 `driftdetector.go:100-113` — a mismatch raised for a kept-count shortfall on a target whose served build was excused still words the served build as the disagreement before the count clause; the row carries no excused flag.
+- driftdetector `instances.go:58-60` — a recorded kept count of zero agrees with any running count, a convention the design does not state.
+- driftdetector C2161 `exemption.go:55-61` — a nil deployer last check keeps the exemption in force, where the sentence covers only a stale one.
 - contractcheck `brownout.go:52-77` — a brownout window closed passed before its cap, skipped, or capped with no volume is reported as a stall where the sentences give that consequence only for a failed window.
 - contractcheck `brownout.go:232-241` — "received volume" is either arm counting anything across every quantity.
 - contractcheck `brownout.go:92-95,155-157` — the brownout's release is the oldest on the evidence key and the removal any later one.

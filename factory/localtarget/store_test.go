@@ -11,7 +11,9 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -224,6 +226,18 @@ func TestReadRunningReportsTheDigestAndTheCapacity(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Deploy: %v", err)
 	}
+	side := exec.Command("sleep", "60")
+	if err := side.Start(); err != nil {
+		t.Fatalf("starting the kept process: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = side.Process.Kill()
+		_ = side.Wait()
+	})
+	if err := os.WriteFile(localtarget.KeptFile(dir, "checkout"),
+		[]byte("rel_kept "+strconv.Itoa(side.Process.Pid)), 0o644); err != nil {
+		t.Fatalf("recording the kept build: %v", err)
+	}
 	running, err := local.ReadRunning(ctx, deployer, "checkout", credential)
 	if err != nil {
 		t.Fatalf("ReadRunning: %v", err)
@@ -239,6 +253,9 @@ func TestReadRunningReportsTheDigestAndTheCapacity(t *testing.T) {
 	}
 	if running.Instances != 1 {
 		t.Errorf("Instances = %d, want the one instance this platform runs", running.Instances)
+	}
+	if running.InstancesFor("rel_one") != 1 || running.InstancesFor("rel_kept") != 1 {
+		t.Errorf("InstancesFor = %d and %d, want one served and one kept instance", running.InstancesFor("rel_one"), running.InstancesFor("rel_kept"))
 	}
 }
 

@@ -65,7 +65,10 @@ type Mitigation struct {
 	// put there by that deploy, and the mitigation is what says the state now
 	// differs from it on purpose.
 	DeployID string
-	BeganAt  string
+	// Count is the instance count an instance-count mitigation set. It is zero
+	// for a traffic mitigation, and zero is a valid instance-count target.
+	Count   int
+	BeganAt string
 	// EndedAt is when the mitigation stopped standing, and is empty while it
 	// stands. The drift detector reads an open one as intended state and a
 	// closed one as nothing.
@@ -111,7 +114,7 @@ type Mitigating struct {
 // the platform could do it.
 func Mitigate(ctx context.Context, w *Writer, m Mitigating) (Mitigation, error) {
 	written, err := w.BeginMitigation(ctx, m.Actor, Mitigation{
-		Operation: m.Operation, Address: m.Address, DeployID: m.DeployID,
+		Operation: m.Operation, Address: m.Address, DeployID: m.DeployID, Count: m.Count,
 	})
 	if err != nil {
 		return Mitigation{}, err
@@ -162,10 +165,10 @@ func (w *Writer) BeginMitigation(ctx context.Context, actor record.Actor, m Miti
 
 	err := w.inTransaction(ctx, "beginning the mitigation "+written.ID, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `insert into `+MitigationTable+`
-			(id, format_version, actor_kind, actor_key, actor_key_basis, at, operation, address, deploy_id, began_at)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+			(id, format_version, actor_kind, actor_key, actor_key_basis, at, operation, address, deploy_id, instance_count, began_at)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 			written.ID, FormatVersionMitigation, string(actor.Kind), actor.Key, string(actor.Basis),
-			written.At, string(written.Operation), written.Address, written.DeployID, written.BeganAt)
+			written.At, string(written.Operation), written.Address, written.DeployID, written.Count, written.BeganAt)
 		return err
 	})
 	if err != nil {
@@ -202,7 +205,7 @@ func (w *Writer) EndMitigation(ctx context.Context, actor record.Actor, id strin
 }
 
 const selectMitigation = `select id, actor_kind, actor_key, actor_key_basis, at, operation, address,
-	deploy_id, began_at, ended_at, ended_actor_kind, ended_actor_key, ended_actor_key_basis
+	deploy_id, instance_count, began_at, ended_at, ended_actor_kind, ended_actor_key, ended_actor_key_basis
 	from ` + MitigationTable
 
 // Mitigations is every mitigation against one deploy record, oldest first. It
@@ -234,7 +237,7 @@ func queryMitigations(ctx context.Context, pool *pgxpool.Pool, reading, statemen
 		var m Mitigation
 		var kind, basis, operation, endedKind, endedBasis string
 		err := rows.Scan(&m.ID, &kind, &m.Actor.Key, &basis, &m.At, &operation, &m.Address,
-			&m.DeployID, &m.BeganAt, &m.EndedAt, &endedKind, &m.EndedBy.Key, &endedBasis)
+			&m.DeployID, &m.Count, &m.BeganAt, &m.EndedAt, &endedKind, &m.EndedBy.Key, &endedBasis)
 		if err != nil {
 			return nil, fmt.Errorf("deploy: reading one of %s: %w", reading, err)
 		}

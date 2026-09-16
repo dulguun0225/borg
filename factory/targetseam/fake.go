@@ -145,6 +145,7 @@ func (f *Fake) ReadRunning(_ context.Context, p principal.Principal, service str
 	running := Running{Service: service, Build: f.running[service], SchemaHistory: f.SchemaHistory[service]}
 	if running.Build != "" {
 		running.Instances = f.Instances
+		running.Builds = []RunningBuild{{Build: running.Build, Instances: f.Instances}}
 		running.ArtifactDigest = f.ArtifactDigests[service]
 	}
 	return running, nil

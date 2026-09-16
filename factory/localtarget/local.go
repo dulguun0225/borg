@@ -353,12 +353,24 @@ func (l *Local) ReadRunning(_ context.Context, p principal.Principal, service st
 		return targetseam.Running{}, err
 	}
 	if !running {
-		return targetseam.Running{Service: service, SchemaHistory: history}, nil
+		builds, err := l.runningBuilds(service, "", 0, false)
+		if err != nil {
+			return targetseam.Running{}, err
+		}
+		return targetseam.Running{Service: service, Builds: builds, SchemaHistory: history}, nil
 	}
 	if err := syscall.Kill(pid, syscall.Signal(0)); err != nil {
-		return targetseam.Running{Service: service, SchemaHistory: history}, nil
+		builds, err := l.runningBuilds(service, "", 0, false)
+		if err != nil {
+			return targetseam.Running{}, err
+		}
+		return targetseam.Running{Service: service, Builds: builds, SchemaHistory: history}, nil
 	}
 	digest, err := l.digest(build)
+	if err != nil {
+		return targetseam.Running{}, err
+	}
+	builds, err := l.runningBuilds(service, build, pid, true)
 	if err != nil {
 		return targetseam.Running{}, err
 	}
@@ -366,8 +378,57 @@ func (l *Local) ReadRunning(_ context.Context, p principal.Principal, service st
 	// count a kept-instance figure is computed from is one while the process is
 	// alive. A platform that ran several would report several here.
 	return targetseam.Running{
-		Service: service, Build: build, ArtifactDigest: digest, Instances: 1, SchemaHistory: history,
+		Service: service, Build: build, ArtifactDigest: digest, Instances: 1, Builds: builds, SchemaHistory: history,
 	}, nil
+}
+
+func (l *Local) runningBuilds(service, build string, pid int, running bool) ([]targetseam.RunningBuild, error) {
+	counts := make(map[string]int)
+	order := make([]string, 0, 3)
+	add := func(build string, pid int) {
+		if build == "" || pid <= 0 {
+			return
+		}
+		if _, found := counts[build]; !found {
+			order = append(order, build)
+		}
+		counts[build]++
+	}
+	if running && syscall.Kill(pid, syscall.Signal(0)) == nil {
+		add(build, pid)
+	}
+	seenSide := make(map[int]bool)
+	for _, file := range []string{ControlFile(l.dir, service), KeptFile(l.dir, service)} {
+		sideBuild, sidePID, found, err := l.sideRunning(file)
+		if err != nil {
+			return nil, err
+		}
+		if found && !seenSide[sidePID] && syscall.Kill(sidePID, syscall.Signal(0)) == nil {
+			seenSide[sidePID] = true
+			add(sideBuild, sidePID)
+		}
+	}
+	read := make([]targetseam.RunningBuild, 0, len(order))
+	for _, one := range order {
+		read = append(read, targetseam.RunningBuild{Build: one, Instances: counts[one]})
+	}
+	return read, nil
+}
+
+func (l *Local) sideRunning(file string) (string, int, bool, error) {
+	content, found, err := l.sideContent(file)
+	if err != nil || !found {
+		return "", 0, found, err
+	}
+	fields := strings.Fields(content)
+	if len(fields) != 2 {
+		return "", 0, false, fmt.Errorf("localtarget: the side-by-side process file %q is malformed", file)
+	}
+	pid, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return "", 0, false, fmt.Errorf("localtarget: the side-by-side process file %q: %w", file, err)
+	}
+	return fields[0], pid, true, nil
 }
 
 // digest is the sha256 of the artifact at dir/<build>, "sha256:" and then

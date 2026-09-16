@@ -25,7 +25,7 @@ const (
 // and [FormatVersionMitigation] into every mitigation's.
 const (
 	FormatVersion           = "deploy/3"
-	FormatVersionMitigation = "mitigation/1"
+	FormatVersionMitigation = "mitigation/2"
 )
 
 // lockName is what [AdvisoryLockKey] hashes, the service and the environment
@@ -317,6 +317,7 @@ var DDL = []string{
 	operation text not null,
 	address text not null,
 	deploy_id text not null,
+	instance_count int not null default 0,
 	began_at text not null,
 	ended_at text not null default '',
 	ended_actor_kind text not null default '',
@@ -326,6 +327,7 @@ var DDL = []string{
 	constraint operation_known check (operation in ('shift_traffic', 'set_instance_count')),
 	constraint address_present check (address <> ''),
 	constraint deploy_id_present check (deploy_id <> ''),
+	constraint instance_count_not_negative check (instance_count >= 0),
 	constraint began_at_is_time_layout check (began_at ~ '` + record.TimePattern + `'),
 	constraint ended_at_is_time_layout check (ended_at = '' or ended_at ~ '` + record.TimePattern + `'),
 	constraint ended_by_a_human check (ended_actor_kind in ('', 'human')),
@@ -335,4 +337,5 @@ var DDL = []string{
 		and (ended_actor_key = '') = (ended_actor_key_basis = '')),
 	constraint ended_actor_key_basis_known check (ended_actor_key_basis in ('', 'claimed', 'verified'))
 )`,
+	`alter table ` + MitigationTable + ` add column if not exists instance_count int not null default 0`,
 }

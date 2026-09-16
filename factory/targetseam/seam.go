@@ -430,7 +430,8 @@ func CheckPrincipal(p principal.Principal) error {
 }
 
 // Running is what a target reports for one service. An empty Build means
-// nothing is running there.
+// nothing is serving there, while Builds includes every live build, including
+// one kept beside the serving build.
 type Running struct {
 	Service string
 	// Build is what the target says it runs, which is a build and never the
@@ -446,8 +447,35 @@ type Running struct {
 	// the capacity a kept-instance count is computed from and what a proof test
 	// reads against the deploy record.
 	Instances int
+	// Builds is the count of live instances grouped by build. It includes Build
+	// and any control or kept build running beside it.
+	Builds []RunningBuild
 	// SchemaHistory is which changes the service's store carries, in the order
 	// they were applied, and is empty where the target holds no store for the
 	// service. A deploy applies the changes its build declares that this lacks.
 	SchemaHistory []SchemaChangeApplied
+}
+
+// RunningBuild is one build and the number of its live instances on a target.
+type RunningBuild struct {
+	Build     string
+	Instances int
+}
+
+// InstancesFor returns the count reported for build, or zero where the target
+// did not report that build. The fallback preserves the served-build fields for
+// target implementations that do not provide the grouped list.
+func (r Running) InstancesFor(build string) int {
+	if build == "" {
+		return 0
+	}
+	for _, one := range r.Builds {
+		if one.Build == build {
+			return one.Instances
+		}
+	}
+	if r.Build == build {
+		return r.Instances
+	}
+	return 0
 }

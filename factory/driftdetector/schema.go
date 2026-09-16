@@ -178,8 +178,10 @@ var DDL = []string{
 	target text not null,
 	component text not null default '',
 	running_build text not null,
+	running_instances int not null default 0,
 	recorded_release_id text not null,
 	recorded_build_id text not null,
+	recorded_instances int not null default 0,
 	detail text not null,
 	later_agreements int not null,
 	cleared_at text not null,
@@ -202,6 +204,8 @@ var DDL = []string{
 	constraint cleared_together check ((cleared_at <> '') = (cleared_by <> '')),
 	constraint cleared_at_is_time_layout check (cleared_at = '' or cleared_at ~ '` + record.TimePattern + `')
 )`,
+	`alter table ` + MismatchTable + ` add column if not exists running_instances int not null default 0`,
+	`alter table ` + MismatchTable + ` add column if not exists recorded_instances int not null default 0`,
 
 	// A store this package already applied before cleared_why existed has the
 	// table without the column; this is the same statement a fresh create

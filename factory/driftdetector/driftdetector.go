@@ -66,12 +66,14 @@ type Mismatch struct {
 	// RunningBuild is what the target said it runs, and is empty where it runs
 	// nothing at all — which is a mismatch like any other against a factory that says
 	// a release is live.
-	RunningBuild string
+	RunningBuild         string
+	RunningKeptInstances int
 	// RecordedReleaseID and RecordedBuildID are what the factory's production deploy
 	// record named. Both are empty where the factory recorded nothing running, which
 	// is a mismatch against a target that is running something.
-	RecordedReleaseID string
-	RecordedBuildID   string
+	RecordedReleaseID     string
+	RecordedBuildID       string
+	RecordedKeptInstances int
 	// LaterAgreements is how many passes after this one agreed. A mismatch remains
 	// until a human clears it even where a later comparison agrees, and this is that
 	// recorded on it so the human clearing has the evidence.
@@ -103,8 +105,12 @@ func (m Mismatch) Why() string {
 	if m.RecordedBuildID != "" {
 		recorded = "build " + m.RecordedBuildID + " as release " + m.RecordedReleaseID
 	}
-	return fmt.Sprintf("%s: the target %s runs %s and the factory recorded %s",
+	why := fmt.Sprintf("%s: the target %s runs %s and the factory recorded %s",
 		HoldWords, m.Target, running, recorded)
+	if !instanceCountAgrees(m.RecordedKeptInstances, m.RunningKeptInstances) {
+		why += fmt.Sprintf("; it runs %d kept instances and the record keeps %d", m.RunningKeptInstances, m.RecordedKeptInstances)
+	}
+	return why
 }
 
 // HoldWords opens every mismatch's own words. It is here rather than in package
@@ -168,10 +174,13 @@ type Pass struct {
 	// unreached pass writes the last check and nothing else.
 	Reached bool
 	// Why is why it could not be reached, required where Reached is false.
-	Why               string
-	RunningBuild      string
-	RecordedReleaseID string
-	RecordedBuildID   string
+	Why                   string
+	RunningBuild          string
+	RunningInstances      int
+	RunningKeptInstances  int
+	RecordedReleaseID     string
+	RecordedBuildID       string
+	RecordedKeptInstances int
 	// RunningDigest and RecordedDigest are the first comparison's own: the
 	// digest of the artifact the target reports running, against the
 	// digest the release's build names for the artifact the build runner
@@ -199,15 +208,15 @@ type Pass struct {
 // either side reports none it falls back to the build id alone.
 func (p Pass) Agreed() bool {
 	if p.Excused {
-		return true
+		return instanceCountAgrees(p.RecordedKeptInstances, p.RunningKeptInstances)
 	}
 	if p.RunningBuild != p.RecordedBuildID {
 		return false
 	}
 	if p.RunningDigest != "" && p.RecordedDigest != "" {
-		return p.RunningDigest == p.RecordedDigest
+		return p.RunningDigest == p.RecordedDigest && instanceCountAgrees(p.RecordedKeptInstances, p.RunningKeptInstances)
 	}
-	return true
+	return instanceCountAgrees(p.RecordedKeptInstances, p.RunningKeptInstances)
 }
 
 func (p Pass) validate() error {
@@ -315,22 +324,24 @@ func (w *Writer) Record(ctx context.Context, p Pass) (Recorded, error) {
 		recorded.Agreed = standing.ID
 	case !agreed && !found:
 		m := Mismatch{
-			ID:                record.NewID(MismatchIDPrefix),
-			Actor:             Actor,
-			At:                record.Now(),
-			Kind:              MismatchKindTarget,
-			ServiceID:         p.ServiceID,
-			Target:            p.Target,
-			RunningBuild:      p.RunningBuild,
-			RecordedReleaseID: p.RecordedReleaseID,
-			RecordedBuildID:   p.RecordedBuildID,
+			ID:                    record.NewID(MismatchIDPrefix),
+			Actor:                 Actor,
+			At:                    record.Now(),
+			Kind:                  MismatchKindTarget,
+			ServiceID:             p.ServiceID,
+			Target:                p.Target,
+			RunningBuild:          p.RunningBuild,
+			RunningKeptInstances:  p.RunningKeptInstances,
+			RecordedReleaseID:     p.RecordedReleaseID,
+			RecordedBuildID:       p.RecordedBuildID,
+			RecordedKeptInstances: p.RecordedKeptInstances,
 		}
 		_, err := w.pool.Exec(ctx, `insert into `+MismatchTable+`
 			(id, format_version, actor_kind, actor_key, actor_key_basis, at, kind, service_id, target, running_build,
-			 recorded_release_id, recorded_build_id, detail, later_agreements, cleared_at, cleared_by)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, '', 0, '', '')`,
+				running_instances, recorded_release_id, recorded_build_id, recorded_instances, detail, later_agreements, cleared_at, cleared_by)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, '', 0, '', '')`,
 			m.ID, FormatVersionMismatch, string(m.Actor.Kind), m.Actor.Key, string(m.Actor.Basis), m.At, m.Kind, m.ServiceID, m.Target,
-			m.RunningBuild, m.RecordedReleaseID, m.RecordedBuildID,
+			m.RunningBuild, m.RunningKeptInstances, m.RecordedReleaseID, m.RecordedBuildID, m.RecordedKeptInstances,
 		)
 		if err != nil {
 			return recorded, fmt.Errorf("driftdetector: raising a mismatch on %s: %w", p.Target, err)

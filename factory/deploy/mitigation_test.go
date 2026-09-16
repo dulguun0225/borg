@@ -57,7 +57,7 @@ func TestAMitigationIsPerformedOnAHumansInstructionAndStandsUntilItIsEnded(t *te
 	if err != nil {
 		t.Fatalf("StandingMitigations: %v", err)
 	}
-	if len(standing) != 1 || standing[0].ID != m.ID || standing[0].DeployID != d.ID {
+	if len(standing) != 1 || standing[0].ID != m.ID || standing[0].DeployID != d.ID || standing[0].Count != 6 {
 		t.Fatalf("the standing mitigations are %+v, want the one just performed against its deploy record", standing)
 	}
 
