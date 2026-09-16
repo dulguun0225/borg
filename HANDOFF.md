@@ -36,6 +36,14 @@ Build ordered steps, one commit per step titled `factory: M11 step N — <name>`
 - A doubt about what the design means is recorded under **Unresolved** with the two
   readings, and the more conservative one is built.
 
+# Where the coordinator stopped
+
+Steps 1 and 2 are committed and pushed. Step 3 is next: `sed 's/MILESTONE/M11/g; s/STEPNUM/3/g' prompts/build-step.md > <tmp>/step3.md && tools/codex-step.sh <tmp>/step3.md <tmp> high`, then the loop below. Resume the worker's session for rounds 2 and 3; from round 4 on start a fresh session with a two-sentence preface pointing at the uncommitted tree and this file's Completed entry, which is cheaper and does not die at compaction (step 1's single session reached 4.4M tokens and did).
+
+The loop per step: when the worker returns, for each directory whose `doc.go` changed, collect the sentences — `ids=$(grep -o 'C[0-9]\{4\}' factory/<pkg>/doc.go | sort -u | paste -sd'|'); grep -P "^($ids)\t" end-goal/claims.txt | cut -f1,4 > <tmp>/<pkg>-claims.txt` — and dispatch `drift-reviewer` with the directory's absolute path, the claims file's path described as "the current sentence of every claim its doc.go cites, one per line: id, tab, sentence — read that file and the directory and nothing else", the ids cited for the first time in the step named for the closest reading, and "findings on claims whose mechanism is in a file other than <the step's changed files> are pre-existing and already recorded; list them by id only". Start the suite detached at the same time: from `factory/`, `setsid nohup bash -c "go test -count=1 -timeout 60m ./... > <tmp>/suite.log 2>&1; echo \"exit \$?\" >> <tmp>/suite.log" >/dev/null 2>&1 < /dev/null & disown`, and poll `tail -1` for `exit `. It takes 45–60 minutes; `cmd/factory` is nearly all of it. Do not `pkill` it with a pattern the polling shell's own command line contains — that killed the coordinator's shell twice. A round prompt states the rules in one line, lists the findings with `file:line` and the coordinator's decision on each, names pre-existing findings as *owner* items to record here and not fix, and ends with the focused test command to run. Commit when **Not implemented** is empty and the suite is green, condense the step's entry to the form step 1's has, and push.
+
+What step 1 taught, for the rounds ahead: the worker cites claims where the reading happens rather than where the mechanism is (the emitting claims belonged to the implementer's instruction in `agent`, not to `healthmonitor`); it reaches for a value-carrying override when a proportion test needs a transform (the `boundary.Counts` rate override, reverted); it invents a record kind where the design keeps a count (the `failure` record); and a "timed_out, want failed" failure that moves between bad-release tests across suite runs is one timing bound, not several tests. Each of those cost two rounds to find; check for them in the first review of every step.
+
 # Completed
 
 ## 1. Versioned emissions and operation quantities
@@ -46,23 +54,15 @@ Build ordered steps, one commit per step titled `factory: M11 step N — <name>`
 - Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; the focused tests passed; the bad-release family passed three consecutive runs; the coordinator's full suite, `go test -count=1 -timeout 60m ./...`, passed (58 packages).
 - Drift review, ten rounds: every **Not implemented** list empty; **Implemented differently** items remaining are recorded under **Unresolved** or **Pre-existing drift**.
 
-# Steps
-
 ## 2. The emission gate
 
-Claim ids: C1120, C1121.
+- Directories changed: `factory/criterion` (its `doc.go`); `factory/cmd/factory` (the emission gate, its tests, and the watch fixture); `factory/README.md`; `HANDOFF.md`; the two flips in `end-goal/claims.txt`.
+- Claims built: C1120 and C1121, cited by `criterion` where it derives and checks the build emission against the shipped readable shape and the area's hazardous operation.
+- What was built: `criterion` derives one emitted record shape from a Go build's non-test files, statically finds hazardous-operation record literals, rejects a readable field the previous build emitted but this build stopped emitting, rejects a field the shipped health monitor cannot read, and rejects a missing hazardous operation. A build naming no recognised shape derives as an empty emission; parse failure or multiple shapes is could-not-derive. A previous emission that is absent or could not be derived supplies no stopped-emission comparison. `cmd/factory` derives the previous production build's emission from its recorded commit, passes it with the newest `healthmonitor` shape and the item hazard operation through the existing candidate check, and carries defects to the existing Merge to master mechanical rejection or could-not-derive to the human gate. The watch fixture's `unfinished` deadline is 50ms, so the bad-release test reads the same way at every speed.
+- Checks on the final tree: `go vet ./...`, `go run ./cmd/depscheck`, `go run ./cmd/tracecheck`, `git diff --check` passed; the focused tests passed; the bad-release test passed five consecutive runs alone; the coordinator's full suite, `go test -count=1 -timeout 60m ./...`, passed (58 packages).
+- Drift review, four worker rounds: every **Not implemented** list empty; the one **Implemented differently** item, C1120, is recorded under **Unresolved**.
 
-Design files to read: `end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md`; `end-goal/how-the-factory-works/08-operations/01-the-health-monitor.md`.
-
-Packages to read: `factory/criterion`, `factory/healthmonitor`, and `factory/cmd/factory`.
-
-Mechanism ownership: `criterion` derives the emission artifact from the build and rejects a missing, extra, or hazardous-operation emission against a readable-shape input supplied by the composition; its `doc.go` cites C1120 and C1121. The caller passes the shipped shape from `healthmonitor`; it does not duplicate the vocabulary and does not make `cmd/factory` the owner. No new dependency edge is needed because the check takes the shape through its existing caller seam.
-
-Size bound: about 450 changed lines.
-
-Proof: criterion tests accept the complete build-derived emission declaration and reject a build that omits the required number, names an unreadable number, or omits a hazardous operation. A focused factory candidate test proves the gate rejects the build before the run continues.
-
-Focused checks: from `factory/`, `go test -count=1 ./criterion ./cmd/factory -run 'Test.*Emission|Test.*Encoding'`; `go vet ./...`; `go run ./cmd/depscheck`; `go run ./cmd/tracecheck`.
+# Steps
 
 ## 3. Brownout rollback capacity
 
@@ -175,6 +175,7 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 - C0695 has two readings: the hazardous reading is the operation count over the count plus that arm's arrivals, or a rate over another denominator. The bounded count-plus-arrivals proportion is built.
 - The history reading has two readings: intervals pair by rank where records have no usable common time, or by timestamps synthesized from their order. Rank pairing through `alignIntervals` is built.
 - C2099 is not built in this milestone and is not `stated`: it is a sentence the design contradicts. `02-reports.md` defines a redaction as naming one of three targets — a report, the statement summarizing it, or an artifact version quoting it — and `redaction.TargetKinds` and its database constraint ship those three; `06-incidents.md` says the failure records copied onto an incident are removable by a redaction. The two readings: a fourth target kind, the incident's copied failure records, is added to the three in `02-reports.md` and the code follows; or `06-incidents.md` stops naming redaction and the failure records go with the incident on retention. Neither is the more conservative, because each edits a design file, and a step edits none. The owner decides; the claim stays `unbuilt M11` until then.
+- C1120 has two readings: a number "its windows were being decided on" is every field the shipped health monitor can read, since each readable field feeds a quantity a window reads, or only the fields a window of that service actually read. The former is built: the stopped-emission direction rejects any readable name the previous build emitted and this build does not, and reads no window.
 - The designs do not specify the exact wire encoding for arrival, completion, failure, histogram, and hazardous-operation records. Inference: retain the existing versioned signal-file boundary and define the smallest versioned record shape that carries the named fields; the service-side writer and fixture format remain for the implementer to choose.
 - The designs do not state whether emission declarations are a separate build artifact or fields on the existing encoding derivation. Inference: keep the derivation and rejection in `criterion`, with the command passing the health monitor's readable shape.
 - The health monitor currently receives `NamesAHazardousOperation` from composition, while the design says the area names the hazardous operation. Inference: add the area-derived operation mapping at the existing composition seam and do not make healthmonitor import the area package.
@@ -190,7 +191,9 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 - screens C0418 — no field counts submissions under a shape the store could not read.
 - screens C0419, C2604, C2634, C2661, C2704, C2860 — the old-way-in list has no ordering; a drift mismatch renders beside the target rather than over it; the spend ceiling view carries no units spent or period; nothing refuses a People row that acts nowhere; a gate row closed by a sibling holder does not reach an open item screen; no fleet proposal ever waits at Factory.
 - deploy C0701 — any completed removal clears the current release regardless ordering.
-- criterion C1042 — `HumanConfirmed` calls `InForce` without the rejected spec versions.
+- criterion C1042 (`queries.go`) — `HumanConfirmed` calls `InForce` without the rejected spec versions.
+- criterion C1119 — `encoding.go:176-184`: `NotInForceError` is a third rejection direction over the encodings; this predates M11 step 2 and remains outside it.
+- cmd/factory — `reverify.go:142`: re-verification rejects an encoding could-not-derive as a defect where the Merge to master row put a human at it and the human approved; this predates M11 and remains outside step 2.
 - deploy C1681 — the kept count is the whole capacity the replaced release had; no owner-authored fraction is read.
 - service C1944 — where no run length is authored a component actor's write places no bound, so a safeguard may lengthen it.
 - service C2042 — an unauthored window limit resolves to this package's constant for readers outside gate policy rather than a value the score supplies.
@@ -262,7 +265,7 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 - deploy C1691, C1753 — the restart's rollback keeps the stopped deploy's configuration rather than the one the returned-to release's record named.
 - deploy C2054 — fast versus slow rollback is chosen from whether a kept fleet stands, not whether the rollout kept a control.
 - deploy C0925 — with no bake volume supplied the hold returns at once.
-- criterion C1057 — once unreliable at `EnteredAt`, a criterion stays so until a re-authored encoding, not while its rate is above the bound.
+- criterion C1057 (`unreliable.go`) — once unreliable at `EnteredAt`, a criterion stays so until a re-authored encoding, not while its rate is above the bound.
 - targetseam C0096 — `Seeder.Seed` sits outside the `Target` interface and `Ops`, so the named set is two declarations.
 - targetseam C0103 — both mitigation operations are keyed by build, not by the release deployed.
 - contractcheck C1793, C1893 — `Checked.Affected` collects every service with a predicate naming the producer service, not only those naming a contract the candidate publishes.
@@ -299,6 +302,7 @@ Focused checks: from `factory/`, `go test -count=1 ./deploy ./healthmonitor -run
 - environment C1522 — with no composition reader supplied, `validComposition` skips both checks.
 - environment C1397, C1398 — the only post-creation write of the ordered target field appends; no write reorders it.
 - criterion C1484 — nothing refuses a candidate-run result for a criterion the build's own process decided; `Latest` lets the run's result stand over the build's.
+- criterion `mutation.go` — the Go mutation extractor's `tool` directive, fixed recognized tool list, and two output counts are a pre-existing convention not stated by the design.
 
 - Factory screen C1080, C0865 — no share of criteria in the unwanted-condition pattern; no per-human count of rows acknowledged and decided by another holder.
 - Factory screen C0472, C0825, C1289, C0684, C0895, C2607, C2650, C2993 — two store-kept report counters where the design has one; the fleet table shows configuration and not what each agent does; a waiting policy version sits apart from its threshold; area severity per row rather than a count naming none; the approved/undone pair carries no split by cause; no skill version in force; the browser run decides only that the screen is served.

@@ -359,7 +359,7 @@ func mainGo(failEvery int, slow bool) []string {
 		"\t\t\tat := time.Now().UTC()",
 		"\t\t\tinterval := at.UnixNano() / int64(50*time.Millisecond)",
 		"\t\t\tif interval != lastHazard { writeRecord(emission{Version: \"emission/3\", Kind: \"hazardous_operation\", Time: at, Service: \"demo\", Build: build, Deploy: deploy, Target: target, Operation: \"checkout\", HazardousCount: hazardousCount()}); lastHazard = interval }",
-		"\t\t\tarrival := emission{Version: \"emission/3\", Kind: \"arrival\", Time: at, Service: \"demo\", Build: build, Deploy: deploy, Target: target, Operation: \"checkout\", Deadline: 500*time.Millisecond}",
+		"\t\t\tarrival := emission{Version: \"emission/3\", Kind: \"arrival\", Time: at, Service: \"demo\", Build: build, Deploy: deploy, Target: target, Operation: \"checkout\", Deadline: 50*time.Millisecond}",
 		"\t\t\tcompletion := arrival",
 		"\t\t\tcompletion.Kind = \"completion\"",
 		"\t\t\tcompletion.Deadline = 0",

@@ -6,12 +6,42 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
 )
+
+func TestCandidateEmissionGateFindsUnreadableFieldBeforeRun(t *testing.T) {
+	ctx, d, _ := newPath(t, "\n")
+	path := p(ctx, t, d)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "go.mod"), []byte("module example\n\ngo 1.24\n"), 0o644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+	var fields []string
+	for _, name := range healthmonitor.EmissionShapes[len(healthmonitor.EmissionShapes)-1].Names {
+		fields = append(fields, fmt.Sprintf("Field%s string `json:\"%s\"`", strings.ReplaceAll(name, "_", ""), name))
+	}
+	fields = append(fields, "Extra string `json:\"extra\"`")
+	source := "package main\n\ntype emission struct {\n\t" + strings.Join(fields, "\n\t") + "\n}\n"
+	if err := os.WriteFile(filepath.Join(repo, "emission.go"), []byte(source), 0o644); err != nil {
+		t.Fatalf("writing emission.go: %v", err)
+	}
+
+	c := &candidate{svc: theServiceRecord(t, ctx, path)}
+	if err := path.checkEncodings(ctx, c, repo, c.svc.ID, nil, nil); err != nil {
+		t.Fatalf("checking candidate emission: %v", err)
+	}
+	if !strings.Contains(c.encodingDefect, `unreadable field "extra"`) {
+		t.Fatalf("candidate emission defect = %q, want the unreadable extra field", c.encodingDefect)
+	}
+}
 
 // TestAnEncodingDefectIsRejectedAtTheMergeRowBeforeAVerdict is the defect this
 // milestone fixes: a candidate whose build's encodings do not match the

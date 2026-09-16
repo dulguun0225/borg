@@ -64,6 +64,8 @@ type Derivation struct {
 	// CouldNotDerive is why nothing was derived, and is empty where the
 	// extraction ran.
 	CouldNotDerive string
+	// Emission is the record shape and hazardous operations found in the build.
+	Emission Emission
 }
 
 // Derive reads the encodings out of a checkout of the build. Go is the one
@@ -73,11 +75,17 @@ type Derivation struct {
 // version, the arrangement a consumer contract's derivation already has.
 func Derive(dir string) (Derivation, error) {
 	if _, err := os.Stat(filepath.Join(dir, "go.mod")); err != nil {
+		reason := "no extractor covers this build: the factory ships one for Go, recognised by a go.mod at the root of the checkout"
 		return Derivation{
-			CouldNotDerive: "no extractor covers this build: the factory ships one for Go, recognised by a go.mod at the root of the checkout",
+			CouldNotDerive: reason,
+			Emission:       Emission{CouldNotDerive: reason},
 		}, nil
 	}
 	found, err := Encodings(dir)
+	if err != nil {
+		return Derivation{}, err
+	}
+	emission, err := deriveEmission(dir)
 	if err != nil {
 		return Derivation{}, err
 	}
@@ -85,6 +93,7 @@ func Derive(dir string) (Derivation, error) {
 		Toolchain: "go",
 		Coverage:  "the criterion ids named in the _test.go files under the checkout",
 		Encodings: found,
+		Emission:  emission,
 	}, nil
 }
 

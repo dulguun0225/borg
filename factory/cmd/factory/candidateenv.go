@@ -14,6 +14,7 @@ import (
 	"github.com/dulguun0225/borg/factory/deploy"
 	"github.com/dulguun0225/borg/factory/environment"
 	"github.com/dulguun0225/borg/factory/gate"
+	"github.com/dulguun0225/borg/factory/healthmonitor"
 	"github.com/dulguun0225/borg/factory/item"
 )
 
@@ -334,7 +335,15 @@ func (p *path) checkEncodings(ctx context.Context, c *candidate, repo, serviceID
 	if err != nil {
 		return err
 	}
+	previous, err := p.previousEmission(ctx, repo, serviceID)
+	if err != nil {
+		return err
+	}
 	defect := criterion.CheckEncodings(derived, inForce, withdrawn)
+	if derived.CouldNotDerive == "" {
+		shape := healthmonitor.EmissionShapes[len(healthmonitor.EmissionShapes)-1]
+		defect = errors.Join(defect, criterion.CheckEmission(derived, previous, shape.Names, c.hazard.Operation))
+	}
 	if defect == nil {
 		return nil
 	}
@@ -351,6 +360,13 @@ func (p *path) checkEncodings(ctx context.Context, c *candidate, repo, serviceID
 			ids[n] = e.CriterionID
 		}
 		fmt.Fprintf(p.d.out, "The build names: %s\n", strings.Join(ids, ", "))
+	}
+	if derived.Emission.CouldNotDerive != "" {
+		fmt.Fprintf(p.d.out, "The build emission could not be derived: %s\n", derived.Emission.CouldNotDerive)
+	} else if len(derived.Emission.Names) == 0 {
+		fmt.Fprintln(p.d.out, "The build names no emission field")
+	} else {
+		fmt.Fprintf(p.d.out, "The build emission names: %s\n", strings.Join(derived.Emission.Names, ", "))
 	}
 	var couldNotDerive *criterion.CouldNotDeriveError
 	if errors.As(defect, &couldNotDerive) {

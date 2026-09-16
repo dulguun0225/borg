@@ -188,11 +188,9 @@ type candidate struct {
 	runWaitRow               string
 	configurationUnavailable string
 	// encodingDefect is what [path.checkEncodings] found wrong with the build's
-	// encodings against the criteria in force — a criterion with no encoding
-	// naming it, an encoding naming a criterion not in force or withdrawn, or
-	// one declaring no place or two — joined onto one line, and empty where the
-	// check found nothing. encodingCouldNotDerive is whether the encodings
-	// could not be derived at all, which is a different outcome from a defect:
+	// encodings or emission against the shipped readings, joined onto one line,
+	// and empty where the check found nothing. encodingCouldNotDerive is whether
+	// the derivation could not be made at all, which is a different outcome from a defect:
 	// it puts a human at the Merge to master row rather than rejecting.
 	encodingDefect         string
 	encodingCouldNotDerive bool

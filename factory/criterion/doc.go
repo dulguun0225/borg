@@ -26,7 +26,8 @@
 // [InsertResults], [RecordResults], [ResultsForBuild], [Latest] and
 // [Undecided]. unreliable.go is [Reliability] and [Unreliable]. encoding.go is
 // [Encoding], [Derivation], [Derive], [Encodings], [CheckEncodings], and the
-// five errors it rejects with.
+// five errors it rejects with. emission.go is [Emission], [CheckEmission], and
+// the three errors it rejects with.
 // stats.go is [Withdrawal] and [WithdrawalsForService], the read used by the
 // Factory criteria counts.
 //
@@ -74,8 +75,16 @@
 // out by the criterion id it names in a _test.go file, with a marker after the
 // id declaring which of the two places decides it. [Derive] is the derivation
 // per toolchain — Go is the one with an extractor — and it produces a record
-// with a could-not-derive outcome and never an empty list. [CheckEncodings]
+// with a could-not-derive outcome rather than an empty list. [CheckEncodings]
 // rejects in the gate's directions over what it produced.
+// The Go derivation recognises the emitted record by its fixed envelope of
+// names in the files the build compiles into the software, _test.go files
+// excluded; collects matching structs in lexical file order and returns
+// an empty emission when it finds none, and could-not-derive when it finds more
+// than one; and treats a composite literal with kind hazardous_operation and a
+// non-empty operation as the build saying it counts one. A previous emission
+// that is absent or could not be derived supplies no stopped-emission comparison,
+// while the readable-shape direction still applies.
 //
 // # What a run produced
 //
@@ -168,7 +177,9 @@
 // the encoding, the place it declares, the rejection directions and only an
 // encoding declaring it reaching the candidate environment are
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/02-the-encoding-and-the-emission.md
-// (C1117, C1118, C1119, C1122, C1123, C1124, C1126), and what the encoding rests on is
+// (C1117, C1118, C1119, C1122, C1123, C1124, C1126); the emission artifact,
+// its readable shape and hazardous-operation rejection are defined by the same
+// file (C1120, C1121), and what the encoding rests on is
 // ../../end-goal/how-the-factory-works/03-gates/07-what-particular-gates-decide/05-implementation/03-what-the-encoding-rests-on.md
 // (C1134, C1136, C1137);
 //
